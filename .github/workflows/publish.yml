@@ -37,6 +37,14 @@ jobs:
           registry-url: "https://registry.npmjs.org/"
           cache: "npm"
 
+      - name: Upgrade npm for Trusted Publishing
+        # Node 20.x ships with npm 10.x. Trusted Publishing (OIDC auth) requires
+        # npm 11.5.1 or later — without this upgrade, the npm CLI can't mint
+        # the OIDC token and the publish step silently falls back to "no auth",
+        # which the registry rejects with a confusing 404. Surfaced during the
+        # v0.8.3 publish attempt 2026-05-12; v0.9.0 is the first OIDC publish.
+        run: npm install -g npm@latest
+
       - name: Install dependencies
         run: npm ci || npm install
 

@@ -2,13 +2,39 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_comment": "Team-wide settings for the Claude Team — committed defaults for company agents. Permissions: broad allow for safe development workflows; explicit deny for production pushes + destructive operations to protect against accidental progress loss. User directive 2026-05-06: 'expand permissions for company agents — not direct production pushes anywhere, not full deletes/drops.' Personal overrides live in settings.local.json (gitignored).",
   "hooks": {
+    "SessionStart": [
+      {
+        "_purpose": "Orchestrator briefing on every session start (startup/resume/clear/compact). Auto-detects Tier 1 (multi-project cross-project view) vs Tier 2 (single-project active-milestone view) workspace shape. Encodes the TapAgents thesis (orchestrator dispatches, doesn't implement) so the routing rule survives compactions + resumes.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-brief.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "_purpose": "Lightweight intent classifier. On each user prompt: nudge toward subagent dispatch on code-intent verbs; nudge toward /park on side-thought patterns. Silent on status / slash-command / acknowledgement prompts. Prevents the PreToolUse gate from being the first signal that an inline mutation was wrong.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-router.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/stop-critic-check.py",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-critic-check.py\"",
             "timeout": 30
           }
         ]
@@ -16,16 +42,22 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|Bash",
+        "_purpose": "Three-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). Order: safety first, version-gate second, routing-discipline third.",
+        "matcher": "Write|Edit|Bash|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/pre-tool-gate.py",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-tool-gate.py\"",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/version-gate.py",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/version-gate.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator-dispatch-gate.py\"",
             "timeout": 10
           }
         ]
