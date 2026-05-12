@@ -4,6 +4,24 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.8.2] — 2026-05-11 — README v2 + Dependabot seed for the public repo
+
+**Discoverability + dependency hygiene patch.** No framework surface changes — agent prompts, commands, protocols, templates, hooks, and the npm package's programmatic API are all byte-identical to v0.8.1. This release is what people see when they land on the GitHub repo, and how the repo manages its own dependency updates over time.
+
+### Changed
+
+- **`README.md`** — full rewrite. Centered hero, four shield-style badges (npm version, Claude Code plugin, MIT, GitHub stars), explicit two-path Quick Start (marketplace install + npm install) at the top, a "Claude Code with vs. without TapAgents" comparison table that makes the wedge explicit, a Distribution Pipeline table explaining the dual-egress model, and a Versioning section pointing at `protocols/versioning-protocol.md`. Preserves the load-bearing parts of v0.8.1's README — the Founding Team table, the State Machine, Tier 1 vs Tier 2, the Public/Private Split, and the Memory section — and adds a footer with quick-links. The previous README served as a strong internal design doc; this version sells.
+
+### Added
+
+- **`.github/dependabot.yml`** (NEW, ~80 lines) — seeds the enable-with-ignore pattern from the framework operator's 2026-05-07 memory note BEFORE Dependabot's first run on this repo, avoiding the 13-PR-flood failure mode that hit agent-dashboard on its first Dependabot activation. Locks major-version bumps on `@types/node` (lockstep with Node runtime) and `typescript` (TS 6 deprecates APIs that would require code changes). Groups patch + minor updates into one PR/week per dep-class. Mirror config for GitHub Actions ecosystem with majors locked on `actions/checkout`, `actions/setup-node`, and `softprops/action-gh-release` where v→vN+1 contracts have historically shifted.
+
+### Provenance
+
+User direction 2026-05-11 to ship README + Dependabot as a focused docs patch, holding the `docs/`-in-npm-tarball packaging fix (originally bundled into the v0.8.2 plan) for v0.8.3 to keep each release's changelog narrative cohesive. Per `protocols/versioning-protocol.md` §3.1, PATCH is correct: README is docs, `.github/dependabot.yml` is config outside the versioned dirs (`agents/`, `commands/`, `protocols/`, `templates/`, `hooks/`, `scripts/`), and no consumer behavior changes. Severity-floor classifier confirms PATCH allowed.
+
+---
+
 ## [0.8.1] — 2026-05-11 — Packaging fix: settings.json + memory/ + playbooks/ included in npm tarball
 
 **Packaging-only patch.** No framework surface changes — only the npm-package `files` + `exports` fields. Consumer-facing addition: three previously-omitted top-level surfaces now ship with the published tarball.

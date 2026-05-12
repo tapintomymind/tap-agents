@@ -8,6 +8,18 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-11 — README v2 + Dependabot seed (v0.8.2)
+
+**PATCH-grade discoverability patch.** The repo's public face — its README — gets a structural rewrite to match how top-tier OSS agent frameworks present themselves (centered hero, badges, copyable install commands up front, an explicit wedge comparison). The previous README read like a strong internal design document; the new one reads like a product page. No agent prompts changed; no protocols changed; the npm package's programmatic API is byte-identical to v0.8.1.
+
+**The wedge made explicit.** New "Claude Code with vs. without TapAgents" comparison table calls out the six axes where TapAgents adds value over raw Claude Code: routing requests, reviewing artifacts, project state, cross-project memory, per-project teams, and decision surfacing. This was implicit in the previous README; making it explicit is the difference between "interesting framework" and "obvious upgrade" to a first-time reader.
+
+**Dependabot seeded before first run.** New `.github/dependabot.yml` lands with the ignore-major-versions pattern from the framework operator's 2026-05-07 memory note already in place. Avoids the 13-PR-flood + breaking-change storm that hit agent-dashboard on its first Dependabot activation. The tap-agents dependency surface is small (`tsx`, `typescript`, `@types/node` as devDeps; zero runtime deps) so the config is correspondingly lean, but the same enable-with-ignore discipline applies.
+
+**Held for v0.8.3.** The `docs/`-in-npm-tarball packaging fix (originally bundled into the v0.8.2 plan as a way to retire two files from `agent-dashboard/scaffold-overlay/`) is held for v0.8.3 to keep each release's changelog narrative cohesive. v0.8.2 is purely discoverability + dependency hygiene; v0.8.3 will be purely packaging surface.
+
+**Provenance.** User direction 2026-05-11 — "Option 3 — Cut a docs-only PATCH right now... I don't mind this." Conversation chapter "README v2 + Dependabot" (2026-05-11). Comparison references: `ruvnet/ruflo` README structure (centered hero, badge row, explicit two-path install, comparison table).
+
 ## 2026-05-11 — Packaging fix: settings.json + memory/ + playbooks/ ship in npm tarball (v0.8.1)
 
 **PATCH-grade packaging fix.** The v0.8.0 npm package omitted three top-level surfaces (`settings.json`, `memory/`, `playbooks/`) from the `files` allow-list. `agent-dashboard`'s prebuild integrity check (`scripts/copy-scaffold-source.mjs:findMissing`) flagged this immediately when the dashboard installed v0.8.0 as a dep and tried to source from `node_modules/@tapintomymind/tap-agents/`.
