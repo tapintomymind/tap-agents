@@ -202,7 +202,7 @@ Per-file Critic passes are **insufficient** for the C1 framework cascade. The ca
 - [ ] `protocols/checkpoint-protocol.md` §"Approval Logging — Bulk Approval" present with `BulkApprovalSession` shape matching tech-strategy rev-3 §4.
 - [ ] `protocols/checkpoint-protocol.md` §"A4 Briefing" present with `last_reviewed_at` / `last_opened_at` semantics matching tech-strategy rev-3 §3 Risk 11.
 - [ ] `design-spec.md` §3.11 anatomy updated to include the Diff tab rendering `▸ POST-APPROVAL CHANGES`; §5.4 modal screen sketch updated to show Diff tab (Designer's artifact — not authored here).
-- [ ] `workspace/claude-team-app/handoff-package.md` re-embeds rev-4 of all upstream artifacts; timestamp matches the latest cascade commit.
+- [ ] `workspace/<slug>/handoff-package.md` re-embeds rev-4 of all upstream artifacts; timestamp matches the latest cascade commit.
 - [ ] No `[WIP]` markers anywhere in the cascade.
 
 **If any checklist item fails, the entire cascade rolls back.** M5.4 (C1 implementation) cannot start while any sub-task is `[WIP]` or Critic-flagged `[scope rev-3 §2 M5.3 acceptance gate]` `[tech-strategy rev-3 §3 Risk 9 mitigation step 1]`.

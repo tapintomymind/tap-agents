@@ -307,7 +307,7 @@ Future projects in non-web domains (mobile, marketing, media curation) adopt thi
 ## §11. Cross-references
 
 - **BL-025 source proposal:** `workspace/_global/org-designer-proposals/20260506T2146-bl-025-rubric-outcome-grading.md`
-- **BL-019 envelope precedent:** `workspace/agent-dashboard/critic-review-bl019-fix.md` (organic crystallization of the verdict shape this protocol formalizes)
+- **BL-019 envelope precedent:** `workspace/<slug>/critic-review-bl019-fix.md` (organic crystallization of the verdict shape this protocol formalizes)
 - **Anthropic source pattern:** Managed Agents `outcomes` feature (May 2026 announcement)
 - **Reviewer contracts that emit envelopes:**
   - `agents/critic.md` — codification (Phase 1)

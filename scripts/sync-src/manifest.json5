@@ -14,11 +14,21 @@
   // by `scripts/sync-src/verify-sync.ts` (manifest-vs-implementation gate).
   //
   // History notes:
-  //   - 2026-05-12: drift resolution — `.github/workflows/publish.yml` and
-  //     `.github/dependabot.yml` exist in BOTH trees. They must stay in
-  //     lockstep going forward; the broad `.github/**/*` include below covers
-  //     both. No sanitization (workflow YAML + dependabot config carry no
-  //     user-machine paths or secrets).
+  //   - 2026-05-12 (initial): `.github/workflows/publish.yml` and
+  //     `.github/dependabot.yml` existed in BOTH trees and the broad
+  //     `.github/**/*` include below covered both. No sanitization needed
+  //     (workflow YAML + dependabot config carry no user-machine paths or
+  //     secrets).
+  //   - 2026-05-12 (BL-052 follow-up): `.github/workflows/publish.yml`
+  //     RETIRED from the internal tree — with `"private": true` set on
+  //     internal's package.json, the shadow tag-push publish workflow was
+  //     structurally guaranteed to fail (`npm publish` returns "Refused to
+  //     publish private package") and added noise. The PUBLIC `tap-agents/`
+  //     tree retains its `publish.yml` (legitimate publish path). To keep
+  //     the deletion from propagating to public via sync, an explicit
+  //     `.github/workflows/publish.yml` exclude entry is added below; the
+  //     `--delete` flag (if ever enabled) would otherwise treat public's
+  //     publish.yml as an orphan and remove the legitimate publish path.
 
   version: "1",
 
@@ -101,6 +111,14 @@
     "memory/stack-preferences.md",
     "memory/backlog.md",
     "memory/agent-changelog.md",
+
+    // Internal-only retired CI — `.github/workflows/publish.yml` was removed
+    // from the internal tree as part of the BL-052 npm-publish-guard
+    // (`private: true` made the workflow structurally guaranteed to fail).
+    // Public's publish.yml is the legitimate publish path and must NOT be
+    // affected by this deletion — the explicit exclude here prevents sync's
+    // `--delete` mode from orphaning public's file. See History notes above.
+    ".github/workflows/publish.yml",
 
     // Local/transient files.
     "settings.local.json",

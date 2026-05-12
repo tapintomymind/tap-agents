@@ -21,7 +21,7 @@ Conductor marks artifacts `[CONTESTED]` in `state.json.contested_artifacts`:
 ```json
 "contested_artifacts": [
   {
-    "path": "workspace/music-discovery-2026/scope.md",
+    "path": "workspace/<slug>/scope.md",
     "contested_at": "2026-05-04T15:18:00Z",
     "reason": "scope-creep vs prd.md"
   }

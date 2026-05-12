@@ -53,7 +53,7 @@ Output:
 ```
 
 ```
-Verification: cat workspace/example/critic-notes.md | grep "BLOCKING"
+Verification: cat workspace/<slug>/critic-notes.md | grep "BLOCKING"
 Output: (empty — no blocking concerns)
 ```
 

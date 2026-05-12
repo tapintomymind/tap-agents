@@ -4,23 +4,165 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
-## [0.12.2] — 2026-05-12 — Packaging fix: restore playbooks/, memory/, docs/, settings.json to files array
+## [0.13.2] — 2026-05-12 — Sync transformer field-merge + private-npm-publish-guard (BL-051 + BL-052)
 
-**Patch release** restoring four entries silently dropped from `package.json#files` in v0.11.0. No functional or API changes — purely a packaging fix.
+**Patch release** combining two complementary halves of one atomic concern: (1) the `template-package-json` transformer is rewritten from a pass-through copy into a structured field-by-field merge that prevents the v0.11.0 / v0.12.2 files-array regression class for good (BL-051); and (2) internal `.claude/package.json` is marked `"private": true` as a defense-in-depth npm-publish-guard against accidental egress of operator-private `memory/` content, with the transformer stripping the flag on the way to public so public stays publishable, and the now-dead internal tag-push publish workflow retired in the same atomic unit (BL-052).
 
-**Motivation.** v0.11.0 reduced the `files` array from 16 entries to 12, dropping `playbooks`, `memory`, `docs`, and `settings.json` — entries explicitly added in v0.8.1 (playbooks, memory, settings.json) and v0.8.3 (docs). v0.12.0 and v0.12.1 inherited the regression. Downstream consumers — specifically `agent-dashboard/scripts/copy-scaffold-source.mjs`, whose `REQUIRED_ENTRIES` integrity check includes `settings.json` and `memory/` — fail at prebuild when installing `^0.12.x` or `>=0.11.0`, breaking Vercel deploys.
+**Motivation.** Two coupled hazards surfaced from BL-047 architect's `spawn_task` chip 2026-05-12. First (BL-051): the v0.11.0 regression silently dropped 4 entries from internal's `package.json#files` (`playbooks`, `memory`, `docs`, `settings.json`); v0.12.2 fixed public's files array via direct edit, but internal's was never restored. The pre-fix pass-through transformer at `scripts/sync-src/sync.ts:378` would have re-introduced the regression on the next `npm run sync:apply` — overwriting public's 16-entry array with internal's 12-entry array, re-shipping the broken tarball, and breaking `<project>`'s prebuild integrity check (REQUIRED_ENTRIES includes `settings.json` and `memory/`). Second (BL-052): the BL-051 investigation surfaced the npm-pack-vs-gitignore distinction — `npm pack` and `npm publish` consult `package.json#files` exclusively, NOT `.gitignore`. Internal's on-disk `memory/` contains 12 operator-private files (`agent-changelog-private.md`, `lessons-learned.md`, `patterns.md`, `runtime-gotchas.md`, `security-patterns.md`, `test-patterns.md`, `ui-*-patterns.md`, `audience-knowledge.md`, `stack-preferences.md`, `intake-retros.md`, `product-principles.md`, `framework-metrics.jsonl`). Any future `npm publish` from `tap-agents-internal.git` (intentional or accidental) would ship those if `"memory"` were ever added to internal's `files[]`. Marking the internal package `"private": true` makes `npm publish` refuse to run on it before any file-matching happens — categorical guard at the metadata layer. The two changes ship together because they are complementary halves of one atomic unit: BL-052's `"private": true` on internal AND BL-051's field-merge with strip-private on the way to public. A third sub-component of BL-052 retires `.github/workflows/publish.yml` from the internal tree — with the metadata guard in place, the shadow tag-push publish workflow was structurally guaranteed to fail and existed as zombie CI; deletion makes the retirement explicit, paired with a `manifest.json5` exclude entry so the deletion does not propagate to public via sync.
 
 ### Fixed
 
-- **`package.json#files`** — restored `playbooks`, `memory`, `docs`, `settings.json` to the array (12 → 16 entries). Restores parity with v0.10.0's tarball surface. Files exist on disk in all affected versions; the regression was purely a packaging manifest omission.
+- **`scripts/sync-src/sync.ts`** — `template-package-json` transformer rewritten as a structured field-by-field merge with strip-private composed in (BL-051 + BL-052):
+  - New helpers `mergePackageJson(source, target)` and `unionStringArray(primary, secondary)` added inline (~60 lines).
+  - **Internal wins** on every internal-defined field EXCEPT `files` and `private`.
+  - **`files`** is the array union with internal's order preserved + public-only entries appended deduplicated (BL-051).
+  - **`private`** is stripped unconditionally — applies whether the field comes from source or target (BL-052). Public must stay publishable; internal's metadata guard does not propagate.
+  - Public-only top-level keys preserved verbatim as a safety net for future divergence.
+  - JSON output uses 2-space indent + trailing newline to match both trees' existing convention.
+  - On malformed-JSON parse failure (either side), the transformer logs a warning and falls back to pass-through — preserves the fail-loud principle without silently dropping the sync run.
+  - JSDoc blocks document the per-field direction rules, the v0.11.0 / v0.12.2 regression history, and the npm-publish-guard rationale.
+
+### Added
+
+- **`package.json`** — `"private": true` added (right after `"name"`) on the internal `.claude/` tree (BL-052). Causes `npm publish` to fail with `Refused to publish private package` before any file-matching, regardless of `files[]` contents. `npm pack --dry-run` continues to work (verified — pack is unaffected; publish is the only blocked operation).
+- **`scripts/sync-src/sync.test.ts`** — 10 new tests locking in the combined contract (BL-051: 8 field-merge tests; BL-052: 2 strip-private tests):
+  1. (BL-051) `public-only files entries are preserved through the merge` — the canonical regression-prevention test; fixtures mirror the actual v0.11.0 → v0.12.2 state.
+  2. (BL-051) `internal-side version field overrides public's` — the sync-direction rule.
+  3. (BL-051) `field-merge resolves conflicts per documented direction` — the most thorough contract test; locks in that ONLY `files` is union-merged.
+  4. (BL-051) `public-only top-level keys are preserved as a safety net`.
+  5. (BL-051) `internal-only top-level keys flow through` — symmetric to 4; normal propagation.
+  6. (BL-051) `empty files arrays on both sides return empty union`.
+  7. (BL-051) `missing files field on source falls back to target's files`.
+  8. (BL-051) `union dedupes — duplicate entries appear once`.
+  9. (BL-052) `source 'private: true' is stripped from merged output` — the canonical privacy-guard test; verifies the npm-publish-guard inversion at the sync boundary.
+  10. (BL-052) `neither side has 'private' — output omits 'private' (no spurious addition)` — defensive: stripping logic must NOT accidentally add `"private": false`.
+
+  Tests reproduce the merge logic inline (matching the BL-037 pattern at sync.test.ts:17-22) rather than importing private helpers — preserves the narrow public surface of `sync.ts`. Total suite: **24 passed, 0 failed** (8 BL-037 baseline + 6 BL-047 + 8 BL-051 + 2 BL-052).
+
+### Changed
+
+- **Internal `package.json#files` deliberately left at 12 entries.** Investigation found internal's remote is `tap-agents-internal.git` (private), not the public publish source `tap-agents.git`. Public is the canonical npm-publish path. Expanding internal's `files` to include `memory/`, `playbooks/`, `docs/`, `settings.json` would NOT improve the public publish path — and would introduce the privacy hazard described in the BL-052 motivation. The transformer's union semantics (BL-051) handle the divergence safely without requiring internal to converge to 16 entries; the `"private": true` flag (BL-052) provides categorical defense even if a future operator mis-edit added one of those entries.
+
+### Removed
+
+- **`.github/workflows/publish.yml`** (internal tree) — retired as the third sub-component of the BL-052 npm-publish-guard (alongside `"private": true` and the strip-private transformer). With `"private": true` set on internal's `package.json`, the shadow tag-push publish workflow was structurally guaranteed to fail (`npm publish` returns "Refused to publish private package") and added zombie-CI noise. Deletion makes the retirement explicit. The PUBLIC `tap-agents/` tree retains its own `publish.yml` (verified present; legitimate publish path). Tarball file count UNCHANGED at 153 — `.github/` is NOT in `package.json#files`, so this deletion is invisible to the npm tarball; the change is purely internal-tree CI hygiene.
+- **`scripts/sync-src/manifest.json5`** — added `.github/workflows/publish.yml` to `exclude[]` (paired with the deletion above). Without this entry, sync's `--delete` mode would orphan public's legitimate `publish.yml` on the next `npm run sync:apply`. The exclude both prevents that orphaning AND surfaces the divergence as deliberate in the manifest itself, where future operators look first. History notes in the manifest header updated to record the BL-052 retirement decision alongside the original lockstep note.
 
 ### SemVer classification
 
-Per `protocols/versioning-protocol.md §3.1`: additive to tarball surface, Dependabot-safe in downstream Vercel builds (in fact, this release unblocks downstream Dependabot which was failing on the regression). No removals, no renames, no behavior change. **PATCH.**
+Per `protocols/versioning-protocol.md §3.1`:
+
+- **PATCH.** Bug fixes (BL-051 transformer regression-prevention) + security guards (BL-052 npm-publish-guard) + behavior-preserving internal infrastructure (strip-private at sync boundary) + internal-tree dead-CI retirement (`publish.yml` deletion + manifest exclude). No new agent / command / protocol / template added or removed. No npm export-surface change. The `"private": true` flag is metadata internal to the source tree; it gets stripped by the sync transformer before the body lands in public, so downstream `@tapintomymind/tap-agents` consumers see byte-identical `package.json` semantics after sync runs (modulo the files-array union which restores the v0.12.2 state). The internal-tree workflow deletion is invisible to the npm tarball (`.github/` is NOT in `package.json#files`); tarball file count UNCHANGED at 153.
+- **MINOR rejected.** The new transformer behavior is an internal mechanism for keeping the divergence stable + a privacy guard, not a new capability exposed to consumers.
+- **MAJOR rejected.** No removal or rename in any consumer-facing surface. The transformer's named contract (`template-package-json` registered in `manifest.json5`) is unchanged.
 
 ### Cross-channel sync
 
-All three channel-version fields update atomically per §6: `package.json` `version` `0.12.1 → 0.12.2`, `.claude-plugin/plugin.json` `version` `0.12.1 → 0.12.2`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.12.1 → 0.12.2`.
+All three channel-version fields update atomically: `package.json` `version` `0.13.1 → 0.13.2`, `.claude-plugin/plugin.json` `version` `0.13.1 → 0.13.2`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.13.1 → 0.13.2`. The version-gate hook's SemVer-successor rule (§4.2 invariant 2) treats this as a clean patch successor following BL-047's `0.13.0 → 0.13.1` landing.
+
+### Provenance
+
+This release is the product of a 2026-05-12 reconciliation absorbing a parallel chip session's substantive contributions. Honest narrative:
+
+- **BL-049 was placeholder-labeled** in the pre-reconciliation commits on `files-array-transformer-fix` before this reconciliation discovered the collision with the real BL-049 ("Scaffold <project>/.claude/db-register.md per destructive-data-ops protocol"). Mis-attribution corrected to BL-051 in this release; the four pre-reconciliation commits were reset and rebuilt with proper attribution.
+- **Chip session** (`npm-publish-guard-internal` local branch at SHA `78eb40b`, archived at tag `archive/chip-session-2026-05-12`) originated the private-npm-publish-guard work in a parallel exploration. Substantive contributions (`"private": true` addition + strip-private transformer logic) absorbed into BL-052 here; chip's narrower v0.13.1 release scope superseded by combined v0.13.2. Chip's commit also mis-attributed to "BL-050" (real BL-050 = "<project>/.env.local NEON_BRANCH inconsistency") — corrected to BL-052 here. Chip's deletion of `.github/workflows/publish.yml` and addition of the matching `scripts/sync-src/manifest.json5` `exclude[]` entry were initially deferred from the reconciled release as chip-session-local cleanup; operator decision 2026-05-12 (pre-pipeline cleanup dispatch) re-included them in BL-052 scope for atomic-unit coherence and zombie-CI elimination — see the new "Removed" section above. With this scope extension, the BL-052 unit now covers all three components of the original chip rationale: metadata guard (`private: true`), sync-direction inversion (strip-private transformer), and dead-CI retirement (publish.yml deletion). No chip-session contributions remain unabsorbed.
+- **Curator dispatch** 2026-05-12 mirrored BL-048/049/050 from `workspace/_global/backlog.json` to `memory/backlog.md` (pre-existing mirror-drift from a prior parallel-session commit `3ed15e4` that landed JSON-only). Included in this release for clean baseline; not part of BL-051/BL-052 substantive scope.
+- **BL-051 surfaced** by the BL-047 architect's `spawn_task` 2026-05-12. Quote: "The internal `.claude/package.json` `files` array has 12 entries; the public `tap-agents/package.json` `files` array has 16 entries (the v0.12.2 fix that restored `playbooks`, `memory`, `docs`, `settings.json`). The `template-package-json` transformer in `sync.ts:378` does a pass-through copy, so the next sync would re-introduce the v0.11.0 files-array regression and break `<project>`'s prebuild."
+- **BL-052 surfaced** by the BL-051 investigation immediately after — the npm-pack-vs-gitignore distinction surfaced while deciding whether to expand internal's `files[]` to match public's. Decision: keep internal at 12 entries, add `"private": true` as the metadata-layer categorical guard, strip the flag on sync to public.
+- **v0.11.0 history** per `memory/runtime-gotchas.md` entry `tap-agents v0.11.0/v0.12.0/v0.12.1 — files-array regression` and v0.12.2 public-side fix at `tap-agents` repo SHA `1c11fb0`.
+- **Operator-private rationale** (which specific files would have leaked, threat-model detail for BL-052) lives in `memory/agent-changelog-private.md` 2026-05-12 entry — the public CHANGELOG holds the framework-portable shape of the guard; the private companion holds the project-attributable detail.
+
+---
+
+## [0.13.1] — 2026-05-12 — BL-047 lint-findings triage (unblocks v0.13.0 npm release path)
+
+**Patch release** resolving the 26 (28 with self-fixture follow-ons) pre-existing leaks that v0.13.0's broadened linter surfaced. No public-surface change — pure fixes to the public tree's bytes plus three documentation-pattern allowlist rules added to the linter so legitimate documentation idioms don't fire.
+
+**Motivation.** v0.13.0 broadened `scripts/sync-src/sync.ts:lintActions()` to scan every public-bound file regardless of action (BL-037 fix). The widened scan immediately surfaced 28 hard-fail issues that had been invisible to diff-driven dry-runs: 1× internal-abs-path in `commands/release.md:16`, 7× private-memory-ref using the `...` placeholder pattern in protocol docs, 18× project-slug-ref across 9 protocol files + `workspace/_examples/` (7) + `workspace/_registry.md` (4), and 2× tautological self-fixture hits once the new test file landed. All 28 are addressed here as a hybrid of Path A (allowlist for legitimate documentation patterns) and Path B (rewrites of real operator-identity exposures).
+
+### Added
+
+- **`scripts/sync-src/sync.ts:USER_AUTO_MEMORY_RE`** — negative-lookahead widened beyond the literal `<project>` placeholder. Now skips ANY `<bracket-template>` segment AND the `...` path-ellipsis placeholder. Both are documentation-grade placeholders used in protocol docs to denote a generic per-project auto-memory tree without naming an operator. Real leaks (literal `/Users/<name>/...`, literal encoded user-home paths) continue to fire. (7 of 28 findings allowlisted by this rule.)
+- **`scripts/sync-src/sync.ts:lintPropagatedBody`** — files under `workspace/_examples/` suppress project-slug-ref and private-memory-ref checks. The `_examples/` tree IS the public-facing example library; its job is to demonstrate the full Tier-1 artifact set using a fictional project slug (`example-tools-cli`). Internal cross-references between fixture files must keep that concrete slug so a reader can trace the example end-to-end. The internal-abs-path and secret-pattern checks still apply. (7 of 28 findings allowlisted by this rule.)
+- **`scripts/sync-src/sync.ts:isSecretPatternsSource`** — `scripts/sync-src/sync.test.ts` added to the secret-pattern self-exclude alongside `scripts/sync-src/secret-patterns.ts`. The test file carries synthetic operator-identity path literals (synthetic username documented in the file header) to exercise the `operator-identity-macos` pattern by construction. Same tautological-fixture rationale as the pattern definition file itself. (2 of 28 findings allowlisted by this rule.)
+- **`scripts/sync-src/sync.test.ts`** — six new locked-in assertions for the BL-047 allowlist semantics. Each rule has paired tests: (a) the allowlist pattern does NOT fire, (b) a real-leak pattern of the same shape STILL fires (regression guard). Full suite now 14 passed, 0 failed.
+
+### Fixed
+
+- **`commands/release.md:16`** — operator-machine absolute path (`App Development/.claude/`) rewritten as a framework-relative description naming the published package (`@tapintomymind/tap-agents`) instead of any operator's working-tree path.
+- **`protocols/backlog-protocol.md:46`** — narrative example of a Tier-1 collision pattern. `workspace/<project>/backlog.md` → `workspace/<slug>/backlog.md`. The collision-pattern explanation is fully preserved; only the project identifier is genericized.
+- **`protocols/checkpoint-protocol.md:205`** — cascade verification checklist item. `workspace/<project>/handoff-package.md` → `workspace/<slug>/handoff-package.md`.
+- **`protocols/conflict-resolution.md:24`** — JSON example for `contested_artifacts[]`. `workspace/<project>/scope.md` → `workspace/<slug>/scope.md`.
+- **`protocols/outcome-grading.md:310`** — BL-019 envelope precedent reference. `workspace/<project>/critic-review-bl019-fix.md` → `workspace/<slug>/critic-review-bl019-fix.md`.
+- **`protocols/verification-before-completion.md:56`** — code-block illustration. `workspace/<project>/critic-notes.md` → `workspace/<slug>/critic-notes.md`.
+- **`workspace/_registry.md`** — entire file was an operator-portfolio snapshot listing two specific active Tier-1 projects. Rewritten to the format-template shape: empty "Active Projects" / "Paused" / "Shipped" / "Abandoned" sections plus the existing Format + How to Use documentation. The file's job in the public tree is to show readers what the registry looks like, not what any specific operator's portfolio contains.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+
+- **PATCH.** Every change is a fix to pre-existing leaks in the public tree's bytes (Path B rewrites) plus tightening of the lint policy so legitimate documentation patterns don't false-positive (Path A allowlists). No public-surface narrows, no script removes, no rename, no API change. `sync.ts` exports are unchanged. `package.json` script names are unchanged. The linter becomes MORE PERMISSIVE for documentation-grade placeholders and STAYS STRICT for real operator-identity strings.
+- **MINOR rejected.** No new detection capability is added; the change is calibration of the existing checks (BL-037 in v0.13.0 added the detection capability; this release calibrates it).
+- **MAJOR rejected.** No public-surface removal or rename.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `version` `0.13.0 → 0.13.1`, `.claude-plugin/plugin.json` `version` `0.13.0 → 0.13.1`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.13.0 → 0.13.1`.
+
+### Provenance
+
+- BL-047 (`memory/backlog.md §"Tech-Debt — Triage 26 lint findings surfaced by BL-037 fix"`) — Tier-1 framework P2, status `open`, estimated effort S; landed via the Path A+B hybrid described above. Backlog entry was filed when v0.13.0's broadened scan first surfaced the 26 leaks on the orchestrator dry-run; v0.13.1 closes it.
+- v0.13.0 was the internal-only release that triggered this triage; the v0.13.0 → v0.13.1 sequence is the standard "broaden detection in one release, calibrate + resolve findings in the next" pattern. The combined v0.13.0+v0.13.1 pair is what reaches npm consumers.
+
+---
+
+## [0.13.0] — 2026-05-12 — Lint pass scans every public-bound file (BL-037)
+
+**Minor release** broadening the sync linter's scope so a leak that already shipped in a previous release becomes visible on the very next `npm run sync:dry-run` — not invisible until source content changes.
+
+**Motivation.** v0.12.1 fixed the operator-identity leak in `hooks/stop-dispatch-monitor.py` and added three new secret patterns to catch the class. The post-release audit (CHANGELOG v0.12.1 line 34) flagged a second-order defect: `sync.ts:lintActions()` was diff-driven — it only scanned files with action `create` or `update`. Files with action `skip-identical` (already-shipped bytes the sync run isn't changing) were never re-scanned, so a leak already in the public tree would stay invisible to dry-run until something else triggered a content change. v0.13.0 widens the scope: every file in the sync set whose post-run bytes will sit in the public tree gets scanned, regardless of action.
+
+### Fixed
+
+- **`scripts/sync-src/sync.ts`** — `lintActions()` rewritten with per-action body resolution:
+  - `create` / `update`: scan the propagated body (the bytes being written) — unchanged behavior.
+  - `skip-identical`: scan body (preferred) or fall back to targetBody — the file is staying in public; the retained bytes need to be clean even if this run isn't changing them.
+  - `skip-template`: scan targetBody — the transformer chose to leave the existing public file in place; those bytes still need to be clean.
+  - default: scan targetBody (defensive).
+  - Empty / undefined bodies are no-ops (covers binary skip-template cases like `package-lock.json` where there's no readable body).
+  - JSDoc block added documenting the BL-037 fix rationale and the scope contract ("scan whatever bytes will sit in public after this run completes, regardless of changed-status").
+
+### Added
+
+- **`scripts/sync-src/sync.test.ts`** (NEW) — first test file in the framework. Stdlib-only runner (`node:assert/strict` + ad-hoc `test()` registry; zero new devDeps). Eight assertions:
+  1. BL-037 regression: pre-fix shape MISSES leak in skip-identical action (locks in the bug being fixed).
+  2. BL-037 fix: post-fix shape CATCHES leak in skip-identical action.
+  3. post-fix: clean body in skip-identical action produces no issues.
+  4. post-fix: create action still scanned (no regression).
+  5. post-fix: update action still scanned (no regression).
+  6. post-fix: skip-template with leaked target body is scanned.
+  7. post-fix: skip-template with empty target body is a no-op (binary / package-lock case).
+  8. post-fix: empty action list returns empty issues.
+  Invokable via `tsx scripts/sync-src/sync.test.ts`. No `test` script added to `package.json` — that's a separate decision (runner promotion to `node --test` / `vitest` / etc. can come later once a second test file lands and the choice of runner has more shape to it).
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+
+- **MINOR.** The change adds detection capability — same public surface (`sync.ts` exports nothing changed; `package.json` script names unchanged), broader behavior under the same script. No consumer-facing surface narrows; no script removes; no rename. The first test file is a new internal artifact, not a public-surface addition.
+- **PATCH rejected.** A `npm run sync:dry-run` that previously passed silently could now FAIL on a real leak. That's the intended behavior — but it's a behavior change Dependabot's auto-merge logic should NOT just wave through. Pinning this to MINOR keeps `^0.12.x` consumers stable until they explicitly opt in.
+- **MAJOR rejected.** No public-surface removal or rename. Pure scope expansion within an existing module.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `version` `0.12.1 → 0.13.0`, `.claude-plugin/plugin.json` `version` `0.12.1 → 0.13.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.12.1 → 0.13.0`.
+
+### Provenance
+
+- BL-037 carved out of the v0.12.1 post-release audit follow-up (see v0.12.1 CHANGELOG line 34: "Lint-policy follow-up flagged for v0.13: `sync.ts:lintActions()` skips `action: \"skip-identical\"` files, so a leak that already shipped in a previous release cannot be caught via `npm run sync:dry-run` until source content changes. … the path of least surprise for v0.13 is to scan ALL files in the sync set regardless of action, not just changing ones").
+- First test file in the framework — the runner-promotion path (stdlib-only → `node --test` / `vitest` / etc.) is deliberately deferred until a second test file lands and the choice of runner has more shape to it.
+
+---
 
 ## [0.12.1] — 2026-05-12 — Operator-identity sanitizer + portable USER_MEMORY_DIR + _landed/ convention placeholder
 
@@ -50,6 +192,7 @@ All three channel-version fields update atomically: `package.json` `version` `0.
 
 - Post-release audit dispatch (continuing from prior `a7fe755f66121418d`): identified the leak at `hooks/stop-dispatch-monitor.py:61` and walked the three-fix sequence (pattern → portable derivation → convention placeholder).
 - Lint-policy follow-up flagged for v0.13: `sync.ts:lintActions()` skips `action: "skip-identical"` files, so a leak that already shipped in a previous release cannot be caught via `npm run sync:dry-run` until source content changes. Fix 2 was verified via direct `scanBody` invocation against the pre-Fix-1 source; the path of least surprise for v0.13 is to scan ALL files in the sync set regardless of action, not just changing ones.
+- **Known asymmetry**: Internal repo's v0.12.1 tag (SHA `7b9533b`) and public npm repo's v0.12.1 tag (SHA `a3cd833`) point to different commits. Structural to the dual-repo topology; downstream of the `package.json#files` hotfix race. Accepted as-shipped; no consumer impact. See BL-040 (wontfix).
 
 ---
 

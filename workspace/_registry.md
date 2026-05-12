@@ -6,25 +6,9 @@ For up-to-date executive briefing: `/status` (EA delivers same data + recommenda
 
 ---
 
-## Active Projects (2)
+## Active Projects
 
-### claude-team-app (working name: Tap Studio)
-- **Phase:** stratego (entered 2026-05-05 00:45)
-- **Last activity:** Intake completed brief; user approved at 00:42
-- **Awaiting:** Strategist + Critic + Designer drafting PRD (parallel)
-- **Blockers:** none
-- **Priority:** high (eat-own-dog-food project)
-- **Next action:** Strategist drafts PRD using approved intake-brief.md
-- **Workspace:** [workspace/claude-team-app/](workspace/claude-team-app/)
-
-### ip-protection (working name: TapAgents IP Protection — Option D)
-- **Phase:** briefed — DRAFT pending user approval (entered 2026-05-06 17:15)
-- **Last activity:** Intake round 4 — directional brief written, paid-subs sub-decisions surfaced
-- **Awaiting:** User approval of intake-brief.md
-- **Blockers:** none
-- **Priority:** high (gates TapAgents+TapHQ monetization; biz-finance + biz-legal + gtm-strategist activations queued behind approval)
-- **Next action:** User approves brief → Conductor advances to stratego, or Architect dispatched in parallel for MCP-server spike while paid-subs discussion continues
-- **Workspace:** [workspace/ip-protection/](workspace/ip-protection/)
+*(none — Conductor populates this section as Tier-1 projects are scoped via `/team` and advance through the state machine.)*
 
 ## Paused Projects
 
@@ -45,7 +29,7 @@ For up-to-date executive briefing: `/status` (EA delivers same data + recommenda
 When populated, each project entry follows this format:
 
 ```
-### <project-slug>
+### <slug>
 - Phase: <current_phase>
 - Entered phase: <relative time>
 - Last activity: <last_agent at last_agent_at>

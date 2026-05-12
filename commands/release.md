@@ -13,7 +13,7 @@ You're ready to publish a new version of the framework to:
 - The Claude Code plugin marketplace (consumed via `/plugin marketplace add tapintomymind/tap-agents`)
 - The npm registry (consumed by `agent-dashboard` and any future programmatic consumer)
 
-Do NOT use this for project-scoped changes inside `agent-dashboard/.claude/` or any project's local `.claude/`. This command operates only at the framework root (`App Development/.claude/`).
+Do NOT use this for project-scoped changes inside any project's local `.claude/`. This command operates only at the TapAgents framework root (the `.claude/` checkout that publishes `@tapintomymind/tap-agents`).
 
 ## Required reading
 

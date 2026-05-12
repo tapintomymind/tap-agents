@@ -363,11 +363,97 @@ function genericizeChangelogBody(sourceBody: string, slugs: string[]): string {
   return body;
 }
 
+/**
+ * mergePackageJson — field-by-field merge for the template-package-json
+ * transformer. See the JSDoc on TRANSFORMERS["template-package-json"] below
+ * for the per-field direction rules and the v0.11.0 / v0.12.2 history that
+ * motivates the structured merge.
+ *
+ * Returns a new object with internal's key order preserved followed by
+ * public-only keys (rare). For the `files` field specifically, the result
+ * is the union of source.files and target.files with internal's order
+ * preserved (de-duplicated, public-only entries appended). The `private`
+ * field is unconditionally stripped (BL-052 npm-publish-guard) — see the
+ * transformer JSDoc for the privacy-hazard rationale.
+ *
+ * Pure function — no I/O, no console output. Errors surface as caller
+ * decides; this function assumes both inputs already parsed cleanly.
+ */
+function mergePackageJson(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+
+  // Pass 1: walk source keys, preserving internal's order.
+  for (const key of Object.keys(source)) {
+    if (key === "private") {
+      // BL-052: internal repo is marked `"private": true` as a defense-in-depth
+      // npm-publish-guard against accidental egress of operator-private
+      // memory/ content. Public tap-agents/ MUST be publishable — its whole
+      // purpose is npm distribution — so the flag is unconditionally stripped
+      // on the way out. Symmetric to the field-merge logic for `files[]`:
+      // both fields receive explicit per-key direction rather than
+      // pass-through. See transformer JSDoc for the threat-model detail.
+      continue;
+    }
+    if (key === "files") {
+      const srcFiles = Array.isArray(source.files) ? (source.files as unknown[]).filter((x): x is string => typeof x === "string") : [];
+      const tgtFiles = Array.isArray(target.files) ? (target.files as unknown[]).filter((x): x is string => typeof x === "string") : [];
+      merged.files = unionStringArray(srcFiles, tgtFiles);
+    } else {
+      // All other internal-defined keys: internal wins.
+      merged[key] = source[key];
+    }
+  }
+
+  // Pass 2: append public-only top-level keys verbatim. Rare in steady
+  // state (the two package.json files match field-for-field except for
+  // version + files today) but a safety net against future divergence.
+  // The `private` strip applies to source-side only; if public somehow grew
+  // a `"private"` field, it is dropped here too (same threat model).
+  for (const key of Object.keys(target)) {
+    if (key === "private") continue;
+    if (!(key in merged)) {
+      merged[key] = target[key];
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * unionStringArray — return a new array containing every unique value from
+ * `primary` followed by every value in `secondary` not already present.
+ * Preserves primary's input order. O(n+m) via Set membership.
+ */
+function unionStringArray(primary: string[], secondary: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of primary) {
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  for (const v of secondary) {
+    if (!seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
+
 const TRANSFORMERS: Record<string, Transformer> = {
-  // v1 transformer behavior — see design §5 for the full split rules. For the
-  // first run the practical behavior is:
+  // Transformer behavior — see design §5 for the full split rules. Practical
+  // per-file shape:
   //   CHANGELOG.md      — copy from source then genericize project-slug refs
-  //   package.json      — copy from source (today both trees should match)
+  //   package.json      — field-by-field merge with strip-private (BL-051 +
+  //                       BL-052; see template-package-json JSDoc below for
+  //                       per-field direction, v0.11.0/v0.12.2 regression
+  //                       history, and npm-publish-guard rationale). NOT a
+  //                       pass-through copy.
   //   package-lock.json — DO NOT COPY; npm regenerates from target's package.json
   //   README.md         — DO NOT OVERWRITE unless --include-readme
 
@@ -375,7 +461,98 @@ const TRANSFORMERS: Record<string, Transformer> = {
     const transformed = genericizeChangelogBody(sourceBody, manifest.changelog_project_slugs);
     return { body: transformed, skip: false };
   },
-  "template-package-json": (sourceBody) => ({ body: sourceBody, skip: false }),
+  /**
+   * template-package-json — structured field-by-field merge of internal source
+   * package.json into the public target package.json.
+   *
+   * History: prior shape (pre-BL-051) was a pass-through copy
+   * (`body: sourceBody`). That shape silently re-introduced the v0.11.0
+   * files-array regression every time the operator ran `npm run sync:apply`.
+   * Specifically:
+   *   - v0.11.0 dropped 4 entries from internal's package.json#files
+   *     (`playbooks`, `memory`, `docs`, `settings.json`).
+   *   - v0.12.2 fixed PUBLIC's package.json#files (16 entries restored).
+   *   - INTERNAL's files array was never expanded back to 16.
+   *   - The pass-through transformer meant the next `sync:apply` would
+   *     overwrite public's 16-entry array with internal's 12-entry array,
+   *     re-shipping the broken tarball and breaking `agent-dashboard`'s
+   *     prebuild integrity check.
+   *
+   * BL-052 (composed in the same release as BL-051) added a second concern:
+   * internal's `package.json` is marked `"private": true` as a defense-in-
+   * depth npm-publish-guard. The strip-private rule below ensures public
+   * never inherits the flag — public IS the publishable surface.
+   *
+   * The fix is a structured field-merge with explicit per-field direction:
+   *
+   *   1. version             — internal wins (sync is the propagation event
+   *                            for the new release version into public).
+   *   2. files               — array union, internal's order preserved with
+   *                            public-only entries appended deduplicated.
+   *                            Union semantics are deliberately conservative:
+   *                            (a) prevents the regression class above, (b)
+   *                            never accidentally drops a public entry, (c)
+   *                            still propagates internal additions. Removals
+   *                            from internal's files DO NOT auto-propagate;
+   *                            operator removes from public's package.json
+   *                            manually. That asymmetry is by design — the
+   *                            cost of a stale extra files entry (tarball
+   *                            ships a few KB of unused files) is much
+   *                            smaller than the cost of an unflagged removal
+   *                            of a required entry (downstream build break).
+   *   3. private             — stripped unconditionally (BL-052). Internal
+   *                            sets `"private": true` so `npm publish`
+   *                            refuses to run on the internal tree before
+   *                            file-matching. Public must be publishable,
+   *                            so the flag is dropped during merge. Strip
+   *                            applies whether private comes from source or
+   *                            target (see mergePackageJson Pass 2). This
+   *                            inverts the metadata layer guard at the
+   *                            sync boundary; the two changes are
+   *                            complementary halves of one atomic unit.
+   *   4. all other internal-defined keys — internal wins (canonical source;
+   *                            description, scripts, exports, dependencies,
+   *                            engines, etc. flow from internal as the
+   *                            release-driving authority).
+   *   5. public-only top-level keys — preserved verbatim. If public ever
+   *                            grows a key internal doesn't have (e.g., an
+   *                            npm-publish-specific config), the sync keeps
+   *                            it. Unlikely in steady state but a safety
+   *                            net against future divergence.
+   *
+   * Formatting: JSON output uses 2-space indent + trailing newline to match
+   * both trees' existing convention (verified by inspection of both files).
+   * Order: internal's key order preserved; public-only keys appended at the
+   * end so the diff stays minimal for the common case (no public-only keys).
+   *
+   * If parsing fails on either side (malformed JSON), the transformer logs
+   * a warning and falls back to pass-through behavior — preserves the
+   * fail-loud principle (downstream verification or commit will surface the
+   * malformed JSON) without silently dropping the sync run.
+   */
+  "template-package-json": (sourceBody, { targetExists, targetBody }) => {
+    if (!targetExists) {
+      // Initial creation — no public to merge with. Source wins entirely.
+      return { body: sourceBody, skip: false };
+    }
+    let source: Record<string, unknown>;
+    let target: Record<string, unknown>;
+    try {
+      source = JSON.parse(sourceBody);
+    } catch (err) {
+      console.warn(`template-package-json: source package.json malformed JSON (${(err as Error).message}); falling back to pass-through`);
+      return { body: sourceBody, skip: false };
+    }
+    try {
+      target = JSON.parse(targetBody);
+    } catch (err) {
+      console.warn(`template-package-json: target package.json malformed JSON (${(err as Error).message}); falling back to pass-through`);
+      return { body: sourceBody, skip: false };
+    }
+    const merged = mergePackageJson(source, target);
+    const out = JSON.stringify(merged, null, 2) + "\n";
+    return { body: out, skip: false };
+  },
   "template-package-lock": (_sourceBody) => ({
     body: "",
     skip: true,
@@ -439,9 +616,20 @@ const ALLOWED_WORKSPACE_PREFIXES = new Set([
 // `template-changelog` transformer also rewrites these to a generic
 // `~/.claude/projects/<project>/memory/` placeholder — the placeholder is
 // the LEGITIMATE post-genericization shape, so the linter must NOT flag it.
-// We require the `<project>` segment to be something other than the literal
-// `<project>` placeholder.
-const USER_AUTO_MEMORY_RE = /(?:\/Users\/[^/\s'"`)]+|\$HOME|~)\/\.claude\/projects\/(?!<project>\/)[^\s'"`)]+\/memory\//g;
+//
+// BL-047 allowlist additions (2026-05-12): the negative-lookahead skip-list
+// is widened beyond the literal `<project>` placeholder to also exclude
+// two other documentation-grade placeholders:
+//   - `...` — the path-ellipsis placeholder used in protocol docs to indicate
+//     a generic per-project encoded path (e.g., `~/.claude/projects/.../memory/`
+//     to denote any operator's auto-memory tree without picking one).
+//   - any `<bracket-template>` segment — e.g., `~/.claude/projects/<encoded>/`
+//     or `~/.claude/projects/<operator>/`. Any segment that starts with `<`
+//     and ends with `>` is a template marker, not an operator-machine path.
+// All three forms are documentation-only and don't leak operator identity.
+// Real leaks (literal `/Users/<name>/...`, literal encoded user-home paths)
+// continue to fire.
+const USER_AUTO_MEMORY_RE = /(?:\/Users\/[^/\s'"`)]+|\$HOME|~)\/\.claude\/projects\/(?!(?:<[^>]+>|\.\.\.)\/)[^\s'"`)]+\/memory\//g;
 
 const INTERNAL_ABS_PATH_RE = /App Development[\/\\]\.claude/g;
 const USER_HOME_RE = /\/Users\/[a-z0-9_]+/gi;
@@ -451,10 +639,27 @@ async function lintPropagatedBody(relPath: string, body: string): Promise<LintIs
   const isMarkdown = relPath.endsWith(".md");
   const isCommand = relPath.startsWith("commands/") && isMarkdown;
 
+  // BL-047 allowlist: files under `workspace/_examples/` are fixture content
+  // by design. The `_examples/` tree IS the public-facing example library;
+  // its job is to demonstrate the full Tier-1 artifact set (intake-brief,
+  // prd, scope, tech-strategy, handoff-package) using a fictional project
+  // slug (e.g., `example-tools-cli`). Those internal cross-references
+  // between fixture files MUST keep their concrete slug so a reader can
+  // trace the example end-to-end. Suppress project-slug-ref + private-
+  // memory-ref checks for any path under `workspace/_examples/`.
+  // The internal-abs-path and secret-pattern checks still apply — those
+  // catch real leaks regardless of file location.
+  const isExampleFixture = relPath.startsWith("workspace/_examples/");
+
   // §4 FAIL #2 — user-specific auto-memory path references in markdown bodies.
   // Framework `memory/` directory ships publicly. Only Claude Code's
   // per-project auto-memory paths (under ~/.claude/projects/) should be flagged.
-  if (isMarkdown && relPath !== "memory/README.md" && !relPath.startsWith("memory/_examples/")) {
+  if (
+    isMarkdown &&
+    relPath !== "memory/README.md" &&
+    !relPath.startsWith("memory/_examples/") &&
+    !isExampleFixture
+  ) {
     const lines = body.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       USER_AUTO_MEMORY_RE.lastIndex = 0;
@@ -473,7 +678,7 @@ async function lintPropagatedBody(relPath: string, body: string): Promise<LintIs
   }
 
   // §4 FAIL #3 — project-slug workspace paths.
-  if (isMarkdown) {
+  if (isMarkdown && !isExampleFixture) {
     const lines = body.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       PROJECT_SLUG_RE.lastIndex = 0;
@@ -529,9 +734,17 @@ async function lintPropagatedBody(relPath: string, body: string): Promise<LintIs
   // not a leak. The compiled `.js` is built into the public dist via the
   // build script, but the `.ts` source is what `git ls-files` picks up for
   // sync. Skip both.
+  //
+  // BL-047 (2026-05-12): `scripts/sync-src/sync.test.ts` is also a tautological
+  // fixture — it carries synthetic path literals (synthetic username
+  // documented in that file's header) that exercise the macOS operator-
+  // identity pattern by construction. Same self-exclude rationale as the
+  // pattern definition file itself.
   const isSecretPatternsSource =
     relPath === "scripts/sync-src/secret-patterns.ts" ||
-    relPath === "scripts/sync-src/secret-patterns.js";
+    relPath === "scripts/sync-src/secret-patterns.js" ||
+    relPath === "scripts/sync-src/sync.test.ts" ||
+    relPath === "scripts/sync-src/sync.test.js";
   if (!isSecretPatternsSource) {
     const hits: SecretHit[] = scanBody(body);
     for (const h of hits) {
@@ -729,12 +942,45 @@ async function plan(flags: CliFlags, manifest: Manifest, syncSet: FileEntry[]): 
   return actions;
 }
 
+/**
+ * BL-037 fix (2026-05-12): scan every file in the sync set whose post-run bytes
+ * will sit in the public tree, not just files whose action is `create` /
+ * `update`. Pre-fix scope was diff-driven (changed-bytes only), which means a
+ * leak that already shipped in a previous release would be invisible to
+ * `npm run sync:dry-run` until source content changed (caught by v0.12.1
+ * post-release audit; provenance: CHANGELOG v0.12.1 line 34).
+ *
+ * Body resolution per action:
+ *   - create / update: scan the propagated body (the bytes we're about to write)
+ *   - skip-identical:   scan body (preferred) or fall back to targetBody — the
+ *                       file is staying in public; the bytes there need to be
+ *                       clean even if we're not changing them this run
+ *   - skip-template:    scan targetBody — the transformer chose to leave the
+ *                       existing public file in place; those bytes still need
+ *                       to be clean
+ *   - default:          scan targetBody (defensive)
+ *
+ * Empty/undefined bodies are no-ops (covers binary skip-template cases like
+ * package-lock.json where there's no readable body).
+ *
+ * Scope contract: this function scans whatever bytes will sit in the public
+ * tree after this run completes, regardless of whether the run changed them.
+ */
 async function lintActions(actions: PlannedAction[]): Promise<LintIssue[]> {
   const issues: LintIssue[] = [];
   for (const a of actions) {
-    if (a.action !== "create" && a.action !== "update") continue;
-    if (!a.body) continue;
-    issues.push(...(await lintPropagatedBody(a.relPath, a.body)));
+    let body: string | undefined;
+    if (a.action === "create" || a.action === "update") {
+      body = a.body;
+    } else if (a.action === "skip-identical") {
+      body = a.body ?? a.targetBody;
+    } else if (a.action === "skip-template") {
+      body = a.targetBody;
+    } else {
+      body = a.targetBody;
+    }
+    if (body === undefined || body === "") continue;
+    issues.push(...(await lintPropagatedBody(a.relPath, body)));
   }
   return issues;
 }
