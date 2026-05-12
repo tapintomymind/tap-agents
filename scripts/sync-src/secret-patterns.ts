@@ -11,7 +11,12 @@
  * Adding a new pattern: append to PATTERNS with a clear description.
  * Update fixtures in `__fixtures__/secrets-positive/` (should fail scan) and
  * `__fixtures__/secrets-negative/` (should pass scan). Re-run verify-sync.ts.
+ *
+ * Version bump on every additive change so the post-release audit can confirm
+ * which pattern set was active for a given dist.
  */
+
+export const VERSION = "2026-05-12";
 
 export interface SecretPattern {
   readonly name: string;
@@ -109,6 +114,35 @@ export const PATTERNS: readonly SecretPattern[] = [
     name: "gcp-service-account-email",
     description: "GCP service-account JSON client_email field",
     regex: /"client_email"\s*:\s*"[^"]+\.iam\.gserviceaccount\.com"/g,
+  },
+
+  // Operator-identity paths (added 2026-05-12 in response to v0.12.0 post-release
+  // audit finding `/Users/tapandesai/.claude/projects/.../memory` baked into
+  // hooks/stop-dispatch-monitor.py:61). The first-class secret patterns above
+  // are tuned for credential-shape strings; these patterns close the second
+  // class: operator-identifying absolute paths to Claude Code's per-project
+  // auto-memory tree. Three OS shapes covered — macOS `/Users/<name>/...`,
+  // Linux `/home/<name>/...`, Windows `C:\Users\<Name>\...`. All target the
+  // `\.claude\projects\` anchor so generic `/Users/<name>` references (which
+  // can occur legitimately in commands/*.md placeholder examples) don't trip.
+  //
+  // ANY hit is a HARD FAIL — the runtime fix is to derive the path from
+  // `os.environ["CLAUDE_PROJECT_DIR"]` (or equivalent) and slugify, not bake
+  // the operator's literal path into the shipped artifact.
+  {
+    name: "operator-identity-macos",
+    description: "macOS Claude Code per-project auto-memory path (/Users/<name>/.claude/projects/...)",
+    regex: /\/Users\/[a-z][a-z0-9_-]+\/\.claude\/projects\/[^"\s\)]+/g,
+  },
+  {
+    name: "operator-identity-linux",
+    description: "Linux Claude Code per-project auto-memory path (/home/<name>/.claude/projects/...)",
+    regex: /\/home\/[a-z][a-z0-9_-]+\/\.claude\/projects\/[^"\s\)]+/g,
+  },
+  {
+    name: "operator-identity-windows",
+    description: "Windows Claude Code per-project auto-memory path (C:\\Users\\<Name>\\.claude\\projects\\...)",
+    regex: /C:\\\\Users\\\\[A-Za-z][A-Za-z0-9_-]+\\\\\.claude\\\\projects\\\\[^"\s\)]+/g,
   },
 ];
 

@@ -4,6 +4,37 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.12.1] — 2026-05-12 — Operator-identity sanitizer + portable USER_MEMORY_DIR + _landed/ convention placeholder
+
+**Patch release** addressing the operator-identity leak found in the v0.12.0 post-release audit. Three targeted fixes; no doctrinal or surface changes.
+
+**Motivation.** v0.12.0 shipped publicly with a hardcoded operator-identifying absolute path (Claude Code per-project auto-memory dir) baked into `hooks/stop-dispatch-monitor.py` at module scope. The sanitizer pattern set was tuned for credential-shape secrets (API keys, tokens, PEM blocks) and didn't cover identity-shape paths. The hook fails open on non-operator machines (path doesn't exist; pattern-note write is a no-op) so it's not breaking anyone — but the identifying string ships in the public npm package, which is itself the defect.
+
+### Fixed
+
+- **`hooks/stop-dispatch-monitor.py`** — `USER_MEMORY_DIR` derived at runtime from `$CLAUDE_PROJECT_DIR` (falling back to `os.getcwd()`) instead of hardcoded literal. Slug rule mirrors Claude Code's auto-memory convention: `/` and ` ` both rewrite to `-`, leading `-` retained. `_telemetry._find_workspace()` already used the same `$CLAUDE_PROJECT_DIR`-first resolution order — this fix brings the user-memory-dir resolution into the same shape.
+
+### Added
+
+- **`scripts/sync-src/secret-patterns.ts`** — three new `operator-identity-*` patterns (macOS / Linux / Windows shapes of Claude Code per-project auto-memory paths). Module-level `VERSION` constant (`2026-05-12`) added so the post-release audit can confirm which pattern set was active for a given dist. Pattern count: 18 → 21. Self-exclusion of `scripts/sync-src/secret-patterns.{ts,js}` from the scan body (sync.ts:532-534) still holds — regex source escapes prevent self-tautology.
+- **`agents/_planned/_proposals/_landed/.gitkeep`** — convention placeholder. The `_landed/` directory codifies the "promoted to active" lifecycle stage; its contents are operator-internal (covered by the broader `agents/_planned/_proposals/**/*` exclude). The `.gitkeep` is the one file that propagates so the directory shape stays visible in the public tree.
+- **`scripts/sync-src/manifest.json5`** — explicit include for the `.gitkeep` (specific-path includes override the broader proposals-exclude per the manifest's first-match priority rule).
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`: leak-fix in hooks (PATCH), additive secret patterns (PATCH), convention-placeholder file (PATCH). No new surface, no removals, no renames. **PATCH.**
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `version` `0.12.0 → 0.12.1`, `.claude-plugin/plugin.json` `version` `0.12.0 → 0.12.1`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.12.0 → 0.12.1`.
+
+### Provenance
+
+- Post-release audit dispatch (continuing from prior `a7fe755f66121418d`): identified the leak at `hooks/stop-dispatch-monitor.py:61` and walked the three-fix sequence (pattern → portable derivation → convention placeholder).
+- Lint-policy follow-up flagged for v0.13: `sync.ts:lintActions()` skips `action: "skip-identical"` files, so a leak that already shipped in a previous release cannot be caught via `npm run sync:dry-run` until source content changes. Fix 2 was verified via direct `scanBody` invocation against the pre-Fix-1 source; the path of least surprise for v0.13 is to scan ALL files in the sync set regardless of action, not just changing ones.
+
+---
+
 ## [0.12.0] — 2026-05-12 — PMM activation + roster hygiene + park/refocus + internal→public sync flow
 
 **Four-track release.** Three are doctrinal/role-set changes; the fourth is the first piece of operational tooling for keeping internal and public trees in lockstep going forward. Each is independently MINOR per `protocols/versioning-protocol.md §3`; bundled here because they all land in the same internal-to-public propagation window.

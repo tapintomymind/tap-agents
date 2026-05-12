@@ -60,6 +60,15 @@
     "agents/_archive/README.md",
     "agents/_planned/_proposals/README.md",
     "agents/_planned/_proposals/_landed/README.md",
+
+    // Convention placeholder — the `_landed/` directory exists as a doctrinal
+    // marker (codifying the "promoted to active" lifecycle stage). Its
+    // contents are operator-internal (the actual landed proposal files are
+    // covered by the broader `agents/_planned/_proposals/**/*` exclude
+    // below) so the directory would otherwise vanish from public. The
+    // `.gitkeep` is the ONE file propagated to keep the convention visible
+    // in the public tree without leaking the proposal contents.
+    "agents/_planned/_proposals/_landed/.gitkeep",
   ],
 
   exclude: [

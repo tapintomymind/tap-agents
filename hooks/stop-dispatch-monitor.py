@@ -56,10 +56,18 @@ except Exception:  # noqa: BLE001 — fail-open telemetry import
         return
 
 # Resolved at user level — pattern notes are framework-wide memory, not
-# workspace-scoped. Same path the user's MEMORY.md is rooted at.
-USER_MEMORY_DIR = Path(
-    "/Users/tapandesai/.claude/projects/-Users-tapandesai-App-Development/memory"
-)
+# workspace-scoped. Mirrors Claude Code's convention of slugifying the
+# project root path: `/` and ` ` both rewrite to `-`, and the result keeps
+# a leading `-` (Claude Code's auto-memory slugs are `-Users-name-Project-Name`).
+# `_telemetry._find_workspace()` follows the same `$CLAUDE_PROJECT_DIR`-first
+# resolution order for workspace paths; we use the same env var here.
+def _resolve_user_memory_dir() -> Path:
+    project_root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    slug = project_root.replace("/", "-").replace(" ", "-")
+    return Path.home() / ".claude" / "projects" / slug / "memory"
+
+
+USER_MEMORY_DIR = _resolve_user_memory_dir()
 MEMORY_INDEX = USER_MEMORY_DIR / "MEMORY.md"
 
 # Threshold: 3+ orchestrator-source blocks in one session triggers a note.
