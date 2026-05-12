@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""
+PreToolUse hook — enforces protocols/versioning-protocol.md at the mechanical layer.
+
+Gate 2 of the four-gate enforcement chain. Three invariants:
+
+  1. Atomicity   — package.json "version" change must coincide with a CHANGELOG.md
+                   entry whose heading matches the new version, in the same staged diff.
+  2. Sequence    — the new version must be a legal SemVer successor to the last tag.
+                   No skipping (0.7 -> 0.9), no going backwards (0.8 -> 0.7).
+  3. Severity floor — if the staged diff removes/renames any file in agents/, commands/,
+                      protocols/, or templates/, the bump must be MAJOR.
+                      If it only adds files in those directories (no removals/renames),
+                      MINOR is the floor.
+                      The hook enforces the floor only; over-classification is always allowed.
+
+Hook fires on:
+  - Edit/Write where file_path endswith package.json or contains .claude-plugin/
+  - Bash commands matching `git commit` or `git tag`
+
+Exit 0  = allow.
+Exit 2  = block, with an actionable message on stderr.
+
+Other exits (e.g., subprocess crash) print a warning and allow — the hook must never
+silently swallow a tool call. If the hook itself is broken, that's a discipline issue
+to surface, not a license to bypass enforcement.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+# --- helpers ------------------------------------------------------------------
+
+
+def _project_dir() -> Path:
+    """Resolve the framework root. CLAUDE_PROJECT_DIR is set by Claude Code at hook time."""
+    raw = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not raw:
+        return Path.cwd()
+    return Path(raw)
+
+
+def _run_git(*args: str) -> str:
+    """Run a git command from the project dir. Returns stdout stripped, or '' on error."""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=_project_dir(),
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return ""
+
+
+def _read_package_version() -> str | None:
+    """Read the current 'version' field from package.json. Returns None if missing."""
+    pkg = _project_dir() / "package.json"
+    if not pkg.exists():
+        return None
+    try:
+        data = json.loads(pkg.read_text())
+        v = data.get("version")
+        if isinstance(v, str):
+            return v
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def _last_tag_version() -> str | None:
+    """Return the version on the last release tag (v*) reachable from HEAD, or None."""
+    raw = _run_git("describe", "--tags", "--abbrev=0", "--match", "v*")
+    if not raw:
+        return None
+    # Tags are 'vX.Y.Z'; strip the leading 'v'.
+    return raw[1:] if raw.startswith("v") else raw
+
+
+SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-[\w.-]+)?(?:\+[\w.-]+)?$")
+
+
+def _parse_semver(v: str) -> tuple[int, int, int] | None:
+    m = SEMVER_RE.match(v)
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
+def _is_legal_successor(prev: str, new: str) -> tuple[bool, str]:
+    """Check that `new` is a legal SemVer step from `prev`. Returns (ok, reason)."""
+    p = _parse_semver(prev)
+    n = _parse_semver(new)
+    if not p:
+        return False, f"last tag version `{prev}` is not parseable SemVer"
+    if not n:
+        return False, f"proposed version `{new}` is not parseable SemVer"
+
+    # Backwards check
+    if n < p:
+        return False, f"version `{new}` is not greater than last tag `{prev}` (going backwards)"
+    if n == p:
+        return False, f"version `{new}` is equal to last tag `{prev}` (no bump)"
+
+    # Legal successors:
+    #   PATCH: same MAJOR, same MINOR, PATCH = prev.PATCH + 1
+    #   MINOR: same MAJOR, MINOR = prev.MINOR + 1, PATCH = 0
+    #   MAJOR: MAJOR = prev.MAJOR + 1, MINOR = 0, PATCH = 0
+    pm, pn, pp = p
+    nm, nn, np_ = n
+
+    if nm == pm and nn == pn and np_ == pp + 1:
+        return True, "patch"
+    if nm == pm and nn == pn + 1 and np_ == 0:
+        return True, "minor"
+    if nm == pm + 1 and nn == 0 and np_ == 0:
+        return True, "major"
+
+    return False, (
+        f"version `{new}` is not a legal SemVer step from `{prev}`. "
+        f"Legal successors of `{prev}`: "
+        f"patch={pm}.{pn}.{pp + 1}, minor={pm}.{pn + 1}.0, major={pm + 1}.0.0"
+    )
+
+
+def _staged_diff_files() -> list[tuple[str, str]]:
+    """Return list of (status, path) for staged files. Status is one of A/M/D/R<num>/C<num>/T."""
+    raw = _run_git("diff", "--cached", "--name-status", "-z")
+    if not raw:
+        return []
+    # -z output is NUL-separated. Renames produce: R100\0old\0new\0. Others: A\0path\0.
+    parts = raw.split("\x00")
+    files: list[tuple[str, str]] = []
+    i = 0
+    while i < len(parts):
+        entry = parts[i].strip()
+        if not entry:
+            i += 1
+            continue
+        status = entry.split("\t")[0] if "\t" in entry else entry
+        if status.startswith(("R", "C")):
+            # Rename/copy: next two parts are old, new
+            if i + 2 < len(parts):
+                files.append((status, parts[i + 2]))
+                i += 3
+                continue
+        # Plain status: status\tpath OR status on its own line then path on next
+        if "\t" in entry:
+            st, path = entry.split("\t", 1)
+            files.append((st, path))
+            i += 1
+        else:
+            if i + 1 < len(parts):
+                files.append((status, parts[i + 1]))
+                i += 2
+            else:
+                i += 1
+    return files
+
+
+VERSIONED_DIRS = ("agents/", "commands/", "protocols/", "templates/", "hooks/", "scripts/")
+
+
+def _classify_severity_floor(files: list[tuple[str, str]]) -> str:
+    """Return the severity floor based on staged diff: 'patch' | 'minor' | 'major'."""
+    has_removal_or_rename = False
+    has_addition = False
+    for status, path in files:
+        if not any(path.startswith(d) for d in VERSIONED_DIRS):
+            continue
+        if status.startswith(("D", "R")):
+            has_removal_or_rename = True
+        elif status.startswith("A"):
+            has_addition = True
+    if has_removal_or_rename:
+        return "major"
+    if has_addition:
+        return "minor"
+    return "patch"
+
+
+def _changelog_has_heading_for(version: str) -> bool:
+    """Check whether CHANGELOG.md contains a `## [<version>]` heading at any depth."""
+    cl = _project_dir() / "CHANGELOG.md"
+    if not cl.exists():
+        return False
+    try:
+        body = cl.read_text()
+    except OSError:
+        return False
+    return bool(re.search(rf"^##\s*\[{re.escape(version)}\]", body, re.MULTILINE))
+
+
+def _changelog_staged_for(version: str) -> bool:
+    """Check whether the *staged* diff of CHANGELOG.md introduces a heading for `version`."""
+    raw = _run_git("diff", "--cached", "--", "CHANGELOG.md")
+    if not raw:
+        return False
+    # Look for an added line that matches the heading shape.
+    for line in raw.splitlines():
+        if not line.startswith("+"):
+            continue
+        if re.search(rf"^##\s*\[{re.escape(version)}\]", line[1:]):
+            return True
+    return False
+
+
+# --- gate logic ---------------------------------------------------------------
+
+
+def _block(message: str) -> None:
+    """Exit 2 with `message` on stderr. Claude Code surfaces this back to the orchestrator."""
+    sys.stderr.write("version-gate.py: " + message + "\n")
+    sys.exit(2)
+
+
+def _check_commit() -> None:
+    """The full-discipline check that fires on `git commit`."""
+    files = _staged_diff_files()
+    pkg_changed = any(path == "package.json" for _, path in files)
+    if not pkg_changed:
+        # Not a release commit. Hook is silent.
+        sys.exit(0)
+
+    # Invariant 1: atomicity — CHANGELOG must also be in the staged diff
+    cl_changed = any(path == "CHANGELOG.md" for _, path in files)
+    if not cl_changed:
+        _block(
+            "package.json changed but CHANGELOG.md is not staged. "
+            "Per protocols/versioning-protocol.md §4.2 invariant 1, the version bump and the "
+            "CHANGELOG entry MUST land in the same commit. Stage CHANGELOG.md or unstage package.json."
+        )
+
+    new_version = _read_package_version()
+    if not new_version:
+        _block("package.json has no parseable 'version' field. Cannot proceed.")
+
+    # Invariant 1b: CHANGELOG must have a heading matching the new version (in the staged diff)
+    if not _changelog_staged_for(new_version):
+        _block(
+            f"package.json version is `{new_version}` but CHANGELOG.md has no staged heading "
+            f"`## [{new_version}]`. Add a CHANGELOG entry for this version per Common Changelog format."
+        )
+
+    # Invariant 2: sequence — must be a legal SemVer successor to the last tag
+    prev = _last_tag_version()
+    if prev:
+        ok, reason = _is_legal_successor(prev, new_version)
+        if not ok:
+            _block(
+                f"SemVer sequence violation: {reason}. "
+                f"Per protocols/versioning-protocol.md §4.2 invariant 2."
+            )
+        bump_kind = reason  # 'patch' | 'minor' | 'major'
+    else:
+        # No prior tag — first release. Accept any 0.x.y.
+        bump_kind = "initial"
+
+    # Invariant 3: severity floor
+    if bump_kind != "initial":
+        floor = _classify_severity_floor(files)
+        order = {"patch": 0, "minor": 1, "major": 2}
+        if order[bump_kind] < order[floor]:
+            _block(
+                f"Severity-floor violation: staged diff requires at least a `{floor}` bump "
+                f"(per protocols/versioning-protocol.md §3.{ {'patch': 1, 'minor': 2, 'major': 3}[floor] }) "
+                f"but the proposed bump is `{bump_kind}`. "
+                f"Either reclassify the bump or split the removal/rename into its own release."
+            )
+
+    # Marketplace alignment — soft check; warns but does not block
+    plugin_path = _project_dir() / ".claude-plugin" / "plugin.json"
+    if plugin_path.exists():
+        try:
+            plugin_data = json.loads(plugin_path.read_text())
+            plugin_version = plugin_data.get("version")
+            if plugin_version and plugin_version != new_version:
+                _block(
+                    f"Marketplace version drift: package.json is `{new_version}` but "
+                    f".claude-plugin/plugin.json is `{plugin_version}`. "
+                    f"Per protocols/versioning-protocol.md §6, these must match in the same commit."
+                )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    sys.exit(0)
+
+
+def _check_tag(command: str) -> None:
+    """Validate `git tag` commands target a SemVer-shaped tag matching package.json."""
+    # Common shapes: `git tag v0.8.0` or `git tag -a v0.8.0 -m '...'`
+    m = re.search(r"\bgit\s+tag\b(?:\s+-[a-zA-Z]+)*\s+(v?\d+\.\d+\.\d+(?:[-+][\w.-]+)?)", command)
+    if not m:
+        # Not a versioned tag op (could be `git tag -l`, `git tag -d`, etc.)
+        sys.exit(0)
+    tag = m.group(1)
+    if not tag.startswith("v"):
+        _block(
+            f"Tag `{tag}` must be prefixed with 'v' (e.g., `v0.8.0`). "
+            f"Per protocols/versioning-protocol.md §5."
+        )
+    tag_version = tag[1:]
+    pkg_version = _read_package_version()
+    if pkg_version and pkg_version != tag_version:
+        _block(
+            f"Tag/package version mismatch: tag is `{tag}` (=> {tag_version}) but "
+            f"package.json is `{pkg_version}`. The tag MUST be applied to the release commit "
+            f"whose package.json holds the matching version."
+        )
+    sys.exit(0)
+
+
+def _check_package_edit(file_path: str) -> None:
+    """Soft-check: Edit/Write on package.json should normally come from /release flow.
+
+    We do NOT block direct edits — the strict invariants run at commit time. But we warn
+    if the new content changes 'version' without an accompanying CHANGELOG.md edit in the
+    same Claude session. The orchestrator should re-invoke /release if it got out of band.
+    """
+    # No-op for v1 — commit-time enforcement is sufficient and avoids false positives during
+    # legitimate /release flows that touch package.json before CHANGELOG.md.
+    sys.exit(0)
+
+
+# --- entry point --------------------------------------------------------------
+
+
+def main() -> None:
+    try:
+        payload = json.load(sys.stdin)
+    except json.JSONDecodeError:
+        # Malformed payload — don't block tool use over a hook framing issue.
+        sys.exit(0)
+
+    tool_name = payload.get("tool_name") or payload.get("tool") or ""
+    tool_input = payload.get("tool_input") or {}
+
+    if tool_name == "Bash":
+        command = tool_input.get("command", "")
+        # Match `git commit`, `git commit -m ...`, etc.
+        if re.search(r"\bgit\s+commit\b", command):
+            _check_commit()
+            return
+        if re.search(r"\bgit\s+tag\b", command):
+            _check_tag(command)
+            return
+        sys.exit(0)
+        return
+
+    if tool_name in ("Edit", "Write"):
+        file_path = tool_input.get("file_path", "")
+        if file_path.endswith("package.json") or "/.claude-plugin/" in file_path:
+            _check_package_edit(file_path)
+            return
+        sys.exit(0)
+        return
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

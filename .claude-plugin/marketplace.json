@@ -1,0 +1,16 @@
+{
+  "name": "tapagents",
+  "description": "TapAgents marketplace — opinionated AI product team for Claude Code. One curated plugin, not a sprawl of forty.",
+  "owner": {
+    "name": "tapintomymind",
+    "url": "https://github.com/tapintomymind"
+  },
+  "plugins": [
+    {
+      "name": "tapagents",
+      "source": ".",
+      "version": "0.8.0",
+      "description": "The full TapAgents framework — 14 agents, 15 commands, 28 protocols, stack-aware templates, two enforcement hooks. Installs a complete AI product team in your repo."
+    }
+  ]
+}

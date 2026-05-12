@@ -1,0 +1,105 @@
+# Decision Packet
+
+**Format used by EA at every hard checkpoint.** Word budget: 250-400. If a packet would exceed, the artifact isn't ready — producer must tighten before EA delivers.
+
+---
+
+```
+─────────────────────────────────────────────
+DECISION PACKET — <project-slug>
+Checkpoint: <from-phase> → <to-phase>
+Prepared: <YYYY-MM-DD HH:MM>
+
+▸ SUMMARY (3 bullets)
+  - <Top-line decision baked in>
+  - <Top-line decision baked in>
+  - <Top-line decision baked in>
+
+▸ KEY DECISIONS BAKED IN
+  - <Specific decision 1, e.g., "Cut social sharing from MVP — deferred to v2">
+  - <Specific decision 2, e.g., "Picked Next.js over native iOS — PRD requires browser">
+  - <Specific decision 3>
+
+▸ CRITIC FLAGS (<count>)
+  ⚠ blocking: "<concern>" → <how addressed in artifact OR "not addressed; user decision required">
+  ⚠ warning: "<concern>" → <addressed | deferred | not addressed>
+  ⓘ fyi: "<concern>" → noted
+
+▸ OPEN QUESTIONS (<count>)
+  - <Open item, e.g., "Hosting decision deferred to scaffold step (not blocking)">
+
+▸ ARTIFACTS
+  - <path/to/artifact-1.md> — <status>
+  - <path/to/artifact-2.md> — <status>
+  - critic-notes.md — current
+
+▸ POST-APPROVAL CHANGES
+  - <repo-relative-path> [CREATE|MODIFY|DELETE]
+  - <repo-relative-path> [CREATE|MODIFY|DELETE] — <one-line rationale>
+
+▸ RECOMMENDED ACTION
+  <EA's recommendation in one sentence — typically "approve" with reasoning or "request changes" with specific item>
+
+▸ YOUR OPTIONS
+  [approve]      — Conductor advances; producer hands to next agent
+  [request changes] — Specify what to change; producer re-runs
+  [discuss]      — Open conversation; no advance until subsequent decision
+  [reject]       — Producer re-runs from scratch
+─────────────────────────────────────────────
+```
+
+---
+
+## Variants by Checkpoint
+
+### `intaking → briefed`
+Recommended action emphasis: "approve brief OR request follow-up interview on dimensions <X>"
+
+### `stratego → prd-ok`
+Critic flags emphasis: distribution plan completeness, success metric specificity, persona concreteness
+
+### `scoping → planned`
+Critic flags emphasis: scope creep vs PRD, MVP cut justification quality, sequencing logic
+
+### `planned → scaffold`
+Recommended action emphasis: emphasizes "this writes files to <target repo>"; user must confirm target path
+
+### `handed-off → shipped`
+Critic flags emphasis: PRD acceptance criteria coverage, deviations from scope, live URL access verification
+
+---
+
+## Rules
+
+- ONE recommended action, ranked first
+- ALL Critic flags above `fyi` must be listed (blocking, warning)
+- Word budget enforced — overflow means tighten artifact, not pad packet
+- Never include raw artifacts in packet — link references only
+- Never include speculation or "what if" branches — present what is, not what might be
+
+## Rules — POST-APPROVAL CHANGES section `[prd rev-4 §11 Risk 9]` `[scope rev-3 §2 M5.3.a]`
+
+**Purpose:** enumerates every file the approval will write or modify in the user's repo. C1 (packet diff preview) renders this section verbatim in the Diff tab `[feature-brief F-D, bundle members]`. This section is **structured data, not prose** — it does NOT count against the 250–400 word budget `[scope rev-3 §2 M5.3.a]`.
+
+**Line format:**
+```
+- <repo-relative-path> [CREATE|MODIFY|DELETE]
+- <repo-relative-path> [CREATE|MODIFY|DELETE] — <one-line rationale>
+```
+The one-line rationale is optional; include it only when the change is non-obvious to the user (e.g., a cascade write the user might not anticipate). Keep rationale to one clause — no trailing prose `[scope rev-3 §2 M5.3.a]`.
+
+**File-volume display rule:** if more than ~20 files, group by directory rather than listing individually:
+```
+- src/components/cockpit/ — 12 files [CREATE]
+- src/lib/api/ — 4 files [MODIFY]
+```
+This prevents the alarming 100-files-listed UX risk flagged during cascade planning `[tech-strategy rev-3 Risk 9 mitigation]` `[scope rev-3 §2 M5.3.a]`.
+
+**Empty-section semantics — fail-open (Risk 12):** if a packet describes a decision with no file-level changes (purely a state-machine advance, no commits), write:
+```
+▸ POST-APPROVAL CHANGES
+  (no file-level changes)
+```
+Do NOT omit the section entirely. Omission is a Critic flag (warning severity, not blocking) and causes C1 to render "No file-level diff preview" with an anomaly log entry — approval is never blocked by a missing section `[tech-strategy rev-3 Risk 9 mitigation]` `[prd rev-4 §11 Risk 9]`.
+
+**Author responsibility:** the packet author (EA at hard checkpoints; any agent writing a packet outside a hard checkpoint) is responsible for enumerating file changes. Enumeration is based on the artifact produced — list what the approval will actually commit, not a guess. If uncertain, list the files you know and note `(additional files possible — see <artifact>)` `[scope rev-3 §2 M5.3.b]`.

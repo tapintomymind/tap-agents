@@ -1,0 +1,94 @@
+name: publish
+
+# Fires on `v*` tag push (per protocols/versioning-protocol.md §5). Builds the package,
+# runs verify.ts (which re-checks all version-alignment invariants), and publishes to
+# the npm registry. Also creates a GitHub Release referencing the CHANGELOG entry.
+#
+# The /release slash command pushes the tag; this workflow handles the rest.
+#
+# Required repo secrets:
+#   NPM_TOKEN — npm automation token with publish scope on @tapintomymind/tap-agents
+#
+# This workflow runs ONLY on tag push, not on branch push. Direct pushes to main do
+# not trigger a publish — the tag is the contract.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # for creating the GitHub Release
+  id-token: write   # for npm provenance (--provenance)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org/"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Build dist/
+        run: npm run build
+
+      - name: Verify build output and version alignment
+        run: npm run verify
+
+      - name: Validate tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION). Refusing to publish."
+            exit 1
+          fi
+          echo "Tag and package versions aligned at $PKG_VERSION."
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Extract CHANGELOG entry for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Capture the section between `## [<version>]` and the next `## [` heading.
+          BODY=$(awk -v v="$VERSION" '
+            $0 ~ "^## \\["v"\\]" { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$BODY" ]; then
+            echo "::warning::No CHANGELOG section found for $VERSION."
+            BODY="See CHANGELOG.md for details."
+          fi
+          # Escape for GitHub Actions multiline output
+          {
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "v${{ github.ref_name }}"
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

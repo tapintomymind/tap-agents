@@ -1,0 +1,15 @@
+{
+  "_comment": "Resumable state for Org Designer's onboarding wizard. Pattern from wshobson/agents Conductor. If a setup flow is interrupted, Org Designer reads this on next /grow-team or onboarding invocation and resumes from last completed step.",
+  "schema_version": "1.0",
+  "active_setup": null,
+  "completed_setups": [],
+  "_setup_template": {
+    "setup_type": "<onboarding | activate-planned-agent | introduce-new-stack | other>",
+    "started_at": "<ISO timestamp>",
+    "current_step": "<step name>",
+    "steps_completed": [],
+    "steps_remaining": [],
+    "context": {},
+    "interrupted_at": "<ISO timestamp or null>"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "slug": "example-tools-cli",
+  "current_phase": "shipped",
+  "entered_phase_at": "2025-09-21T18:30:00Z",
+  "last_agent": "executive-assistant",
+  "last_agent_at": "2025-09-21T18:30:00Z",
+  "priority": "normal",
+  "next_suggested_action": {
+    "agent": "growth-analyst",
+    "task": "watch for first measurable usage data",
+    "confidence": 0.7,
+    "reasoning": "Phase=shipped; Growth Analyst not yet activated — monitoring stub"
+  },
+  "history": [
+    { "phase": "seed",       "entered": "2025-09-15T10:00:00Z", "exited": "2025-09-15T10:01:00Z" },
+    { "phase": "intaking",   "entered": "2025-09-15T10:01:00Z", "exited": "2025-09-15T10:18:00Z" },
+    { "phase": "briefed",    "entered": "2025-09-15T10:18:00Z", "exited": "2025-09-15T10:25:00Z", "approval_text": "looks right", "approver": "user" },
+    { "phase": "stratego",   "entered": "2025-09-15T10:25:00Z", "exited": "2025-09-15T11:10:00Z" },
+    { "phase": "prd-ok",     "entered": "2025-09-15T11:10:00Z", "exited": "2025-09-15T11:25:00Z", "approval_text": "approve", "approver": "user" },
+    { "phase": "scoping",    "entered": "2025-09-15T11:25:00Z", "exited": "2025-09-15T12:15:00Z" },
+    { "phase": "planned",    "entered": "2025-09-15T12:15:00Z", "exited": "2025-09-15T12:35:00Z", "approval_text": "ship it", "approver": "user" },
+    { "phase": "scaffold",   "entered": "2025-09-15T12:35:00Z", "exited": "2025-09-15T12:55:00Z", "approval_text": "go", "approver": "user" },
+    { "phase": "handed-off", "entered": "2025-09-15T12:55:00Z", "exited": "2025-09-21T18:25:00Z" },
+    { "phase": "shipped",    "entered": "2025-09-21T18:25:00Z", "exited": null, "approval_text": "confirmed live", "approver": "user" }
+  ],
+  "open_questions": [],
+  "blocked_on": null,
+  "contested_artifacts": [],
+  "pivoted_from": null,
+  "pivoted_to": null,
+  "abandoned_reason": null,
+  "tier2_repo_path": "/Users/example/Desktop/tools-cli",
+  "tier2_reportback_path": "/Users/example/Desktop/tools-cli/.claude/reportback.md",
+  "tier2_generated_at": "2025-09-15T12:50:00Z",
+  "last_reportback_read_at": "2025-09-21T18:30:00Z"
+}
