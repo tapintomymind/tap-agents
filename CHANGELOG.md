@@ -4,6 +4,24 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.12.2] — 2026-05-12 — Packaging fix: restore playbooks/, memory/, docs/, settings.json to files array
+
+**Patch release** restoring four entries silently dropped from `package.json#files` in v0.11.0. No functional or API changes — purely a packaging fix.
+
+**Motivation.** v0.11.0 reduced the `files` array from 16 entries to 12, dropping `playbooks`, `memory`, `docs`, and `settings.json` — entries explicitly added in v0.8.1 (playbooks, memory, settings.json) and v0.8.3 (docs). v0.12.0 and v0.12.1 inherited the regression. Downstream consumers — specifically `agent-dashboard/scripts/copy-scaffold-source.mjs`, whose `REQUIRED_ENTRIES` integrity check includes `settings.json` and `memory/` — fail at prebuild when installing `^0.12.x` or `>=0.11.0`, breaking Vercel deploys.
+
+### Fixed
+
+- **`package.json#files`** — restored `playbooks`, `memory`, `docs`, `settings.json` to the array (12 → 16 entries). Restores parity with v0.10.0's tarball surface. Files exist on disk in all affected versions; the regression was purely a packaging manifest omission.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3.1`: additive to tarball surface, Dependabot-safe in downstream Vercel builds (in fact, this release unblocks downstream Dependabot which was failing on the regression). No removals, no renames, no behavior change. **PATCH.**
+
+### Cross-channel sync
+
+All three channel-version fields update atomically per §6: `package.json` `version` `0.12.1 → 0.12.2`, `.claude-plugin/plugin.json` `version` `0.12.1 → 0.12.2`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.12.1 → 0.12.2`.
+
 ## [0.12.1] — 2026-05-12 — Operator-identity sanitizer + portable USER_MEMORY_DIR + _landed/ convention placeholder
 
 **Patch release** addressing the operator-identity leak found in the v0.12.0 post-release audit. Three targeted fixes; no doctrinal or surface changes.
