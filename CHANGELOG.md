@@ -4,6 +4,65 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.14.0] — 2026-05-12 — Framework-Hardening Wave 1 + BL-046 subagent execution context discipline
+
+**Minor release** bundling two coordinated framework-quality lifts on the same 14 agent contract surface — combining them avoids a rebase since both touch the same files. Each independently MINOR per `protocols/versioning-protocol.md §3.2` (additive frontmatter, additive Authority-section prose, additive protocol file); bundled here because they ship on the same coordinated edit pass.
+
+### BL-046 — Subagent execution context discipline
+
+**Motivation.** On 2026-05-12, three Tier 1 subagent dispatches in one session self-reported that `orchestrator-dispatch-gate.py` blocked their tool calls. Telemetry confirmed ZERO matching block events — the gate worked correctly (it bypasses subagents by design via `agent_id` / `agent_type` PreToolUse payload detection). The misdiagnosis was class-shaped: 0 of 14 framework agent contracts mentioned the gate by name or taught the harness-vs-framework distinction. Each misdiagnosis surfaced an "override the hook" recommendation — accepting one would erode the audit-trail mechanism the gate is here to maintain. Full forensic trace in `workspace/_global/org-designer-proposals/20260512-1500-subagent-misdiagnosis-pattern.md`.
+
+Three coordinated interventions:
+
+#### Added
+
+- **`## Subagent execution context` block in 14 framework agent contracts** — template-uniform ~14-line block at the top of every contract, between the H1 intro paragraph and `## Your Job in One Sentence`. Codifies: (a) every agent IS a subagent; (b) `orchestrator-dispatch-gate.py` bypasses subagent calls by design; (c) canonical signature of an actual gate firing is `Orchestrator-dispatch gate BLOCKED:` plus the authenticity marker `TAPAGENTS_DISPATCH_GATE_FIRED_V1`; (d) the harness-level `Permission to use Bash` prompt is SEPARATE from any framework hook; (e) agents NEVER propose disabling/allowlisting/overriding the gate. Block is intentionally template-uniform across all 14 files so the rule stays grep-able.
+- **`TAPAGENTS_DISPATCH_GATE_FIRED_V1` authenticity marker in `hooks/orchestrator-dispatch-gate.py` stderr** — when the gate blocks a tool call on the main orchestrator thread, the stderr message now embeds the literal token. Agents can only claim the gate fired if they can quote the token from their tool result. Training-data priors cannot synthesize the token; only the actual stderr message contains it. Versioned (`V1` suffix) for forward-compat if the gate is replaced.
+- **`protocols/hook-misdiagnosis-discipline.md` (NEW)** — single canonical reference cited from every agent contract's new `## Subagent execution context` block. Six sections: (1) framework hooks inventory with per-hook canonical authenticity markers; (2) per-hook subagent-bypass status; (3) harness-vs-framework distinction; (4) mandatory citation rule (quote the canonical marker verbatim or do not claim the hook fired); (5) optional fallback verification path (Read events.jsonl filtered by own session_id); (6) escalation rule (report literal stderr + session_id + tool call, then stop).
+
+### Framework-Hardening Wave 1 — tools allowlist + tier metadata + capability constraints
+
+**Motivation.** Prior to v0.14.0, zero of 14 framework agent contracts declared a `tools:` allowlist — every agent inherited the full tool set with no harness-layer least-privilege enforcement. Critic (review-only by design) could in principle Edit any artifact; the framework wouldn't stop it. The audit-trail integrity story relies on semantic role boundaries being enforced at the harness layer, not just the prompt layer. Per `workspace/_global/framework-hardening-proposal.md §7` (Wave 1 greenlit 2026-05-12) and the per-agent prompt-walk in `workspace/_global/framework-hardening/wave1-agent-updates.md`.
+
+#### Added
+
+- **`tools:` bare-array allowlist in all 14 agent frontmatter** — derived per-agent from prompt-walk methodology (read body, cite by `path:line`, aggregate, capability-sufficiency check). Bare Claude Code tool-name array per the forthcoming `protocols/agent-prompt-shape.md §2.1` (Wave 2). No bounded forms (`Bash(read-only)`, `Write(<path-glob>)`, etc.) — capability narrowing lives in the agent's prompt prose as a Capability constraint sentence.
+- **`tier: 1` declaration in all 14 agent frontmatter** — explicit declaration of framework-tier identity. Tier 2 baseline templates retain `tier: 2` when retargeted (Wave 1 deliverable scoped to `.claude/agents/`; Tier 2 propagation is a separate downstream step per the rollout plan).
+- **`prompt_version` bump on all 14 agents** — to `2026-05-12-1` for 13 agents; Critic carries both Wave 1 + the forthcoming Wave 2 agent-contract-review addendum, bumped to `2026-05-13-1` so the two land together.
+- **Capability constraint prose sentence added to 9 capability-widened agents** (Architect, Backlog Curator, Conductor, Critic, EA, Ops-Security, Org Designer, Quality Engineer, UI/UX Reviewer) — narration-layer counterpart to the bare-array tools field. Each constraint enumerates the agent's actual Bash/Write/Edit purposes (e.g., Critic's Bash is bounded to `emit-metric.py` invocation + read-only verification; UI/UX Reviewer's Bash is bounded to Playwright runner + screenshot capture + read-only). Per the B1 reconciliation 2026-05-12 — prior parenthetical-bounded form was retired; intent moved to prose.
+
+#### Fixed
+
+- **`agents/conductor.md` Phase 3 auto-iterate gate stale xref** — cited `templates/stacks/_baseline/agents/tier2-conductor.md` (the `agents/` segment was spurious). Verified actual file at `templates/stacks/_baseline/tier2-conductor.md`. Corrected so the gate condition resolves.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+
+- **MINOR.** Additive frontmatter fields (`tier`, `tools`, `prompt_version` where previously absent) — schema additive, no field removed. Additive prose sentences in Authority sections — no narration removed. New protocol file `protocols/hook-misdiagnosis-discipline.md` in the public surface. New authenticity marker emitted by the existing block path (additive stderr content). No agent's prior authority narrowed beyond what the harness allowlist now declares.
+- **PATCH rejected.** Frontmatter schema gains three new required-going-forward fields. The Critic Agent-contract-review addendum (forthcoming Wave 2 bumped already at `prompt_version: 2026-05-13-1`) adds an enforcement surface that did not previously exist.
+- **MAJOR rejected.** No public-surface removal or rename. No agent's existing capability narrowed — the prior implicit-full-tool-set is replaced by an explicit allowlist that intersects each agent's actual usage per the prompt-walk.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `version` `0.13.2 → 0.14.0`, `.claude-plugin/plugin.json` `version` `0.13.2 → 0.14.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.13.2 → 0.14.0`.
+
+### Files-array audit
+
+Per memory note `runtime_tap_agents_files_array_regression.md`, every release that touches `tap-agents/` must verify new content surfaces via `npm pack --dry-run`. v0.14.0 additions:
+
+- `protocols/hook-misdiagnosis-discipline.md` — new file under `protocols/` (already in `package.json#files`). Verified included.
+- All 14 modified `agents/*.md` — `agents/` already in `package.json#files`. Verified included.
+- `hooks/orchestrator-dispatch-gate.py` — `hooks/` already in `package.json#files`. Modified body verified included.
+
+### Provenance
+
+- BL-046 carved out of `workspace/_global/org-designer-proposals/20260512-1500-subagent-misdiagnosis-pattern.md` (P1; user-approved 2026-05-12). The proposal documents the empirical telemetry zero-confirmation that drove the class-level fix.
+- Framework-Hardening Wave 1 from `workspace/_global/framework-hardening-proposal.md §7` (greenlit 2026-05-12, including 4 Critic reconciliation passes B1–B4). Per-agent walks are in `workspace/_global/framework-hardening/wave1-agent-updates.md`.
+- Both initiatives explicitly target the same 14 framework agent contract files; bundling avoids a rebase. Per-commit atomicity preserved within the single branch.
+
+---
+
 ## [0.13.2] — 2026-05-12 — Sync transformer field-merge + private-npm-publish-guard (BL-051 + BL-052)
 
 **Patch release** combining two complementary halves of one atomic concern: (1) the `template-package-json` transformer is rewritten from a pass-through copy into a structured field-by-field merge that prevents the v0.11.0 / v0.12.2 files-array regression class for good (BL-051); and (2) internal `.claude/package.json` is marked `"private": true` as a defense-in-depth npm-publish-guard against accidental egress of operator-private `memory/` content, with the transformer stripping the flag on the way to public so public stays publishable, and the now-dead internal tag-push publish workflow retired in the same atomic unit (BL-052).

@@ -140,7 +140,10 @@ def block(reason: str, *, payload: dict, tool_name: str, subtype: str, summary: 
     by _telemetry, so blocking semantics are unaffected.
     """
     sys.stderr.write(
-        "Orchestrator-dispatch gate BLOCKED: " + reason + "\n\n" + AGENT_HINT + "\n\n"
+        "Orchestrator-dispatch gate BLOCKED: " + reason + "\n\n"
+        "AUTHENTICITY MARKER (subagents quote this exact line if claiming gate firing):\n"
+        "  TAPAGENTS_DISPATCH_GATE_FIRED_V1\n\n"
+        + AGENT_HINT + "\n\n"
         "To override for one call: the user can comment out this hook in "
         "the active `.claude/settings.json` (hooks.PreToolUse) or accept the "
         "dispatch path. Drift is the cost the gate is here to prevent.\n"
