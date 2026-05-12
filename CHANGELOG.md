@@ -4,6 +4,22 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.8.3] — 2026-05-11 — docs/ included in npm tarball + Trusted Publishing migration
+
+**Two-axis infrastructure patch.** No framework surface changes — agents, commands, protocols, templates, hooks, settings.json, memory/, and playbooks/ are byte-identical to v0.8.2. This release widens the npm package's `files` allow-list to include `docs/` AND swaps the publish workflow's auth mechanism from a long-lived NPM_TOKEN secret to OIDC-based Trusted Publishing.
+
+### Changed
+
+- **`package.json`** `files` field — added `"docs"` so `docs/managed-agents-comparison.md`, `docs/specs/2026-05-04-claude-team-design.md`, and any other `docs/` content the framework carries now ship in the published tarball. `agent-dashboard`'s `scaffold-overlay/docs/` directory becomes redundant after this release and can be retired in a follow-up dashboard commit.
+- **`package.json`** `exports` field — added `"./docs/*"` so consumers can resolve `docs/*` paths via `import` / `require.resolve`.
+- **`.github/workflows/publish.yml`** — removed the `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` env binding from the "Publish to npm" step. The npm CLI auto-detects the GitHub Actions OIDC context via the existing `id-token: write` permission and authenticates against npm without a long-lived token. The `NPM_TOKEN` repo secret remains in place for the migration cutover; after the first successful Trusted Publishing publish, it can be deleted from both `tap-agents` and `tap-agents-internal` repos.
+
+### Provenance
+
+User direction 2026-05-11. Two related but independent infrastructure improvements bundled because both are PATCH-grade publish-surface changes with no consumer behavior delta. The Trusted Publishing migration is the second leg of the npm hardening pattern the API skill recommends (long-lived token → OIDC); the `docs/` inclusion closes the gap surfaced during the agent-dashboard migration session where two framework-canonical docs were temporarily living in `scaffold-overlay/` because they weren't yet shipped by the npm package.
+
+---
+
 ## [0.8.2] — 2026-05-11 — README v2 + Dependabot seed for the public repo
 
 **Discoverability + dependency hygiene patch.** No framework surface changes — agent prompts, commands, protocols, templates, hooks, and the npm package's programmatic API are all byte-identical to v0.8.1. This release is what people see when they land on the GitHub repo, and how the repo manages its own dependency updates over time.

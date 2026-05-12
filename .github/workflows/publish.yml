@@ -57,9 +57,14 @@ jobs:
           echo "Tag and package versions aligned at $PKG_VERSION."
 
       - name: Publish to npm
+        # Trusted Publishing (OIDC): npm CLI detects the GitHub Actions OIDC
+        # context via the `id-token: write` permission set at the job level
+        # and authenticates against npm without a long-lived token. The
+        # NPM_TOKEN repo secret is retained as a fallback during the migration
+        # cutover; once a Trusted Publishing publish succeeds, that secret can
+        # be deleted. Configure the trusted publisher on npmjs.com →
+        # @tapintomymind/tap-agents → Settings → Trusted Publishers.
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Extract CHANGELOG entry for this version
         id: changelog
