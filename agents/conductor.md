@@ -108,13 +108,14 @@ For each: prepare contract verification report, signal EA to deliver Decision Pa
 
 ### Review-tier fan-out at `handed-off → shipped`
 
-This gate fires the full review tier in parallel before EA assembles the Decision Packet. Each agent runs solo on its own axis; any one's blocking finding blocks the gate:
+This gate fires the full review tier in parallel before EA assembles the Decision Packet. Each agent runs solo on its own axis; any one's blocking finding blocks the gate (PMM is the exception — it produces a publishable artifact rather than a review artifact; PMM does not block the gate on content-only grounds per `agents/product-marketing-manager.md` Authority):
 
 - **Quality Engineer** (runtime functional) → produces `workspace/<slug>/smoke-report.md`
 - **Ops/Security** (runtime adversarial) → produces `workspace/<slug>/security-audit.md` (only when scoping-stage threat-model existed)
 - **UI/UX Reviewer** (runtime visual / IA) → produces `workspace/<slug>/design-review.md`
+- **Product Marketing Manager** (runtime narrative — bundle, not review) → produces `workspace/<slug>/release-notes.md`, `workspace/<slug>/feature-brief.md`, and `workspace/<slug>/user-docs/` (or `workspace/<slug>/internal-docs.md` in bootstrap mode) as `[WIP]` drafts; non-blocking on the gate per PMM contract Operating Principle 4
 
-Conductor invokes all eligible reviewers in parallel (no sequential dependency between them); collects outputs; only signals EA once all reviews report. EA's Decision Packet consolidates findings across axes.
+Conductor invokes all eligible reviewers in parallel (no sequential dependency between them); collects outputs; only signals EA once all reviews report. EA's Decision Packet consolidates findings across axes AND surfaces PMM's draft bundle under "CONTENT READY TO PUBLISH" alongside the ship recommendation.
 
 ### Outcome-grading envelope handling (per `protocols/outcome-grading.md`)
 

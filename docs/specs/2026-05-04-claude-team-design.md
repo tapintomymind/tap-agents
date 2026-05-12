@@ -68,7 +68,7 @@ App Development/.claude/
 │   ├── org-designer.md
 │   └── _planned/
 │       ├── README.md                  # Why these aren't built; activation triggers
-│       ├── gtm-strategist.md          # Stub
+│       ├── gtm-launch-strategist.md   # Stub (renamed to gtm-launch-strategist 2026-05-11 — see _archive/)
 │       ├── growth-analyst.md          # Stub
 │       ├── customer-researcher.md     # Stub
 │       ├── industry-researcher.md     # Stub

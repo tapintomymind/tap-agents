@@ -1,0 +1,199 @@
+{
+  // Internal-to-public sync manifest, version 1.
+  //
+  // Defines the categorization rules for `scripts/sync-src/sync.ts`.
+  //
+  // Categorization order:
+  //   1. include[]  — paths matching any glob here are candidates for sync
+  //   2. exclude[]  — paths matching any glob here are dropped (specific
+  //                    include[] entries override broader exclude[] globs)
+  //   3. sanitize[] — explicit paths routed through a named sanitizer
+  //   4. template[] — explicit paths routed through a named transformer
+  //
+  // Drift between this manifest and the script's actual behavior is detected
+  // by `scripts/sync-src/verify-sync.ts` (manifest-vs-implementation gate).
+  //
+  // History notes:
+  //   - 2026-05-12: drift resolution — `.github/workflows/publish.yml` and
+  //     `.github/dependabot.yml` exist in BOTH trees. They must stay in
+  //     lockstep going forward; the broad `.github/**/*` include below covers
+  //     both. No sanitization (workflow YAML + dependabot config carry no
+  //     user-machine paths or secrets).
+
+  version: "1",
+
+  include: [
+    "agents/**/*.md",
+    "commands/**/*.md",
+    "protocols/**/*.md",
+    "templates/**/*",
+    "playbooks/**/*.md",
+    "hooks/**/*",
+    "docs/**/*.md",
+    "memory/README.md",
+    "memory/_examples/**/*",
+    "scripts/build-src/**/*",
+    "scripts/sync-src/**/*",
+    "scripts/telemetry-rollup.py",
+    "scripts/emit-metric.py",
+    "scripts/rollup-metrics.py",
+    "workspace/.gitkeep",
+    "workspace/_examples/**/*",
+    "workspace/_registry.md",
+    "workspace/_global/.gitkeep",
+    "workspace/_global/portfolio.json",
+    "workspace/_global/setup_state.json",
+    ".claude-plugin/**/*",
+    ".github/**/*",
+    "settings.json",
+    ".gitignore",
+    "AGENTS.md",
+    "LICENSE",
+    "README.md",
+    "tsconfig.json",
+    "package.json",
+    "package-lock.json",
+    "CHANGELOG.md",
+
+    // Convention-shell READMEs — propagate even though the parent directory
+    // is broadly excluded. See `_archive/` decision below.
+    "agents/_archive/README.md",
+    "agents/_planned/_proposals/README.md",
+    "agents/_planned/_proposals/_landed/README.md",
+  ],
+
+  exclude: [
+    // _archive/ contents excluded by default; only _archive/README.md
+    // propagates (added to include[] above; first-match priority on
+    // include[] specific path overrides this broader exclude).
+    "agents/_archive/**/*",
+
+    // _proposals/ contents excluded; _landed/ markers default-safe to NOT
+    // ship (doctrinal call retained in design §10 item 1). To enable
+    // shipping, uncomment the negation pattern below.
+    "agents/_planned/_proposals/**/*",
+    // "!agents/_planned/_proposals/_landed/**/*",
+
+    // Private memory — operator history, never ships.
+    "memory/agent-changelog-private.md",
+    "memory/framework-metrics.jsonl",
+    "memory/runtime-gotchas.md",
+    "memory/lessons-learned.md",
+    "memory/patterns.md",
+    "memory/incidents.md",
+    "memory/test-patterns.md",
+    "memory/ui-anti-patterns.md",
+    "memory/ui-patterns.md",
+    "memory/ui-references.md",
+    "memory/security-patterns.md",
+    "memory/intake-retros.md",
+    "memory/audience-knowledge.md",
+    "memory/product-principles.md",
+    "memory/stack-preferences.md",
+    "memory/backlog.md",
+    "memory/agent-changelog.md",
+
+    // Local/transient files.
+    "settings.local.json",
+    "**/*.local.json",
+    "**/.DS_Store",
+    "dist/**/*",
+    "node_modules/**/*",
+    "memory.next/**/*",
+    "memory.prev.*/**/*",
+
+    // workspace/_global — Tier 1 internal working surface. Project-instance
+    // state (backlog.json, active-sessions, decision-packets, etc.) stays
+    // internal even though some files in workspace/_global are public-ready
+    // (covered by explicit include[] entries above).
+    "workspace/_global/active-sessions.md",
+    "workspace/_global/architect-*",
+    "workspace/_global/critic-*",
+    "workspace/_global/decision-packets/**/*",
+    "workspace/_global/changelog-drafts/**/*",
+    "workspace/_global/memory-gap-audit-*.md",
+    "workspace/_global/org-designer-*",
+    "workspace/_global/orchestrator-discipline-rollout.md",
+    "workspace/_global/patterns-*.md",
+    "workspace/_global/session-handoff-*.md",
+    "workspace/_global/backlog-curator-notes.md",
+    "workspace/_global/architect-designs/**/*",
+    "workspace/_global/backlog.json",
+
+    // Project workspaces — instance state, never ships.
+    "workspace/agent-dashboard/**/*",
+    "workspace/claude-team-app/**/*",
+    "workspace/ip-protection/**/*",
+    "workspace/_inbox/**/*",
+
+    // _private — explicit private spaces.
+    "agents/_private/**/*",
+    "playbooks/_private/**/*",
+
+    // Secrets — belt + suspenders with .gitignore.
+    ".env",
+    ".env.*",
+    "!.env.example",
+    "**/*.pem",
+    "**/*.key",
+    "**/secrets/**",
+    "**/credentials/**",
+  ],
+
+  // Per-file sanitizers — run when source content needs transformation
+  // before landing in public. Today most files are byte-identical so
+  // sanitizers are pass-through placeholders. Defining them now means
+  // future drift is caught at sync time, not weeks later.
+  sanitize: {
+    "settings.json": "sanitize-settings",
+    "hooks/orchestrator-dispatch-gate.py": "sanitize-passthrough",
+    "hooks/pre-tool-gate.py": "sanitize-passthrough",
+    "hooks/prompt-router.py": "sanitize-passthrough",
+    "hooks/prompt-router-feedback.py": "sanitize-passthrough",
+    "hooks/session-start-brief.py": "sanitize-passthrough",
+    "hooks/stop-critic-check.py": "sanitize-passthrough",
+    "hooks/stop-dispatch-monitor.py": "sanitize-passthrough",
+    "hooks/version-gate.py": "sanitize-passthrough",
+    "hooks/_telemetry.py": "sanitize-passthrough",
+  },
+
+  // Files where internal and public diverge by design. The named
+  // transformer maps source -> target with explicit rules.
+  template: {
+    "CHANGELOG.md": "template-changelog",
+    "package.json": "template-package-json",
+    "package-lock.json": "template-package-lock",
+    "README.md": "template-readme",
+  },
+
+  // Project-slug genericization list — consumed by `template-changelog`.
+  //
+  // CHANGELOG.md narrates internal work in terms of specific project slugs
+  // (workspace/<slug>/...). Those slugs reference Tier-1-private workspaces
+  // that don't ship publicly. The transformer rewrites them to a generic
+  // `workspace/<project>/` placeholder so the public CHANGELOG keeps
+  // narrative continuity without leaking project identity.
+  //
+  // Two rewrites apply:
+  //   1. Path-shaped: `workspace/<slug>/...` -> `workspace/<project>/...`
+  //      (catches every entry of the form `workspace/agent-dashboard/foo.md`).
+  //   2. Bare label: standalone occurrences of a known slug -> `<project>`
+  //      (catches phrases like "agent-dashboard's BL-034" or
+  //      "agent-dashboard/.claude/docs/..." outside workspace/).
+  //
+  // Update this list when a new Tier-1 project workspace is created. The
+  // list MUST stay in sync with the `workspace/<slug>/**` exclude globs above
+  // — every excluded project slug here implies the path is private, so the
+  // CHANGELOG narration must also be genericized.
+  changelog_project_slugs: [
+    "agent-dashboard",
+    "claude-team-app",
+    "ip-protection",
+  ],
+
+  // When true, files present in target but absent in source (after applying
+  // include/exclude/sanitize/template) are listed as WARN — operator decides
+  // whether to keep or remove manually. The --delete flag turns this into
+  // an actionable deletion list instead of a passive warning.
+  warn_on_target_orphans: true,
+}

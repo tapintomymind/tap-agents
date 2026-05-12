@@ -17,12 +17,12 @@ Real friction beats imagined need. Building 12 agents on day one means:
 
 Better: ship 7 sharp agents, watch where the seams show, build specialists when evidence demands it.
 
-## Current Stubs (10)
+## Current Stubs (9)
 
 ### Post-shipping roles
 | Stub | Activation trigger |
 |---|---|
-| `gtm-strategist.md` | First project ships (handed-off → shipped) |
+| `gtm-launch-strategist.md` | Project reaches `shipped` AND has identifiable buyer surface — paid tier exists, OR B2B angle is concrete, OR multi-user surface ships, OR user explicitly requests launch coordination. Renamed + narrowed from prior `gtm-strategist.md` on 2026-05-11 (positioning + content production moved to active `product-marketing-manager`; pricing, channels, campaign coordination, conversational/outbound assets, demo scripts stay here). |
 | `growth-analyst.md` | First project has measurable users (shipped → measured) |
 | `feedback-synthesizer.md` | First project receives user feedback (reviews, support tickets, usage signals) |
 
@@ -31,15 +31,21 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 |---|---|
 | `customer-researcher.md` | Strategist's research consistently flagged as too shallow OR ICP definition repeatedly contested across projects |
 | `industry-researcher.md` | Strategist's competitive scans consistently flagged as too shallow OR competitive context becomes load-bearing |
-| `designer.md` | Critic flags missing design/UX decisions in 2+ projects, OR project requires non-trivial UX |
-| `ops-security.md` | First project handling sensitive data, OR security gaps flagged repeatedly |
 | `biz-finance.md` | First non-trivial pricing model OR unit economics becomes load-bearing |
 | `biz-legal.md` | First regulated-domain project, content licensing, or multi-jurisdiction deployment |
+| `technical-writer.md` | First of — (a) PMM's documentation output flagged by Critic as too marketing-voiced for technical readers in 2+ projects; (b) project exposes public API, SDK, or developer-facing integration surface; (c) Tier 2 reportback flags downstream consumers (developers, integrators, partners) need reference-grade docs; (d) explicit user request. Sibling to active `product-marketing-manager` — PMM owns marketing-voiced user-facing content; TW owns reference-voiced developer content. |
+| `test-engineer.md` | (See file for activation trigger.) |
 
-### Review tier (HQ)
-| Stub | Activation trigger |
-|---|---|
-| `quality-engineer.md` | First of — (a) next post-deploy incident with runtime/deploy/env root cause; (b) project handling paid users / payments / user-data writes; (c) project where Architect's tech-strategy cites runtime risk as one of 3 named risks. |
+## Activated agents (formerly stubs)
+
+These roles were activated and moved to the live roster. The original stub files are preserved under `_archive/` with the `<role>-promoted-YYYY-MM-DD.md` naming convention; see `agents/_archive/README.md`. Activation narrative is in `memory/agent-changelog.md`.
+
+| Activated agent | Activated on | Archived stub |
+|---|---|---|
+| `designer` | 2026-05-?? | (live `agents/designer.md`; original stub absorbed pre-archive convention) |
+| `ops-security` | 2026-05-06 | `_archive/ops-security-promoted-2026-05-06.md` |
+| `quality-engineer` | 2026-05-06 | `_archive/quality-engineer-superseded-2026-05-06.md` (the pre-activation stub was reshaped via merge, not a clean promotion — see `memory/agent-changelog.md`) |
+| `product-marketing-manager` | 2026-05-11 | (activated as a new role rather than a stub promotion; partial supersession of prior `gtm-strategist.md`, renamed to `gtm-launch-strategist.md` on the same date) |
 
 ## Activation Process
 
@@ -58,19 +64,19 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 
 When Org Designer identifies *another* future need (beyond these 5), it writes a new stub here following the same format. Stubs themselves don't require user approval — only activations do.
 
-## Why These 10 Specifically
+## Why These 9 Specifically
 
-**Post-shipping (3):** GTM, Growth, Feedback — can't usefully exist before something ships.
+**Post-shipping (3):** GTM Launch Strategist, Growth, Feedback — can't usefully exist before something ships. `gtm-launch-strategist` renamed and narrowed from prior `gtm-strategist` on 2026-05-11: positioning + content production (release notes, feature briefs, user-facing docs) moved to active `product-marketing-manager`; pricing, channel mix, campaign timing, conversational/outbound assets, demo scripts stay in this stub.
 
 **Research depth (2):** Customer / Industry Researchers — Strategist handles first-line; split off when depth is needed.
 
-**Design (1):** Designer — Strategist's PRD covers basics; activate when UX becomes load-bearing.
-
-**Ops/Security (1):** Activate when handling sensitive data; basic security via Architect + Critic until then.
-
 **Business/Finance + Legal (2):** Strategist handles light versions; activate when monetization or compliance gets complex.
 
-**Quality Engineer (1):** Critic reviews artifacts (plan axis); QE reviews running systems (runtime axis). Stubbed 2026-05-05 in response to first post-deploy incident — the gap is structural (no agent currently exercises the deployed system), not statistical (N=1). Stub form chosen because layered defense via Architect audit-checklist patch + Critic pattern-library warning closes the immediate seed-incident class without a live agent.
+**Content (1):** Technical Writer — sibling specialization to active `product-marketing-manager`. PMM owns marketing-voiced user-facing content (release notes, feature briefs, user docs); TW owns reference-voiced developer content (API specs, SDK reference, integration guides). Activate when PMM's marketing voice is flagged as wrong-register in 2+ projects, OR when a project exposes a developer-facing surface.
+
+**Test Engineer (1):** See `test-engineer.md` for activation context.
+
+**Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` — see "Activated agents" table above and `_archive/`.
 
 **Not in stubs (intentionally):**
 - DevOps, deployment, per-project unit-test authoring — belong to Tier 2 (per-project), not HQ

@@ -71,6 +71,8 @@ QE has two insertion points in the state machine: parallel with Architect at `sc
 1. **Read `test-plan.md`** — your prior output. Execute every item on the smoke-test command list.
 2. **Hit the deployed system** (not local dev) using the URL from `state.json.tier2_deployed_at`. Every test in the plan must be run; skipped tests must be listed in the NOT-tested section with a reason.
 3. **Run exploratory pass.** After the plan, poke the system adversarially: try authenticated routes without a session, try 404 paths, try malformed inputs, try the auth error page. Document what you tried.
+
+   **Supplementary exploratory seed — `feature-brief.md` (when present, post-PMM activation 2026-05-11).** If `workspace/<slug>/feature-brief.md` exists, it is a *supplementary* input to the exploratory pass, not a blocking criterion. Read the documented user flows and add them to your exploratory probe set — the flows are essentially test sequences in user-facing voice. **PRD acceptance criteria remain the primary rubric** for smoke pass/fail (the rubric extraction in step 4 still derives from `prd.md §Acceptance`). If you cannot reproduce a documented flow from `feature-brief.md`, that is a *finding* — log it under `smoke-report.md §Exploratory observations` with the brief reference (e.g., "feature-brief.md §3 step 4: documented flow doesn't match observed behavior") and signal EA to route the finding back to PMM (likely doc revision needed at the shipped finalize pass). The mismatch is not a `blocking` smoke failure on its own — ship is not gated on doc-vs-impl alignment via this channel. PMM reconciles `feature-brief.md` against `smoke-report.md` at its shipped finalize pass per `agents/product-marketing-manager.md`.
 4. **Extract rubric from PRD acceptance criteria** (per `protocols/outcome-grading.md`):
    - Read `prd.md §Acceptance` items. Each becomes a criterion ID (`AC-1`, `AC-2`, ...).
    - Cross-reference your prior `test-plan.md` — each AC was already mapped to ≥1 test there.
@@ -192,8 +194,8 @@ At 5x team size or 10 shipped projects, QE evolves:
 ## Cross-References
 
 - Source proposal: `workspace/_global/org-designer-proposals/20260505-2330-quality-engineer.md`
-- Promotion proposal: `.claude/agents/_planned/_proposals/qe-promotion-2026-05-06.md`
-- Superseded stub: `.claude/agents/_planned/quality-engineer-superseded-2026-05-06.md`
+- Promotion proposal: `.claude/agents/_planned/_proposals/_landed/qe-promotion-2026-05-06.md`
+- Superseded stub: `.claude/agents/_archive/quality-engineer-superseded-2026-05-06.md`
 - Seed incident: `memory/incidents.md` 2026-05-05 entry
 - Counterpart role: `agents/critic.md` (plan axis)
 - Audit role this complements: `agents/architect.md` (artifact-level pre-launch audit)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tier 2 PreToolUse hook — orchestrator dispatch gate.
+PreToolUse hook — orchestrator dispatch gate.
 
 Hard-blocks code-MUTATING tool calls on the main (orchestrator) thread.
 Subagent tool calls pass through. This enforces the TapAgents product
@@ -24,6 +24,9 @@ Allowed on main thread (read-only / status):
   - Read, Grep, Glob, etc. — all non-mutating tools
   - Bash for: git status/log/diff/branch/show, ls, cat, find, grep,
     npm/pnpm/yarn run-scripts (test, lint, build), tsc, etc.
+  - Edit/Write on Claude Code's user auto-memory directory
+    (`~/.claude/projects/<encoded-project>/memory/*.md`) — documented
+    inline-write surface per Claude Code OS instructions.
 
 Wired in: ../.claude/settings.json -> hooks.PreToolUse[1] (after
 pre-tool-gate.py which handles dangerous patterns / env-file edits).
@@ -88,6 +91,17 @@ MUTATING_BASH_PATTERNS: list[tuple[re.Pattern, str]] = [
 # File-mutating tools — always blocked on main thread.
 FILE_MUTATING_TOOLS = {"Edit", "Write", "NotebookEdit"}
 
+# Allowlist: Claude Code's user auto-memory directory.
+# Path shape: ~/.claude/projects/<encoded-project>/memory/*.md
+# Claude Code's OS-level instructions tell Claude to write/edit memory files
+# directly via Write/Edit. Forcing those through a subagent burns context
+# and adds latency for zero audit value (memory files are user-state, not
+# project artifacts). The pattern is intentionally tight — only matches
+# the `~/.claude/projects/<segment>/memory/` shape that Claude Code itself
+# owns; does NOT match framework `.claude/` paths (App Development/.claude/...)
+# or Tier 2 `.claude/` paths (App Development/<project>/.claude/...).
+AUTO_MEMORY_PATH_RE = re.compile(r"/\.claude/projects/[^/]+/memory/")
+
 AGENT_HINT = (
     "Dispatch a subagent via the Agent tool. Likely candidates:\n"
     "  - `architect` / `strategist` / `designer` for planning + spec work\n"
@@ -128,7 +142,7 @@ def block(reason: str, *, payload: dict, tool_name: str, subtype: str, summary: 
     sys.stderr.write(
         "Orchestrator-dispatch gate BLOCKED: " + reason + "\n\n" + AGENT_HINT + "\n\n"
         "To override for one call: the user can comment out this hook in "
-        "`agent-dashboard/.claude/settings.json` (hooks.PreToolUse) or accept the "
+        "the active `.claude/settings.json` (hooks.PreToolUse) or accept the "
         "dispatch path. Drift is the cost the gate is here to prevent.\n"
     )
     emit_event(
@@ -168,6 +182,21 @@ def main() -> int:
     # File-mutating tools — block on main thread.
     if tool_name in FILE_MUTATING_TOOLS:
         file_path = tool_input.get("file_path") or "(unknown)"
+        # Allowlist: Claude Code's user auto-memory directory. Match the path
+        # shape `~/.claude/projects/<segment>/memory/` regardless of leading
+        # $HOME prefix. Emit a passthrough event so the bypass is observable.
+        if AUTO_MEMORY_PATH_RE.search(file_path):
+            emit_event(
+                source="orchestrator-dispatch-gate",
+                type="pass",
+                subtype="auto-memory-passthrough",
+                agent_context="orchestrator",
+                agent_type=None,
+                agent_id=None,
+                payload={"tool_name": tool_name, "summary": f"{tool_name} on {file_path}"},
+                session_id=payload.get("session_id"),
+            )
+            return 0
         return block(
             f"`{tool_name}` on `{file_path}` from the orchestrator thread is blocked. "
             "Code changes flow through subagents.",

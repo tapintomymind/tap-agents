@@ -1,0 +1,44 @@
+{
+  "_comment": "Master registry — machine-readable cross-project state. Updated by Conductor on every state transition. Companion to workspace/_registry.md (human-readable view).",
+  "schema_version": "1.0",
+  "last_updated_at": "2026-05-06T17:15:00Z",
+  "projects": {
+    "claude-team-app": {
+      "slug": "claude-team-app",
+      "working_name": "Tap Studio",
+      "current_phase": "planned",
+      "entered_phase_at": "2026-05-05T07:55:00Z",
+      "last_agent": "architect (rev-2)",
+      "last_agent_at": "2026-05-05T07:30:00Z",
+      "priority": "high",
+      "priority_reason": "Eat-own-dog-food project; first real test of team end-to-end",
+      "blocked_on": null,
+      "next_action": "EA Decision Packet: planned → scaffold (confirm target repo path + go)",
+      "created_at": "2026-05-04T22:00:00Z",
+      "workspace_path": "workspace/claude-team-app/"
+    },
+    "ip-protection": {
+      "slug": "ip-protection",
+      "working_name": "TapAgents IP Protection (Architecture-as-Protection via Option D)",
+      "current_phase": "briefed",
+      "phase_status": "pending_user_approval",
+      "entered_phase_at": "2026-05-06T17:15:00Z",
+      "last_agent": "intake (round 4 — paid-subs scoping)",
+      "last_agent_at": "2026-05-06T17:15:00Z",
+      "priority": "high",
+      "priority_reason": "Architectural decision (Option D — stub agents + remote MCP server) gates monetization of TapAgents and TapHQ. Pricing/biz-finance and GTM activation hinge on this brief landing.",
+      "blocked_on": "user approval of intake-brief.md (DRAFT)",
+      "next_action": "User approves intake-brief.md → Conductor advances to stratego, or Architect dispatched in parallel for MCP-server spike while paid-subs discussion continues with biz-finance once activated.",
+      "created_at": "2026-05-06T16:11:00Z",
+      "workspace_path": "workspace/ip-protection/"
+    }
+  },
+  "stats": {
+    "total_projects": 2,
+    "active": 2,
+    "paused": 0,
+    "shipped": 0,
+    "abandoned": 0,
+    "pivoted": 0
+  }
+}
