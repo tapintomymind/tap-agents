@@ -8,6 +8,16 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-11 — Packaging fix: settings.json + memory/ + playbooks/ ship in npm tarball (v0.8.1)
+
+**PATCH-grade packaging fix.** The v0.8.0 npm package omitted three top-level surfaces (`settings.json`, `memory/`, `playbooks/`) from the `files` allow-list. `agent-dashboard`'s prebuild integrity check (`scripts/copy-scaffold-source.mjs:findMissing`) flagged this immediately when the dashboard installed v0.8.0 as a dep and tried to source from `node_modules/@tapintomymind/tap-agents/`.
+
+Both `files` (controls what gets tarball'd) and `exports` (controls what consumers can resolve via `import` / `require.resolve`) updated atomically. No agents, commands, protocols, or templates were added/removed/renamed — purely a publish-surface fix.
+
+**Why PATCH not MINOR.** Per `protocols/versioning-protocol.md` §3.1, PATCH applies when no existing consumer's behavior changes. The v0.8.0 install was already broken for the dashboard's path — no consumer was successfully using these files. Adding them is a fix, not an addition.
+
+**Validation in flight.** `agent-dashboard`'s migration session is paused on this patch landing. Once v0.8.1 publishes, the dashboard re-installs and the integrity check passes.
+
 ## 2026-05-11 — Distribution wedge: SemVer protocol + npm pipeline + Claude Code marketplace manifest (v0.8.0)
 
 **Framework structural addition.** The framework becomes a dual-channel distributable: published to the npm registry as `@tapintomymind/tap-agents` (for programmatic consumers — `agent-dashboard` will be the first, replacing its `scaffold-source/` mirror) and to the Claude Code plugin marketplace at `tapintomymind/tap-agents` (for end-user `/plugin marketplace add` installs). Both channels read from this canonical repo. One source of truth, two egress paths.

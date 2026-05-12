@@ -4,6 +4,21 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.8.1] — 2026-05-11 — Packaging fix: settings.json + memory/ + playbooks/ included in npm tarball
+
+**Packaging-only patch.** No framework surface changes — only the npm-package `files` + `exports` fields. Consumer-facing addition: three previously-omitted top-level surfaces now ship with the published tarball.
+
+### Changed
+
+- **`package.json`** `files` field — added `"memory"`, `"playbooks"`, `"settings.json"` so they ship in the npm tarball. The dashboard's prebuild + runtime resolvers expected these and would have failed integrity checks against the v0.8.0 install.
+- **`package.json`** `exports` field — added `"./memory/*"`, `"./playbooks/*"`, `"./settings.json"` so consumers can resolve these paths via `import` / `require.resolve`.
+
+### Provenance
+
+Surfaced during the `agent-dashboard` migration session — the prebuild integrity check (`scripts/copy-scaffold-source.mjs:findMissing`) flagged the gap when `node_modules/@tapintomymind/tap-agents/` was checked against `REQUIRED_ENTRIES`. PATCH-grade because no existing consumer's behavior changes (the v0.8.0 install was unusable for the dashboard's path; v0.8.1 fixes that). Per `protocols/versioning-protocol.md` §3.1 — fixing a packaging oversight that no consumer relied on at v0.8.0 is consistent with PATCH semantics.
+
+---
+
 ## [0.8.0] — 2026-05-11 — Distribution wedge: SemVer protocol + npm publish pipeline + Claude Code marketplace manifest
 
 **Framework structural addition — initial public release.** Establishes the framework as a dual-channel distributable: published to the npm registry as `@tapintomymind/tap-agents` for programmatic consumers (starting with `agent-dashboard`, which will replace its `scaffold-source/` mirror with this dependency), and published to the Claude Code plugin marketplace at `tapintomymind/tap-agents` for end-user `/plugin marketplace add` installs.
