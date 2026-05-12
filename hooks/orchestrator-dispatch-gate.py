@@ -46,6 +46,19 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
+
+# Import the shared telemetry helper that lives alongside us in hooks/.
+# `_`-prefix prevents the build-script's frontmatter-listing logic from
+# picking it up as a top-level hook. Fail-open: if the import itself
+# fails (file missing, syntax error, etc.), the gate still works — we
+# just don't emit.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
 
 # Bash subcommand patterns that constitute code/state mutation.
 # Tight list — avoid false-positives on read commands.
@@ -103,20 +116,46 @@ def find_mutating_bash(command: str) -> str | None:
     return None
 
 
-def block(reason: str) -> int:
+def block(reason: str, *, payload: dict, tool_name: str, subtype: str, summary: str) -> int:
+    """Hard-block the tool call with stderr message + emit a telemetry event.
+
+    Telemetry emit is fail-open: any emit_event() exception is swallowed
+    by _telemetry, so blocking semantics are unaffected.
+    """
     sys.stderr.write(
         "Orchestrator-dispatch gate BLOCKED: " + reason + "\n\n" + AGENT_HINT + "\n\n"
         "To override for one call: the user can comment out this hook in "
         "`agent-dashboard/.claude/settings.json` (hooks.PreToolUse) or accept the "
         "dispatch path. Drift is the cost the gate is here to prevent.\n"
     )
+    emit_event(
+        source="orchestrator-dispatch-gate",
+        type="block",
+        subtype=subtype,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload={"tool_name": tool_name, "summary": summary},
+        session_id=payload.get("session_id"),
+    )
     return 2
+
+
+# Subtype derivation: matches the `subtype` field documented in
+# protocols/telemetry-events.md. One per tool-class so consumers can group
+# without parsing the payload.summary.
+_FILE_TOOL_SUBTYPE = {
+    "Edit": "edit",
+    "Write": "write",
+    "NotebookEdit": "notebook-edit",
+}
 
 
 def main() -> int:
     payload = read_payload()
 
-    # Subagent? Always allow — that's the whole point.
+    # Subagent? Always allow — that's the whole point. Don't emit on pass
+    # per BL-035 §2.3 (keep events.jsonl small in v0.10.0).
     if is_subagent(payload):
         return 0
 
@@ -128,7 +167,11 @@ def main() -> int:
         file_path = tool_input.get("file_path") or "(unknown)"
         return block(
             f"`{tool_name}` on `{file_path}` from the orchestrator thread is blocked. "
-            "Code changes flow through subagents."
+            "Code changes flow through subagents.",
+            payload=payload,
+            tool_name=tool_name,
+            subtype=_FILE_TOOL_SUBTYPE.get(tool_name, "file-mutate"),
+            summary=f"{tool_name} on {file_path}",
         )
 
     # Bash — block only on mutating subcommand patterns.
@@ -139,7 +182,11 @@ def main() -> int:
             return block(
                 f"Bash `{label}` on the orchestrator thread is blocked. "
                 f"State-mutating commands flow through subagents.\n"
-                f"  command was: {cmd!r}"
+                f"  command was: {cmd!r}",
+                payload=payload,
+                tool_name="Bash",
+                subtype="bash-mutate",
+                summary=f"{label}: {cmd}",
             )
 
     return 0

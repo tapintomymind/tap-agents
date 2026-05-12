@@ -4,6 +4,49 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.10.0] — 2026-05-12 — Dispatch-gate telemetry + auto-pattern memory note
+
+**First slice of the broader telemetry layer (BL-035).** Every time `hooks/orchestrator-dispatch-gate.py` hard-blocks a code-mutating tool call on the main thread, it now also appends one structured JSON-line event to a per-workspace `events.jsonl`. A new Stop hook (`hooks/stop-dispatch-monitor.py`) reads the same file, counts orchestrator-source blocks for the current session, and — at ≥ 3 blocks — auto-writes a `runtime_dispatch_gate_pattern_<YYYYMMDD>_<sid>.md` memory note + appends an index pointer to `MEMORY.md`. The schema is frozen at this release and designed to absorb future event types (prompt-router classifications, slash-command invocations, hook misfires) without re-architecture — single `events.jsonl` per workspace, additive-only field evolution. See `protocols/telemetry-events.md` for the full schema + producer/consumer contracts.
+
+**Motivation.** `memory/feedback_orchestrator_session_discipline.md` captured the 3+-same-class threshold for dispatching a reviewer agent OR appending to anti-patterns log; until BL-035 that threshold was a hand-counted observation no automation could see. The events.jsonl + stop-dispatch-monitor pair makes the threshold mechanical — pattern notes land on disk without a human noticing first. The note is observational (Stop never blocks because of it), and the routing-nudge / new-specialist-agent decision still belongs to the user reading `MEMORY.md` next session.
+
+### Added
+
+- **`hooks/_telemetry.py`** (NEW, ~170 LOC) — shared stdlib-only helper module. Single exported function `emit_event(source, type, subtype, agent_context, agent_type, agent_id, payload, session_id)` appends one JSON-line event to `<workspace>/_global/events.jsonl`. Auto-creates `_global/` if missing. Mirrors `session-start-brief.py`'s `find_workspace()` logic across the Tier 1 / Tier 2 / framework layouts. Truncates `payload.summary` to 200 chars. Fail-open on every failure path — telemetry never breaks the calling hook's primary signal. Underscore prefix keeps it out of the npm-package's manifest indexing (it's a helper, not a hook entry point); hooks that need it `sys.path.insert` the hooks dir and `from _telemetry import emit_event`.
+- **`hooks/stop-dispatch-monitor.py`** (NEW, ~220 LOC) — Stop hook. Reads `<workspace>/_global/events.jsonl`, filters for `source=orchestrator-dispatch-gate AND type=block AND agent_context=orchestrator AND session_id=<this-session>`, and — at ≥ 3 events — writes `<user-memory>/runtime_dispatch_gate_pattern_<YYYYMMDD>_<short-sid>.md` with frontmatter (`name` / `description` / `type: runtime`) + body listing the events. Prepends a one-line index pointer to `MEMORY.md`. Always exits 0 (observational; never blocks Stop). `stop_hook_active` anti-loop guard per the Claude Code Stop hook spec.
+- **`protocols/telemetry-events.md`** (NEW, ~165 lines) — frozen v0.10.0 schema for the events log. Documents the 9 top-level fields, reserved `payload.summary` / `payload.tool_name` keys, additive-only versioning rules (new fields = MINOR, new `type`/`subtype` values = MINOR, removals = MAJOR with a `events.v2.jsonl` migration window), producer contract (fail-open, no third-party deps, all-keyword args, no emit on pass), consumer contract (ignore unknown fields, tolerate unknown values, skip bad lines, filter by `session_id`/`source`). Lists the reserved next-slice triples (prompt-router classifications, slash-command fires, hook misfires) so the next author knows the naming conventions.
+
+### Changed
+
+- **`hooks/orchestrator-dispatch-gate.py`** — on every `return 2` (every hard-block), now calls `emit_event(...)` with `source="orchestrator-dispatch-gate"`, `type="block"`, `subtype` of `edit`/`write`/`notebook-edit`/`bash-mutate` per the tool class, `agent_context="orchestrator"`, and `payload.tool_name` + `payload.summary`. Does NOT emit on pass (subagent calls, read-only tools, etc.) — v0.10.0 keeps the events.jsonl tight; emit-on-pass is reserved for a later observability tier. The hook's primary block semantics are unchanged: exit 2 with the same stderr message, same agent-hint suggestions.
+- **`settings.json` Stop hook chain** — appends `stop-dispatch-monitor.py` after the existing `stop-critic-check.py` (framework / tap-agents / scaffold-source) or `stop-tier2-check.py` (agent-dashboard tier-2). The existing first-stage hook keeps its blocking semantics; the new second-stage hook is observational (always exits 0). Order matters: critic-check first so a real BLOCKING concern doesn't get masked by a routine telemetry rollup.
+
+### Propagated
+
+- All four hook directories (framework `.claude/hooks/`, `tap-agents/hooks/`, `agent-dashboard/scaffold-source/hooks/`, `agent-dashboard/hooks/`) receive the new `_telemetry.py` + `stop-dispatch-monitor.py` + the updated `orchestrator-dispatch-gate.py`. `chmod +x` applied to the two executable scripts. `protocols/telemetry-events.md` mirrored to `tap-agents/protocols/` + `agent-dashboard/scaffold-source/protocols/` so the dist build picks it up.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+- New hook (`stop-dispatch-monitor.py`) added to `hooks/` and wired into `settings.json` → MINOR per §3.2 ("new hook added to `hooks/` and wired into `settings.json` (existing hooks unchanged)").
+- New protocol (`telemetry-events.md`) added to `protocols/` → MINOR per §3.2 ("new protocol added to `protocols/`").
+- New shared helper (`_telemetry.py`) added — not a top-level hook entry point (underscore-prefixed); from the npm consumer's perspective this is an additive packaging item.
+- Existing hook (`orchestrator-dispatch-gate.py`) gains a side-effect on the block path (emit one JSON-line); the block-vs-pass semantics are byte-identical. No existing consumer breaks.
+
+No removals, no renames, no contract narrowings → **MINOR**.
+
+### Cross-channel sync
+
+Per `protocols/versioning-protocol.md §6`, all three channel-version fields are updated atomically: `package.json` `version` `0.9.0 → 0.10.0`, `.claude-plugin/plugin.json` `version` `0.9.0 → 0.10.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.9.0 → 0.10.0`. The marketplace `description` field also drops the stale "two enforcement hooks" phrasing in favor of "five enforcement + telemetry hooks" (correct count post-rollout). Both Tier 1 framework `.claude/` and the public `tap-agents/` repo carry the same triplet.
+
+### Provenance
+
+- Seed brief: BL-035 (2026-05-12 user-authored) — auto-log dispatch-gate blocks + write a memory pattern note at ≥ 3 blocks per session.
+- Schema-design constraint: forward-compat with prompt-router classifications, slash-command invocations, hook misfires landing in the SAME events.jsonl. See `protocols/telemetry-events.md §2.4`.
+- Motivating memory: `memory/feedback_orchestrator_session_discipline.md` — "on 3+ fixes of the same class in one session, dispatch the matching reviewer agent OR append to anti-patterns log. The framework has the surface; I have to use it." BL-035 closes that gap: the surface now writes itself.
+
+---
+
 ## [0.9.0] — 2026-05-12 — Orchestrator-discipline rollout: dispatch-gate + session-start briefing + prompt-router + /park + /refocus
 
 **Framework structural addition.** Three new hooks (`session-start-brief.py`, `prompt-router.py`, `orchestrator-dispatch-gate.py`) + two new slash commands (`/park`, `/refocus`) operationalize the TapAgents product thesis at the harness layer — that the orchestrator (the main Claude session) **dispatches** work to subagents rather than implementing inline. The dispatch-gate hard-blocks `Edit` / `Write` / `NotebookEdit` and mutating-Bash (`git commit|rebase|merge|cherry-pick|revert`, `git reset --hard`, `git push`, package-manager installs, `drizzle-kit push|migrate`, `vercel deploy|link`) on the main thread, while subagent calls bypass via the `agent_id` / `agent_type` PreToolUse payload fields per the Claude Code hook spec. SessionStart auto-loads workspace state and injects an orchestrator briefing. UserPromptSubmit classifies prompts and nudges toward dispatch (on code-intent verbs) or `/park` (on side-thought patterns), silent on status / slash / acknowledgement prompts.
