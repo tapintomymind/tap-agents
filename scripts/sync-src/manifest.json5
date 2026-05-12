@@ -182,6 +182,11 @@
     "hooks/stop-dispatch-monitor.py": "sanitize-passthrough",
     "hooks/version-gate.py": "sanitize-passthrough",
     "hooks/_telemetry.py": "sanitize-passthrough",
+    // BL-055 session-tracking hook stack (v0.15.0)
+    "hooks/_session_tracking.py": "sanitize-passthrough",
+    "hooks/session-tracking-register.py": "sanitize-passthrough",
+    "hooks/session-tracking-files.py": "sanitize-passthrough",
+    "hooks/session-tracking-seal.py": "sanitize-passthrough",
   },
 
   // Files where internal and public diverge by design. The named
