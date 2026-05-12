@@ -25,6 +25,34 @@ import os
 import sys
 from pathlib import Path
 
+# Shared telemetry helper — fail-open import. Block semantics unaffected.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+
+def _classify_issue(issue: str) -> str:
+    """Map a Stop-block issue string to its telemetry subtype.
+
+    Per protocols/telemetry-events.md, three subtypes: blocked-on | contested |
+    critic-blocking. Phrase-based discrimination is sufficient — each issue
+    string is built by the same generator a few lines up.
+    """
+    lower = issue.lower()
+    if "blocked_on" in lower:
+        return "blocked-on"
+    if "contested" in lower:
+        return "contested"
+    if "critic" in lower:
+        return "critic-blocking"
+    return "unknown"
+
 
 def main() -> int:
     try:
@@ -84,6 +112,22 @@ def main() -> int:
     if not issues:
         return 0
 
+    # Emit one telemetry event per distinct issue. Subtype follows the brief's
+    # enumeration (blocked-on | contested | critic-blocking). Summary is the
+    # issue text itself, truncated by the helper.
+    session_id = payload.get("session_id")
+    for issue in issues:
+        emit_event(
+            source="stop-critic-check",
+            type="block",
+            subtype=_classify_issue(issue),
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload={"summary": issue},
+            session_id=session_id,
+        )
+
     # Block stoppage. Agent receives stderr and continues.
     message = (
         "Stop blocked by Claude Team verification:\n\n"
@@ -96,4 +140,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="stop-critic-check",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

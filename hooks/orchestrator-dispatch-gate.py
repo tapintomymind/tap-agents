@@ -55,9 +55,12 @@ from pathlib import Path
 # just don't emit.
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _telemetry import emit_event  # type: ignore[import-not-found]
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
 except Exception:  # noqa: BLE001 — fail-open telemetry import
     def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
         return
 
 # Bash subcommand patterns that constitute code/state mutation.
@@ -193,4 +196,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="orchestrator-dispatch-gate",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

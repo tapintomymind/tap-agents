@@ -9,8 +9,8 @@
     {
       "name": "tapagents",
       "source": ".",
-      "version": "0.10.0",
-      "description": "The full TapAgents framework — 14 agents, 15 commands, 29 protocols, stack-aware templates, five enforcement + telemetry hooks. Installs a complete AI product team in your repo."
+      "version": "0.11.0",
+      "description": "The full TapAgents framework — 14 agents, 15 commands, 29 protocols, stack-aware templates, seven instrumented enforcement + telemetry hooks (every hook fire / block / classification / misfire lands in events.jsonl). Installs a complete AI product team in your repo."
     }
   ]
 }

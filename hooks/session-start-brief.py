@@ -43,6 +43,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+# Shared telemetry helper — fail-open import. Briefing emit is unaffected
+# if the helper is missing.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
 
 def find_workspace() -> Path | None:
     """Locate the active workspace/ directory across both layouts.
@@ -269,6 +281,33 @@ def _routing_rule_block(source: str) -> str:
 # Entry
 # ------------------------------------------------------------------------
 
+def _emit_fire_event(*, mode: str, source: str, payload_in: dict,
+                     projects_count: int, blocked_count: int,
+                     summary: str) -> None:
+    """Emit one telemetry `fire` event for the session-start brief.
+
+    Subtype mirrors the hook payload's `source` field (startup|resume|clear|compact)
+    per protocols/telemetry-events.md. `mode` is captured in the summary +
+    payload extras so consumers can distinguish tier1 vs tier2 vs bootstrap
+    without parsing the summary string.
+    """
+    emit_event(
+        source="session-start-brief",
+        type="fire",
+        subtype=source if source in {"startup", "resume", "clear", "compact"} else "unknown",
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload={
+            "summary": summary,
+            "mode": mode,
+            "projects_count": projects_count,
+            "blocked_count": blocked_count,
+        },
+        session_id=payload_in.get("session_id"),
+    )
+
+
 def main() -> int:
     payload = read_payload()
     source = payload.get("source", "startup")
@@ -277,12 +316,32 @@ def main() -> int:
     state = load_state(TIER2_STATE) if TIER2_STATE else None
     if state is not None:
         emit(render_tier2_brief(state, source))
+        milestone = state.get("current_milestone", "?")
+        blocked = 1 if state.get("blocked_on") else 0
+        _emit_fire_event(
+            mode="tier2-single-project",
+            source=source,
+            payload_in=payload,
+            projects_count=1,
+            blocked_count=blocked,
+            summary=f"tier2-single-project, milestone {milestone}",
+        )
         return 0
 
     # Tier 1 multi-project shape.
     projects = discover_projects()
     if projects:
         emit(render_tier1_brief(projects, source))
+        n = len(projects)
+        blocked_n = sum(1 for _slug, st, _p in projects if st.get("blocked_on"))
+        _emit_fire_event(
+            mode="tier1-multi-project",
+            source=source,
+            payload_in=payload,
+            projects_count=n,
+            blocked_count=blocked_n,
+            summary=f"tier1-multi-project, {n} projects, {blocked_n} blocked",
+        )
         return 0
 
     # No state at all — emit only the routing rule + a hint to bootstrap.
@@ -293,8 +352,26 @@ def main() -> int:
         "`/status` to ask EA for a cross-project view.\n\n"
         + _routing_rule_block(source)
     )
+    _emit_fire_event(
+        mode="bootstrap",
+        source=source,
+        payload_in=payload,
+        projects_count=0,
+        blocked_count=0,
+        summary="bootstrap (no state)",
+    )
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="session-start-brief",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

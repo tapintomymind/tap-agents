@@ -35,6 +35,24 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Shared telemetry helper — fail-open import. The gate's block semantics are
+# unaffected if the helper is missing or fails to import.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+
+# Module-level state — stashed by main() so _block() can attach session_id
+# + tool_name to the telemetry emit without rewriting every callsite.
+_HOOK_PAYLOAD: dict = {}
+_TOOL_NAME: str = ""
+
 
 # --- helpers ------------------------------------------------------------------
 
@@ -219,9 +237,41 @@ def _changelog_staged_for(version: str) -> bool:
 # --- gate logic ---------------------------------------------------------------
 
 
+def _block_subtype(message: str) -> str:
+    """Discriminate the version-gate block class from the reason string.
+
+    Subtypes are stable consumer-facing values per protocols/telemetry-events.md.
+    Map by phrase fragments that appear in the block message bodies in this file.
+    """
+    m = message.lower()
+    if "semver sequence" in m or "not a legal semver step" in m or "going backwards" in m or "equal to last tag" in m:
+        return "sequence"
+    if "severity-floor" in m or "severity floor" in m:
+        return "severity-floor"
+    if "tag/package version mismatch" in m or "marketplace version drift" in m or "must be prefixed with 'v'" in m:
+        return "matchup"
+    # All atomicity invariants: package.json without CHANGELOG, no staged heading,
+    # missing 'version' field. Default bucket — the protocol enumerates four
+    # subtypes so unmatched messages fall under atomicity rather than "unknown".
+    return "atomicity"
+
+
 def _block(message: str) -> None:
     """Exit 2 with `message` on stderr. Claude Code surfaces this back to the orchestrator."""
     sys.stderr.write("version-gate.py: " + message + "\n")
+    # Telemetry emit — fail-open inside _telemetry. Module-level _HOOK_PAYLOAD
+    # carries session_id + agent fields stashed by main() before any check
+    # function ran.
+    emit_event(
+        source="version-gate",
+        type="block",
+        subtype=_block_subtype(message),
+        agent_context="subagent" if (_HOOK_PAYLOAD.get("agent_id") or _HOOK_PAYLOAD.get("agent_type")) else "orchestrator",
+        agent_type=_HOOK_PAYLOAD.get("agent_type"),
+        agent_id=_HOOK_PAYLOAD.get("agent_id"),
+        payload={"tool_name": _TOOL_NAME, "summary": message},
+        session_id=_HOOK_PAYLOAD.get("session_id"),
+    )
     sys.exit(2)
 
 
@@ -337,6 +387,7 @@ def _check_package_edit(file_path: str) -> None:
 
 
 def main() -> None:
+    global _HOOK_PAYLOAD, _TOOL_NAME
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:
@@ -345,6 +396,11 @@ def main() -> None:
 
     tool_name = payload.get("tool_name") or payload.get("tool") or ""
     tool_input = payload.get("tool_input") or {}
+
+    # Stash for _block() so telemetry emit can attach session_id + tool_name
+    # without threading them through every check function signature.
+    _HOOK_PAYLOAD = payload
+    _TOOL_NAME = tool_name
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
@@ -370,4 +426,15 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="version-gate",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+            session_id=_HOOK_PAYLOAD.get("session_id") if isinstance(_HOOK_PAYLOAD, dict) else None,
+        )
+        raise

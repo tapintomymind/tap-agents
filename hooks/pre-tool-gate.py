@@ -27,6 +27,30 @@ import re
 import sys
 from pathlib import Path
 
+# Shared telemetry helper. Fail-open stubs cover the case where the helper
+# module is missing — the gate's primary block semantics are unaffected.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+
+# Map a regex pattern label to the telemetry `subtype` value. Keep these
+# stable — consumers group by subtype without parsing payload.summary.
+_PATTERN_SUBTYPES: list[tuple[str, str]] = [
+    (r"\brm\s+-rf?\s+/", "rm-rf"),
+    (r"\bsudo\s+rm\b", "sudo-rm"),
+    (r"\bchmod\s+777\b", "chmod-777"),
+    (r"cat\s+\.env(\.|$|\s)", "env-edit"),
+    (r">\s*\.env(\.|$|\s)", "env-edit"),
+    (r"git\s+push\s+--force", "force-push"),
+]
+
 
 DANGEROUS_BASH_PATTERNS: list[tuple[str, str]] = [
     (r"\brm\s+-rf?\s+/", "rm -rf on root or absolute path is blocked. Use scoped paths."),
@@ -36,6 +60,14 @@ DANGEROUS_BASH_PATTERNS: list[tuple[str, str]] = [
     (r">\s*\.env(\.|$|\s)", "Writing to .env files is blocked."),
     (r"git\s+push\s+--force", "git push --force is blocked. Use --force-with-lease if truly needed AND get user approval."),
 ]
+
+
+def _bash_subtype(command: str) -> str:
+    """Map a matched bash command to its telemetry subtype."""
+    for pattern, subtype in _PATTERN_SUBTYPES:
+        if re.search(pattern, command):
+            return subtype
+    return "bash-dangerous"
 
 
 def check_bash(command: str) -> str | None:
@@ -100,21 +132,56 @@ def main() -> int:
     tool_input = payload.get("tool_input", {}) or {}
 
     block_message: str | None = None
+    block_subtype: str = "unknown"
 
     if tool_name == "Bash":
         command = tool_input.get("command", "")
         block_message = check_bash(command)
+        if block_message:
+            block_subtype = _bash_subtype(command)
     elif tool_name in ("Write", "Edit"):
         file_path = tool_input.get("file_path", "")
         if file_path:
             block_message = check_file_protection(file_path)
+            if block_message:
+                # Two file-protection classes: seed-immutable + contested-artifact.
+                # Discriminate on the message body since check_file_protection
+                # returns the human-readable reason.
+                if "seed.md" in block_message:
+                    block_subtype = "seed-immutable"
+                elif "CONTESTED" in block_message:
+                    block_subtype = "contested-artifact"
+                else:
+                    block_subtype = "file-protection"
 
     if block_message:
         print(f"Blocked by Claude Team gate: {block_message}", file=sys.stderr)
+        # Telemetry emit: fail-open inside _telemetry. Per-tool summary is the
+        # block reason itself, truncated by the helper.
+        emit_event(
+            source="pre-tool-gate",
+            type="block",
+            subtype=block_subtype,
+            agent_context="subagent" if (payload.get("agent_id") or payload.get("agent_type")) else "orchestrator",
+            agent_type=payload.get("agent_type"),
+            agent_id=payload.get("agent_id"),
+            payload={"tool_name": tool_name, "summary": block_message},
+            session_id=payload.get("session_id"),
+        )
         return 2
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="pre-tool-gate",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

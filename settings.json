@@ -17,12 +17,17 @@
     ],
     "UserPromptSubmit": [
       {
-        "_purpose": "Lightweight intent classifier. On each user prompt: nudge toward subagent dispatch on code-intent verbs; nudge toward /park on side-thought patterns. Silent on status / slash-command / acknowledgement prompts. Prevents the PreToolUse gate from being the first signal that an inline mutation was wrong.",
+        "_purpose": "Two-stage UserPromptSubmit chain. (1) prompt-router.py: lightweight intent classifier — nudge toward subagent dispatch on code-intent verbs, nudge toward /park on side-thought patterns, silent on status / slash-command / acknowledgement prompts. Emits one `classify` telemetry event per turn (BL-035 v0.11.0). (2) prompt-router-feedback.py: classifier-feedback loop — reads the previous turn's classify event and emits `nudge_ignored` telemetry if the orchestrator clearly drove past the nudge. Order matters: prompt-router emits the current-turn classify first, then prompt-router-feedback evaluates the previous turn's classify against the current prompt.",
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-router.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/prompt-router-feedback.py\"",
             "timeout": 10
           }
         ]

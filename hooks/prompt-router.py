@@ -36,6 +36,18 @@ from __future__ import annotations
 import json
 import re
 import sys
+from pathlib import Path
+
+# Shared telemetry helper — fail-open import. Routing nudge unaffected.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
 
 IMPLEMENT_VERB_RE = re.compile(
     r"\b(implement|build|fix|refactor|add|create|write|change|modify|update|"
@@ -108,7 +120,7 @@ def read_payload() -> dict:
 
 
 def classify(prompt: str) -> str | None:
-    """Return 'implement', 'side', or None."""
+    """Return 'implement', 'side', or None. Used to decide which nudge to emit."""
     if not prompt:
         return None
     # Skip slash-command invocations — those already route.
@@ -126,6 +138,28 @@ def classify(prompt: str) -> str | None:
     if IMPLEMENT_VERB_RE.search(prompt):
         return "implement"
     return None
+
+
+def classify_full(prompt: str) -> str:
+    """Return one of: implement | side | status | slash | ack | silent.
+
+    Wider taxonomy than `classify()` for telemetry — surfaces the reasons
+    `classify()` returns None so consumers can distinguish "no nudge because
+    slash-routed" from "no nudge because we didn't match anything".
+    """
+    if not prompt:
+        return "silent"
+    if SLASH_COMMAND_RE.match(prompt):
+        return "slash"
+    if ACK_PROMPT_RE.match(prompt):
+        return "ack"
+    if STATUS_RE.search(prompt):
+        return "status"
+    if SIDE_THOUGHT_RE.search(prompt):
+        return "side"
+    if IMPLEMENT_VERB_RE.search(prompt):
+        return "implement"
+    return "silent"
 
 
 def emit(additional_context: str) -> None:
@@ -149,8 +183,39 @@ def main() -> int:
         emit(PARK_NUDGE)
     # else: no output, no nudge
 
+    # Telemetry: emit on every fire (highest-volume event type by design).
+    # Subtype is the full classification; nudge_emitted captures whether any
+    # additionalContext was injected. Summary: first 120 chars of the prompt.
+    full_subtype = classify_full(prompt)
+    summary = prompt[:120] if isinstance(prompt, str) else ""
+    emit_event(
+        source="prompt-router",
+        type="classify",
+        subtype=full_subtype,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload={
+            "tool_name": None,
+            "summary": summary,
+            "nudge_emitted": intent is not None,
+            "prompt_length": len(prompt) if isinstance(prompt, str) else 0,
+        },
+        session_id=payload.get("session_id"),
+    )
+
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="prompt-router",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

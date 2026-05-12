@@ -1,8 +1,8 @@
 # Telemetry Events Protocol
 
 **Owner:** Org Designer (schema). Critic enforces additive-only changes at every release review.
-**Status:** Active 2026-05-12 — v0.10.0 (BL-035).
-**Storage:** `<workspace>/_global/events.jsonl` — single per-workspace append-only log.
+**Status:** Active 2026-05-12 — v0.10.0 (BL-035); extended 2026-05-12 in v0.11.0 to cover all seven hooks + classifier-feedback loop.
+**Storage:** `<workspace>/_global/events.jsonl` — single per-workspace append-only log. Sibling `<workspace>/_global/misfires.jsonl` for hook-internal exceptions (v0.11.0).
 
 ---
 
@@ -57,22 +57,35 @@ Every event is one JSON object per line:
 
 Emitter-specific extras are allowed in `payload.*`. Consumers should ignore unknown keys.
 
-### §2.3 What we emit today (v0.10.0)
+### §2.3 What we emit today (v0.11.0)
 
-| `source` | `type` | `subtype` values | Emitted by |
-|---|---|---|---|
-| `orchestrator-dispatch-gate` | `block` | `edit`, `write`, `notebook-edit`, `bash-mutate` | `hooks/orchestrator-dispatch-gate.py` on every `return 2` |
+v0.11.0 extends v0.10.0 from one emitter to seven — every hook in the framework now writes to events.jsonl plus one new hook (`prompt-router-feedback`). Misfires (uncaught exceptions inside hook `main()` bodies) land in `misfires.jsonl` per §3.4.
 
-We do **not** emit on pass-through (subagent calls, read-only tools, etc.) in v0.10.0. Keeping the file small is intentional — only the rail strikes matter for now.
+| `source` | `type` | `subtype` values | Emitted by | Cadence |
+|---|---|---|---|---|
+| `orchestrator-dispatch-gate` | `block` | `edit`, `write`, `notebook-edit`, `bash-mutate` | `hooks/orchestrator-dispatch-gate.py` | every `return 2` |
+| `pre-tool-gate` | `block` | `env-edit`, `force-push`, `rm-rf`, `sudo-rm`, `chmod-777`, `contested-artifact`, `seed-immutable`, `file-protection` (fallback), `bash-dangerous` (fallback) | `hooks/pre-tool-gate.py` | every block |
+| `version-gate` | `block` | `atomicity`, `sequence`, `severity-floor`, `matchup` | `hooks/version-gate.py` | every block |
+| `stop-critic-check` | `block` | `blocked-on`, `contested`, `critic-blocking` | `hooks/stop-critic-check.py` | one event per distinct issue when Stop is blocked |
+| `session-start-brief` | `fire` | `startup`, `resume`, `clear`, `compact` | `hooks/session-start-brief.py` | every SessionStart |
+| `prompt-router` | `classify` | `implement`, `side`, `status`, `slash`, `ack`, `silent` | `hooks/prompt-router.py` | every UserPromptSubmit |
+| `prompt-router-feedback` | `nudge_ignored` | `side-not-parked`, `implement-not-dispatched` | `hooks/prompt-router-feedback.py` | only when previous-turn nudge was clearly ignored |
+| `stop-dispatch-monitor` | `rollup` | `below-threshold`, `threshold-tripped` | `hooks/stop-dispatch-monitor.py` | every Stop |
+| `<any>` | `misfire` | `<ExceptionClassName>` | top-level wrap in every hook | every uncaught exception in `main()` (writes to `misfires.jsonl`) |
 
-### §2.4 What we'll emit next (scoped separately)
+We do **not** emit on pass-through where it would be uninteresting:
+- `pre-tool-gate`, `version-gate`, `orchestrator-dispatch-gate` — silent on pass (only `block` is emitted).
+- `stop-critic-check`, `stop-critic-check`'s anti-loop short-circuit — silent.
+- `prompt-router` and `session-start-brief` — emit on EVERY fire (one classify per turn, one fire per session-start); these are high-signal-per-row and dashboard wants the full distribution.
+- `stop-dispatch-monitor` — emits on every fire (including below-threshold); this is the only way to know whether the threshold trips in practice.
 
-These are reserved names for the next-slice work; they are NOT live in v0.10.0:
+### §2.4 Reserved next-slice names
 
-- `prompt-router` / `classify` / `code-intent` | `side-thought` | `silent` — every UserPromptSubmit classification.
-- `prompt-router` / `fire` / `routing-nudge` | `park-nudge` — every nudge written to additional-context.
+Categories that may land next; NOT live in v0.11.0:
+
+- `subagent-dispatch` / `outcome` / `<verdict>` — Task tool outcome per dispatch (success / blocked / declined).
 - `slash-command` / `fire` / `<command-name>` — every slash-command invocation.
-- `<any-hook>` / `misfire` / `<reason>` — hook reached an unexpected branch.
+- `state-machine` / `transition` / `<from>-<to>` — state.json phase changes captured by a Stop hook.
 
 When the next-slice author lands these, this section becomes the canonical list of source-type-subtype triples in use.
 
@@ -98,7 +111,21 @@ POSIX append on small writes (each line is well under `PIPE_BUF`) is atomic at t
 
 ### §3.3 Rotation
 
-Not in v0.10.0. The file grows append-only. When it crosses a maintenance threshold (estimate: ~10 MB or ~100k events, whichever comes first), the next-slice work introduces a rolloff strategy — likely date-rotated (`events.YYYYMMDD.jsonl`) so historical events stay browsable.
+Not in v0.10.0/v0.11.0. The file grows append-only. When it crosses a maintenance threshold (estimate: ~10 MB or ~100k events, whichever comes first), a future slice introduces a rolloff strategy — likely date-rotated (`events.YYYYMMDD.jsonl`) so historical events stay browsable.
+
+### §3.4 misfires.jsonl (added v0.11.0)
+
+Hook-internal exceptions land in a sibling file `<workspace>/_global/misfires.jsonl` — same directory, same append-only / JSONL conventions, same top-level schema with one additional field:
+
+| Field | Type | Notes |
+|---|---|---|
+| `error` | string | The exception class + message, truncated to ≤ 200 chars. Source string for the `subtype` derivation. |
+
+`subtype` for misfires is derived from the exception class name (everything before the first `:` in the standard "ClassName: message" shape), so `nudge_ignored` consumers don't have to parse the error string to group by failure mode.
+
+Misfire emit is captured by a top-level `try/except` around each hook's `main()` body. The exception is re-raised after the misfire is written, so Claude Code still sees the hook's failure exit code — the misfire is the persistent breadcrumb, not a replacement for the visible failure.
+
+Why a separate file: events.jsonl is dashboard input; consumers iterate it as "this is what happened in the session." Misfires are operator-debug input; they break the assumption that every line is a successful semantic signal. Separating them keeps every events.jsonl consumer's contract intact.
 
 ## §4 Producer contract (hooks)
 
@@ -159,7 +186,38 @@ If a MAJOR is unavoidable, write the new format to `events.v2.jsonl` alongside t
 ## §7 Provenance
 
 - Seed brief: BL-035 (2026-05-12) — "auto-log orchestrator-dispatch-gate blocks to a structured events log + write a memory note when blocks ≥ 3 in one session."
+- v0.11.0 extension brief (2026-05-12): "Extend the v0.10.0 telemetry foundation to cover ALL remaining hooks + add a classifier-feedback loop. Schema additive-only." Coverage expanded from one emitter (`orchestrator-dispatch-gate`) to seven emitters + a misfire capture pattern across all hooks.
 - Motivating signal: `memory/feedback_orchestrator_session_discipline.md` — "on 3+ fixes of the same class in one session, dispatch the matching reviewer agent OR append to anti-patterns log."
-- Single producer in v0.10.0: `hooks/orchestrator-dispatch-gate.py`.
-- Single consumer in v0.10.0: `hooks/stop-dispatch-monitor.py`.
-- Schema designed to absorb the broader telemetry layer (prompt-router classifications, slash-command invocations, hook misfires) without a re-architecture — see §2.4 for the reserved next-slice triples.
+- Producers (v0.11.0): `hooks/orchestrator-dispatch-gate.py`, `hooks/pre-tool-gate.py`, `hooks/version-gate.py`, `hooks/stop-critic-check.py`, `hooks/session-start-brief.py`, `hooks/prompt-router.py`, `hooks/prompt-router-feedback.py`, `hooks/stop-dispatch-monitor.py`.
+- Consumers (v0.11.0): `hooks/stop-dispatch-monitor.py` (in-session threshold detection), `hooks/prompt-router-feedback.py` (cross-turn retro-action detection), `scripts/telemetry-rollup.py` (offline aggregation).
+- Schema designed to absorb the broader telemetry layer without re-architecture — see §2.4 for the next-slice reserved triples (subagent-dispatch outcomes, slash-command fires, state-machine transitions).
+
+## §8 Rollup script (added v0.11.0)
+
+`scripts/telemetry-rollup.py` aggregates events.jsonl + misfires.jsonl into `<workspace>/_global/metrics-rollup.json`. Stdlib-only, no external deps. NOT wired as a hook — run explicitly:
+
+```bash
+# Roll up the current workspace:
+python3 .claude/scripts/telemetry-rollup.py
+
+# Or with custom paths (testing / cross-workspace rollup):
+python3 .claude/scripts/telemetry-rollup.py \
+    --events /path/to/events.jsonl \
+    --misfires /path/to/misfires.jsonl \
+    --out /path/to/metrics-rollup.json
+
+# Print to stdout instead of writing:
+python3 .claude/scripts/telemetry-rollup.py --stdout
+```
+
+Output JSON shape:
+- `meta`: `generated_at`, `events_total`, `misfires_total`, `sessions_count`
+- `by_source`: count by `source`
+- `by_type`: count by `type`
+- `by_source_type`: count by `"<source>/<type>"`
+- `classifier_distribution`: count by subtype for `source=prompt-router && type=classify`
+- `nudge_ignored`: count by subtype for `source=prompt-router-feedback && type=nudge_ignored`
+- `dispatch_gate_trips`: total orchestrator-dispatch-gate blocks
+- `misfires_by_source`: count of misfires by hook source
+
+A future cron / scheduled-task slice can wire this to run periodically. For now it's operator-on-demand.

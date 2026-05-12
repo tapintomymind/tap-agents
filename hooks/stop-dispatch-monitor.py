@@ -43,6 +43,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Shared telemetry helper — fail-open import. Stop hook is observational,
+# never blocks Stop; telemetry emit failure is irrelevant to its primary signal.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 — fail-open telemetry import
+    def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
 # Resolved at user level — pattern notes are framework-wide memory, not
 # workspace-scoped. Same path the user's MEMORY.md is rooted at.
 USER_MEMORY_DIR = Path(
@@ -203,6 +215,32 @@ def _append_to_memory_index(note_path: Path, count: int, session_id: str) -> Non
         return
 
 
+def _emit_rollup(*, session_id: str, block_count: int, tripped: bool,
+                 memory_note_written: bool) -> None:
+    """Emit one rollup event per Stop-hook firing.
+
+    Subtype is below-threshold | threshold-tripped per protocols/telemetry-events.md.
+    Closes the loop on whether the threshold trips in practice — every Stop
+    that runs this hook becomes a data point.
+    """
+    subtype = "threshold-tripped" if tripped else "below-threshold"
+    emit_event(
+        source="stop-dispatch-monitor",
+        type="rollup",
+        subtype=subtype,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload={
+            "summary": f"{block_count} orchestrator-blocks in session",
+            "block_count": block_count,
+            "threshold": DISPATCH_BLOCK_THRESHOLD,
+            "memory_note_written": memory_note_written,
+        },
+        session_id=session_id,
+    )
+
+
 def main() -> int:
     payload = _read_payload()
 
@@ -221,29 +259,58 @@ def main() -> int:
         return 0
     events_path = workspace / "_global" / "events.jsonl"
     if not events_path.exists():
+        # No events at all — emit a below-threshold rollup so the dashboard
+        # can render "Stop fired, no blocks recorded" rather than seeing nothing.
+        _emit_rollup(
+            session_id=session_id,
+            block_count=0,
+            tripped=False,
+            memory_note_written=False,
+        )
         return 0
 
     events = _read_events(events_path)
     matching = [ev for ev in events if _matches(ev, session_id)]
 
     if len(matching) < DISPATCH_BLOCK_THRESHOLD:
+        _emit_rollup(
+            session_id=session_id,
+            block_count=len(matching),
+            tripped=False,
+            memory_note_written=False,
+        )
         return 0
 
     note_path = _write_pattern_note(matching, session_id)
-    if note_path is None:
-        return 0  # fail-open
+    memory_note_written = note_path is not None
+    if note_path is not None:
+        _append_to_memory_index(note_path, len(matching), session_id)
+        # Surface to the agent's stderr-context (stop-hook stderr is shown but
+        # does NOT block stop unless we exit 2). Single line, no trailing newline
+        # noise — keeps the session-end log tidy.
+        sys.stderr.write(
+            f"[telemetry] Dispatch-gate pattern note written: {note_path.name} "
+            f"({len(matching)} blocks).\n"
+        )
 
-    _append_to_memory_index(note_path, len(matching), session_id)
-
-    # Surface to the agent's stderr-context (stop-hook stderr is shown but
-    # does NOT block stop unless we exit 2). Single line, no trailing newline
-    # noise — keeps the session-end log tidy.
-    sys.stderr.write(
-        f"[telemetry] Dispatch-gate pattern note written: {note_path.name} "
-        f"({len(matching)} blocks).\n"
+    _emit_rollup(
+        session_id=session_id,
+        block_count=len(matching),
+        tripped=True,
+        memory_note_written=memory_note_written,
     )
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level misfire capture
+        emit_misfire(
+            source="stop-dispatch-monitor",
+            error=type(e).__name__ + ": " + str(e)[:200],
+            payload={},
+        )
+        raise

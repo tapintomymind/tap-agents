@@ -4,6 +4,68 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.11.0] — 2026-05-12 — Telemetry coverage across all hooks + classifier-feedback loop
+
+**Second slice of the broader telemetry layer (BL-035).** v0.10.0 instrumented one event class (orchestrator-dispatch-gate blocks). v0.11.0 extends coverage to ALL seven hooks plus adds a NEW classifier-feedback hook (`prompt-router-feedback.py`) and a NEW rollup script (`scripts/telemetry-rollup.py`). After this lands, every meaningful runtime signal — every hook fire, every block, every classification, every pattern, every misfire — drops into `<workspace>/_global/events.jsonl` (or sibling `misfires.jsonl` for hook-internal exceptions) for the dashboard rollup to render. Schema is additive-only at the v0.10.0 baseline — same JSON shape, only `source`/`type`/`subtype` values expand. Consumers written against v0.10.0 keep parsing v0.11.0 events.
+
+**Motivation.** v0.10.0 captured the "rail strike" event class (orchestrator hitting the dispatch wall). The dashboard product needs the full distribution: how often did each hook fire, what did the prompt-router classify, did the orchestrator ignore the nudge, did anything misfire. Without per-hook coverage the dashboard renders one signal in an ocean of dark data; with v0.11.0 every session produces structured shape that downstream surfaces (the dashboard, future scheduled-task rollups, EA briefings) can read.
+
+**Schema additions (additive-only).**
+
+New `source` values: `pre-tool-gate`, `version-gate`, `stop-critic-check`, `session-start-brief`, `prompt-router`, `prompt-router-feedback`, `stop-dispatch-monitor`. (`orchestrator-dispatch-gate` already covered in v0.10.0.) New `type` values: `fire` (session-start), `classify` (prompt-router), `rollup` (stop-dispatch-monitor), `nudge_ignored` (prompt-router-feedback), `misfire` (every hook's top-level wrap). New `subtype` enumerations per (source, type) pair documented in `protocols/telemetry-events.md §2.3`.
+
+**Misfires.jsonl.** A new sibling file `<workspace>/_global/misfires.jsonl` captures hook-internal exceptions. Same top-level schema as events.jsonl with one additional `error` field. Separation keeps events.jsonl as the clean dashboard-input stream — consumers iterate it without filtering on `type=misfire`. Each hook's top-level `try/except` calls `emit_misfire(...)` and re-raises so Claude Code still sees the failure exit code.
+
+### Added
+
+- **`hooks/prompt-router-feedback.py`** (NEW, ~190 LOC) — second `UserPromptSubmit` hook in the chain, registered AFTER `prompt-router.py`. Fires per-turn, emits nothing in the common case. Retro-active detection: reads events.jsonl for the previous-turn `prompt-router` classify event (filter `session_id` + `source=prompt-router` + `type=classify`, take latest by ts). If previous classification was `side` and current prompt does NOT start with `/park` → emits `{source: prompt-router-feedback, type: nudge_ignored, subtype: side-not-parked}`. If previous classification was `implement` and current prompt looks like continuation (doesn't contain "dispatched"/"agent"/"continue") → emits `{... subtype: implement-not-dispatched}`. Heuristics intentionally loose; tighten over time with data. Self-instrumented: events.jsonl lookup failures emit their own misfire so a permanently-silent feedback layer is detectable.
+- **`scripts/telemetry-rollup.py`** (NEW, ~180 LOC) — stdlib-only aggregator over events.jsonl + misfires.jsonl. Output: `<workspace>/_global/metrics-rollup.json` with `meta` (generated_at, totals, sessions_count), `by_source`, `by_type`, `by_source_type`, `classifier_distribution`, `nudge_ignored`, `dispatch_gate_trips`, `misfires_by_source`. NOT wired as a hook — run explicitly. Distinct from existing `rollup-metrics.py` which targets `memory/framework-metrics.jsonl` (different file/schema). Documented in `protocols/telemetry-events.md §8`.
+
+### Changed
+
+- **`hooks/_telemetry.py`** — added `emit_misfire(source, error, payload, session_id)` function that appends to `misfires.jsonl` (sibling of events.jsonl, same `_global/` bucket). Same fail-open contract as `emit_event`. Subtype derived from exception class name (`type(e).__name__`). Both `_events_path()` and the new `_misfires_path()` share a `_resolve_global_file(filename)` helper to keep the workspace-discovery logic single-sourced.
+- **`hooks/pre-tool-gate.py`** — emits `{source: pre-tool-gate, type: block, subtype: <env-edit|force-push|rm-rf|sudo-rm|chmod-777|contested-artifact|seed-immutable|file-protection|bash-dangerous>}` on every hard-block. Subtype derived from which dangerous-pattern regex matched or which file-protection rule fired. Top-level misfire wrap.
+- **`hooks/version-gate.py`** — emits `{source: version-gate, type: block, subtype: <atomicity|sequence|severity-floor|matchup>}` on every `_block(...)` invocation. Subtype derived from a phrase-based discriminator on the block message body (sequence: "SemVer sequence" / "going backwards"; severity-floor: literal "severity-floor"; matchup: "tag/package version mismatch" / "marketplace version drift"; atomicity: fallback). Top-level misfire wrap. Module-level `_HOOK_PAYLOAD` + `_TOOL_NAME` stash payload context so `_block()` can attach session_id + tool_name without re-threading every check function signature.
+- **`hooks/stop-critic-check.py`** — emits one event per distinct issue when Stop is blocked: `{source: stop-critic-check, type: block, subtype: <blocked-on|contested|critic-blocking>}`. Phrase-based discriminator on the issue string. Silent on anti-loop short-circuit + on pass. Top-level misfire wrap.
+- **`hooks/session-start-brief.py`** — emits `{source: session-start-brief, type: fire, subtype: <startup|resume|clear|compact>}` on every fire. Payload extras: `mode` (`tier1-multi-project` / `tier2-single-project` / `bootstrap`), `projects_count`, `blocked_count`. Top-level misfire wrap. Briefing emit semantics unchanged.
+- **`hooks/prompt-router.py`** — emits `{source: prompt-router, type: classify, subtype: <implement|side|status|slash|ack|silent>}` on every fire. New `classify_full()` function returns the wider taxonomy that surfaces the reasons `classify()` returns None (slash-routed / status / ack / silent). Payload includes `nudge_emitted: bool`, `prompt_length: N`, and first 120 chars of prompt as `summary`. Nudge logic unchanged. Top-level misfire wrap.
+- **`hooks/orchestrator-dispatch-gate.py`** — emit on block already present from v0.10.0. v0.11.0 adds the top-level misfire wrap and imports `emit_misfire` alongside `emit_event`.
+- **`hooks/stop-dispatch-monitor.py`** — emits `{source: stop-dispatch-monitor, type: rollup, subtype: <below-threshold|threshold-tripped>}` on every fire (including when block count is 0). Payload extras: `block_count`, `threshold`, `memory_note_written`. Closes the loop on whether the threshold trips in practice. Top-level misfire wrap.
+- **`settings.json` UserPromptSubmit chain** — registers `prompt-router-feedback.py` as the second hook in the chain, AFTER `prompt-router.py`. Order matters: prompt-router emits the current-turn classify first, then prompt-router-feedback evaluates the previous turn's classify against the current prompt. Both have `timeout: 10`. The `_purpose` field on the chain is rewritten to describe the two-stage handoff.
+- **`protocols/telemetry-events.md`** — extended with the full v0.11.0 emit matrix in §2.3 (every source/type/subtype tuple in use); new §3.4 documents misfires.jsonl as a sibling file with the extra `error` field; new §8 documents `scripts/telemetry-rollup.py` invocation + output shape. §2.4 narrowed to the genuinely-reserved next-slice triples (subagent dispatch outcomes, slash-command fires, state-machine transitions) now that v0.10.0's reserved-future names are live.
+
+### Propagated
+
+- All four hook directories (framework `.claude/hooks/`, `tap-agents/hooks/`, `agent-dashboard/scaffold-source/hooks/`, `agent-dashboard/hooks/`) receive the seven modified hooks + new `prompt-router-feedback.py`. `chmod +x` applied to the new feedback hook. The new `scripts/telemetry-rollup.py` lands in framework + tap-agents + scaffold-source (NOT tier-2 — Tier 2 doesn't run rollups; the dashboard product does). `protocols/telemetry-events.md` mirrored to `tap-agents/protocols/` + `agent-dashboard/scaffold-source/protocols/` so the dist build picks it up.
+- Tier-2 `agent-dashboard/.claude/settings.json` registers `prompt-router-feedback.py` as the second `UserPromptSubmit` hook in the chain — same handoff as Tier 1.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+- New hook (`prompt-router-feedback.py`) added to `hooks/` and wired into `settings.json` → MINOR per §3.2.
+- New script (`telemetry-rollup.py`) added to `scripts/` → MINOR per §3.2.
+- Existing hooks gain a side-effect on their primary action (emit one JSON-line per fire / block / classify); the primary block-vs-pass semantics are byte-identical. No existing consumer breaks.
+- Existing protocol (`telemetry-events.md`) extends additively — new sources/types/subtypes documented; v0.10.0 consumers continue to parse v0.11.0 events.
+
+No removals, no renames, no contract narrowings → **MINOR**.
+
+### Cross-channel sync
+
+Per `protocols/versioning-protocol.md §6`, all three channel-version fields update atomically: `package.json` `version` `0.10.0 → 0.11.0`, `.claude-plugin/plugin.json` `version` `0.10.0 → 0.11.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.10.0 → 0.11.0`. Marketplace `description` updated from "five enforcement + telemetry hooks" to "seven instrumented enforcement + telemetry hooks" to reflect coverage expansion. Both Tier 1 framework `.claude/` and the public `tap-agents/` repo carry the same triplet.
+
+### Provenance
+
+- Seed brief: v0.11.0 extension brief (2026-05-12) — "Extend the v0.10.0 telemetry foundation to cover ALL remaining hooks + add a classifier-feedback loop. Schema additive-only."
+- Schema constraint: additive-only at the v0.10.0 baseline. New `source`/`type`/`subtype` values may land; field names / field types are frozen until a `events.v2.jsonl` migration window.
+- Smoke tests run before release (per the v0.11.0 brief §Smoke tests):
+  1. Each hook's emit on its primary action — 6/6 hooks emitted the expected event.
+  2. Misfire capture — patched copy of stop-dispatch-monitor.py raised inside main(); misfires.jsonl captured `RuntimeError` subtype, exit code 1 propagated, events.jsonl untouched.
+  3. prompt-router-feedback detection — seeded `side` classify + non-`/park` prompt → emitted `nudge_ignored / side-not-parked`.
+  4. prompt-router-feedback non-detection — seeded `side` classify + `/park` prompt → NO event emitted.
+  5. Rollup script — produced metrics-rollup.json with `meta`, `by_source` (5 sources), `by_type` (4 types), `classifier_distribution`, `dispatch_gate_trips=1`, `misfires_by_source`. All 7 aggregations present.
+
+---
+
 ## [0.10.0] — 2026-05-12 — Dispatch-gate telemetry + auto-pattern memory note
 
 **First slice of the broader telemetry layer (BL-035).** Every time `hooks/orchestrator-dispatch-gate.py` hard-blocks a code-mutating tool call on the main thread, it now also appends one structured JSON-line event to a per-workspace `events.jsonl`. A new Stop hook (`hooks/stop-dispatch-monitor.py`) reads the same file, counts orchestrator-source blocks for the current session, and — at ≥ 3 blocks — auto-writes a `runtime_dispatch_gate_pattern_<YYYYMMDD>_<sid>.md` memory note + appends an index pointer to `MEMORY.md`. The schema is frozen at this release and designed to absorb future event types (prompt-router classifications, slash-command invocations, hook misfires) without re-architecture — single `events.jsonl` per workspace, additive-only field evolution. See `protocols/telemetry-events.md` for the full schema + producer/consumer contracts.

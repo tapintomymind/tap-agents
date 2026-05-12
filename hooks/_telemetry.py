@@ -11,7 +11,7 @@ Schema (frozen):
     "ts": "2026-05-12T03:14:00Z",        # UTC ISO-8601 with trailing Z
     "session_id": "<from-hook-payload>", # or "unknown" if absent
     "source": "<hook-name>",             # e.g. "orchestrator-dispatch-gate"
-    "type": "<event-class>",             # block | pass | fire | classify | misfire
+    "type": "<event-class>",             # block | pass | fire | classify | rollup | nudge_ignored | misfire
     "subtype": "<qualifier>",            # e.g. edit | write | bash-mutate
     "agent_context": "orchestrator"|"subagent",
     "agent_type": "<name>"|null,
@@ -23,6 +23,11 @@ Storage location:
   - Tier 2 project:       <project>/.claude/workspace/_global/events.jsonl
   - Tier 1 framework:     <framework-root>/.claude/workspace/_global/events.jsonl
   - Tier 2 (no .claude):  <project>/workspace/_global/events.jsonl
+
+Misfires (v0.11.0+) land in a sibling `misfires.jsonl` — same directory, same
+top-level schema with one additional `error` field. The separation keeps
+events.jsonl readable for dashboard rollups without forcing every consumer to
+filter on `type=misfire`.
 
 The `_global/` directory is auto-created if missing. In Tier 2 projects the
 `_global/` concept is a Tier 1 convention (cross-project artifacts) — we use
@@ -87,6 +92,27 @@ def _events_path() -> Path | None:
 
     Returns None on any failure — caller is fail-open.
     """
+    return _resolve_global_file("events.jsonl")
+
+
+def _misfires_path() -> Path | None:
+    """Resolve the misfires.jsonl path; create the _global/ dir if missing.
+
+    Sibling of events.jsonl. Same per-workspace bucket; separated so that
+    consumers reading events.jsonl don't have to filter `type=misfire` to
+    ignore hook-internal failures. Returns None on any failure — caller is
+    fail-open.
+    """
+    return _resolve_global_file("misfires.jsonl")
+
+
+def _resolve_global_file(filename: str) -> Path | None:
+    """Shared resolver for any file under `<workspace>/_global/`.
+
+    Used by `_events_path()` (events.jsonl) and `_misfires_path()` (misfires.jsonl).
+    Both files live in the same per-workspace bucket; only the basename differs.
+    Returns None on any failure — caller is fail-open.
+    """
     workspace = _find_workspace()
     if workspace is None:
         # If the workspace itself doesn't exist (rare; pre-bootstrap session),
@@ -112,7 +138,7 @@ def _events_path() -> Path | None:
         global_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
         return None
-    return global_dir / "events.jsonl"
+    return global_dir / filename
 
 
 def _truncate(text: str, limit: int = SUMMARY_MAX_CHARS) -> str:
@@ -197,4 +223,86 @@ def emit_event(
             fh.write(line)
     except Exception:
         # Fail-open: telemetry must never break the hook chain.
+        return
+
+
+def emit_misfire(
+    *,
+    source: str,
+    error: str,
+    payload: dict | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Append one misfire record to the per-workspace misfires.jsonl.
+
+    A misfire is any uncaught exception inside a hook's `main()` body — the
+    hook reached an unexpected branch and crashed. Producers call this from a
+    top-level `try/except` around `main()` and then re-raise so Claude Code
+    still sees the failure exit code; the misfire is the persistent breadcrumb.
+
+    Shape (mirrors emit_event so the JSONL can be parsed by the same readers,
+    with one extra `error` field):
+
+        {
+          "ts":           "<iso8601-z>",
+          "session_id":   "<from-payload-or-unknown>",
+          "source":       "<hook-name>",
+          "type":         "misfire",
+          "subtype":      "<exception-class-name>",
+          "agent_context": "orchestrator",
+          "agent_type":   null,
+          "agent_id":     null,
+          "error":        "<traceback first line, truncated>",
+          "payload":      { ... }
+        }
+
+    Args:
+        source: Hook name. Must match the producer hook's `source=` in normal
+            `emit_event` calls so the misfires.jsonl filterable by source.
+        error: Short error string (typically `type(e).__name__ + ": " + str(e)[:200]`).
+            Stored as the top-level `error` field and reused in `subtype` for
+            quick grouping (the exception class name).
+        payload: Optional free-shape dict. Same truncation rules as `emit_event`.
+        session_id: From the hook payload if available; "unknown" otherwise.
+
+    Fail-open on every code path — even the misfire emit must not raise.
+    """
+    try:
+        path = _misfires_path()
+        if path is None:
+            return
+
+        safe_payload = dict(payload) if isinstance(payload, dict) else {}
+        if "summary" in safe_payload:
+            safe_payload["summary"] = _truncate(safe_payload["summary"])
+
+        # Derive a stable subtype from the exception class name (everything
+        # before the first `:` in the standard "ClassName: message" shape).
+        # If error is malformed, fall back to "unknown".
+        subtype = "unknown"
+        if isinstance(error, str) and error:
+            head = error.split(":", 1)[0].strip()
+            if head:
+                subtype = head[:64]
+
+        record = {
+            "ts": _now_iso(),
+            "session_id": session_id or "unknown",
+            "source": source,
+            "type": "misfire",
+            "subtype": subtype,
+            "agent_context": "orchestrator",
+            "agent_type": None,
+            "agent_id": None,
+            "error": _truncate(error if isinstance(error, str) else str(error)),
+            "payload": safe_payload,
+        }
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        # Fail-open: even the misfire writer must not raise. If the misfire
+        # writer itself misfires, that signal is permanently lost — accepted
+        # tradeoff vs. recursion / second-order error storms.
         return
