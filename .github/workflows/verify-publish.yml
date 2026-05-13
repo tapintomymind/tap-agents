@@ -1,0 +1,454 @@
+name: verify-publish
+
+# Gate 5 §4.5 defense-in-depth (per protocols/versioning-protocol.md §4.5).
+#
+# Fires after `publish.yml` completes successfully on a `v*.*.*` tag push and
+# independently re-verifies all three §4.5 invariants from a cold npm pull:
+#
+#   1. Registry presence       — `npm view <pkg>@<v> version` returns <v>
+#   2. Tarball completeness    — `dist.tarball` curl + `tar -tzf` vs package.json#files
+#   3. GitHub Release parity   — `gh release view v<v>` exists, body references CHANGELOG entry
+#
+# Why a separate workflow (not bolted onto publish.yml):
+#   - Independent attestation. A workflow that publishes should not also be the
+#     sole verifier that its publish worked — that's structurally a self-attest.
+#     The operator-side `/release` Step 6a-6f (shipped v0.18.0) is the primary
+#     line; this workflow is defense-in-depth that catches anything the operator
+#     missed AND catches the "publishing-workflow-self-attesting" bias.
+#   - Failure-mode separation. If verify fails after publish succeeded, the npm
+#     package is real (immutable) — failure here is a SIGNAL, not a recovery.
+#     publish.yml stays green because publish succeeded.
+#   - Easy to disable. Delete one file to turn off independent verification
+#     without disturbing the publish path.
+#
+# Trigger semantics:
+#   `workflow_run` on `publish` workflow `completed` event, filtered to
+#   `conclusion == 'success'`. Failed publishes don't get verified — verifying
+#   "did a failed publish fail" is wasted compute. Lag from publish-success to
+#   verify-publish run: ~30-120s typical (workflow_run dispatch lag). End-to-end
+#   verification target: complete within 5 minutes of publish-success.
+#
+# Pre-release filter:
+#   POSIX `case "$VERSION" in *-*) skip ;; esac` — pre-release tags (any
+#   hyphen-containing version, e.g., `0.19.0-rc.1`) are skipped. Stable releases
+#   only. Mirrors notify-adopters.yml's pre-release filter shape.
+#
+# Failure handling:
+#   On any check failing, the workflow:
+#     1. Prints a FAIL line to the workflow log with specifics (which invariant,
+#        what was found, what was expected).
+#     2. Auto-files a GitHub issue titled `Gate 5 §4.5 verification failed for
+#        v<version>` with failure details + link to publish.yml run + link to
+#        this run. Labeled `gate-5-failure`.
+#     3. Exits non-zero so the workflow shows red in the Actions tab.
+#
+# What it does NOT do:
+#   - Does NOT re-publish or attempt remediation. Npm packages are immutable;
+#     remediation is to cut the next version with the fix.
+#   - Does NOT modify any files in the repo. Read-only across the repo + cold
+#     pull from npm + read from GitHub Releases API.
+#   - Does NOT close auto-filed issues on subsequent passing runs — operator
+#     resolves and closes manually after deciding on remediation (next version
+#     bump vs. accepted-orphan).
+#
+# Required repo secrets / permissions:
+#   - Default GITHUB_TOKEN — already provided by the Actions runtime; permission
+#     declarations below scope it explicitly (issues:write to file the auto-issue,
+#     contents:read for git/release access, actions:read to dereference the parent
+#     workflow_run).
+#   - No npm token needed — `npm view` reads public registry metadata
+#     unauthenticated; tarball downloads from registry.npmjs.org are public.
+#
+# Provenance: deferred from v0.18.0 Gate 5 amendment (see
+# `workspace/_global/org-designer-proposals/20260512-2330-gate-5-post-publish-verification.md`
+# §"Deferred to v0.19.0" — N2). Shipped as v0.19.0 Step A.
+
+on:
+  workflow_run:
+    workflows: ["publish"]
+    types:
+      - completed
+
+# Per-publish-SHA concurrency (mirrors notify-adopters.yml shape). Each publish
+# has its own group key (one publish == one tagged commit SHA). Two back-to-back
+# publishes both verify in parallel; no serialization across publishes.
+concurrency:
+  group: verify-publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read     # checkout the tagged commit for package.json + CHANGELOG read
+  issues: write      # auto-file an issue on verification failure
+  actions: read      # dereference the parent workflow_run details
+
+jobs:
+  verify:
+    name: Verify Gate 5 §4.5 invariants from cold npm pull
+    runs-on: ubuntu-latest
+    # Fire only on successful publish runs. Failed publishes don't get verified.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 10  # 5 min verification budget + headroom for setup
+
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          # The publish workflow's run-head SHA — same commit npm just published.
+          # We need package.json + CHANGELOG.md at this exact commit, not the
+          # current HEAD of main (which may have moved on for marketing-designer
+          # or any other follow-up work).
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Resolve version from package.json
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if [ -z "$VERSION" ]; then
+            echo "::error::package.json#version is empty at workflow_run head_sha; cannot verify."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (tag v$VERSION)"
+
+      - name: Skip pre-release tags
+        # Mirror notify-adopters.yml pre-release filter. Pre-releases (any
+        # hyphen-containing version) aren't expected to pass Gate 5 verification
+        # the same way stable releases do — they may intentionally not have
+        # CHANGELOG entries, may not auto-adopt downstream, etc.
+        id: prerelease-check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$VERSION" in
+            *-*)
+              echo "::notice::Skip Gate 5 verification for pre-release $VERSION (contains hyphen)."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Stable release; verification proceeds."
+              ;;
+          esac
+
+      - name: Early exit for pre-release
+        if: steps.prerelease-check.outputs.skip == 'true'
+        run: |
+          echo "### Pre-release v${{ steps.version.outputs.version }} — verification skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pre-release tags don't pass through Gate 5 §4.5 verification by design." >> "$GITHUB_STEP_SUMMARY"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # §4.5 invariant 1 — registry presence
+      # `npm view @tapintomymind/tap-agents@<v> version` returns <v>
+      #
+      # Operator-side Step 6c uses 8 × 30s = 4-minute budget. Since this
+      # workflow lags ~30-120s after publish-success, the registry should
+      # already be propagated by the time this runs; we keep retry budget
+      # smaller (4 × 30s = 2 min) since the CDN-propagation race is mostly
+      # consumed by the workflow_run dispatch lag itself.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Invariant 1 — registry presence
+        if: steps.prerelease-check.outputs.skip != 'true'
+        id: invariant-1
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          PKG_NAME="@tapintomymind/tap-agents"
+          for attempt in 1 2 3 4; do
+            PUBLISHED=$(npm view "${PKG_NAME}@${VERSION}" version 2>/dev/null || echo "")
+            if [ "${PUBLISHED}" = "${VERSION}" ]; then
+              echo "PASS — npm registry confirms ${PKG_NAME}@${VERSION} (attempt ${attempt})"
+              echo "result=pass" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "${attempt}" -eq 4 ]; then
+              echo "::error::Gate 5 §4.5 invariant 1 FAIL — npm registry did not return ${VERSION} after 4 attempts (2 minutes)."
+              echo "Expected: ${VERSION}. Got: '${PUBLISHED:-<empty>}'."
+              echo "result=fail" >> "$GITHUB_OUTPUT"
+              echo "fail_detail=npm view ${PKG_NAME}@${VERSION} returned '${PUBLISHED:-<empty>}' (expected ${VERSION}) after 2 min of polling." >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "Attempt ${attempt}/4: npm view returned '${PUBLISHED:-<empty>}'; waiting 30s..."
+            sleep 30
+          done
+
+      # ─────────────────────────────────────────────────────────────────────
+      # §4.5 invariant 2 — tarball completeness
+      # Re-fetch the just-published tarball via `npm view ... dist.tarball`
+      # + curl + `tar -tzf`. Verify each entry in `package.json#files` appears
+      # in the tarball under the `package/` prefix.
+      #
+      # CRITICAL: uses the WORKING bash pattern from
+      # `runtime_files_array_tarball_probe.md` — `node -p ".files.join('\n')"`
+      # for files-array extraction. DO NOT use `npm view files` (returns empty
+      # in npm 10.x+) or `npm pack --dry-run --silent` (suppresses listing) or
+      # `node -p "JSON.stringify(...).files)" | tr -d ...` (no whitespace in
+      # JSON output → single concatenated blob → for-loop iterates once with
+      # garbage → every release fails Gate 5 on its own bug, as Critic caught
+      # pre-ship of v0.18.0 itself).
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Invariant 2 — tarball completeness
+        if: steps.prerelease-check.outputs.skip != 'true' && steps.invariant-1.outputs.result == 'pass'
+        id: invariant-2
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          PKG_NAME="@tapintomymind/tap-agents"
+
+          # Resolve published tarball URL from npm registry metadata.
+          TARBALL_URL=$(npm view "${PKG_NAME}@${VERSION}" dist.tarball 2>&1)
+          if [ -z "$TARBALL_URL" ] || [[ "$TARBALL_URL" == *"npm ERR"* ]]; then
+            echo "::error::Gate 5 §4.5 invariant 2 FAIL — could not resolve tarball URL via npm view ${PKG_NAME}@${VERSION} dist.tarball."
+            echo "Output: ${TARBALL_URL}"
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "fail_detail=npm view ${PKG_NAME}@${VERSION} dist.tarball did not resolve a URL; got: ${TARBALL_URL}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "Tarball URL: ${TARBALL_URL}"
+
+          # Download the tarball from the registry (public; no auth needed).
+          PROBE_TGZ="${RUNNER_TEMP}/tap-agents-${VERSION}-probe.tgz"
+          curl -sfL "$TARBALL_URL" -o "$PROBE_TGZ"
+          if [ ! -s "$PROBE_TGZ" ]; then
+            echo "::error::Gate 5 §4.5 invariant 2 FAIL — tarball download from ${TARBALL_URL} was empty or failed."
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "fail_detail=Tarball download from ${TARBALL_URL} returned an empty file or failed (curl -sfL)." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Verify each entry in package.json#files is present in the tarball.
+          # tar -tzf lists members under the "package/" prefix (npm convention).
+          TARBALL_CONTENTS=$(tar -tzf "$PROBE_TGZ")
+          MISSING=()
+          # node -p with .files.join('\n') emits newline-separated entries.
+          # DO NOT use JSON.stringify+tr (codified-but-broken in pre-v0.18.0
+          # draft of Step 6d; Critic caught).
+          for required in $(node -p "require('./package.json').files.join('\n')"); do
+            # Match either a directory ("playbooks/") or a top-level file
+            # ("settings.json"). The package.json#files entries can be either
+            # form; tarball contents include both as "package/<entry>" and,
+            # for directories, "package/<entry>/<children>".
+            pattern="${required%/}/"
+            if ! echo "$TARBALL_CONTENTS" | grep -q "^package/${pattern}\\|^package/${required}$"; then
+              MISSING+=("$required")
+            fi
+          done
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Gate 5 §4.5 invariant 2 FAIL — tarball is missing required files-array entries: ${MISSING[*]}"
+            echo "This is the v0.11.0-regression class — package.json#files lost entries between local pack and registry upload."
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "fail_detail=Tarball missing ${#MISSING[@]} files-array entries: ${MISSING[*]}. v0.11.0-regression class." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Cleanup
+          rm -f "$PROBE_TGZ"
+          ENTRY_COUNT=$(node -p "require('./package.json').files.length")
+          echo "PASS — tarball contents match package.json#files (${ENTRY_COUNT}/${ENTRY_COUNT} entries verified)."
+          echo "result=pass" >> "$GITHUB_OUTPUT"
+          echo "entry_count=${ENTRY_COUNT}" >> "$GITHUB_OUTPUT"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # §4.5 invariant 3 — GitHub Release parity
+      # `gh release view v<v>` succeeds AND its body references the CHANGELOG
+      # entry for v<v>. Substring-contains is fine (exact-match too strict).
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Invariant 3 — GitHub Release parity
+        if: steps.prerelease-check.outputs.skip != 'true' && steps.invariant-2.outputs.result == 'pass'
+        id: invariant-3
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Check release exists.
+          if ! gh release view "${TAG}" --json name,tagName,body >/tmp/release.json 2>&1; then
+            echo "::error::Gate 5 §4.5 invariant 3 FAIL — gh release view ${TAG} returned non-zero; the GitHub Release was not created."
+            echo "Remediation: extract the CHANGELOG entry and create the release manually:"
+            echo "  awk -v v=\"${VERSION}\" '\$0 ~ \"^## \\\\[\"v\"\\\\]\" {found=1; print; next} found && /^## \\[/ {exit} found {print}' CHANGELOG.md > /tmp/release-${TAG}.md"
+            echo "  gh release create \"${TAG}\" --notes-file /tmp/release-${TAG}.md"
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "fail_detail=gh release view ${TAG} failed; the GitHub Release was not created by publish.yml's softprops/action-gh-release step." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          RELEASE_BODY=$(node -p "require('/tmp/release.json').body || ''")
+          if [ -z "$RELEASE_BODY" ]; then
+            echo "::warning::GitHub Release ${TAG} exists but body is empty."
+            # An empty body is not a hard fail (the release exists), but a soft
+            # warning. The CHANGELOG-parity sub-check below is the hard fail.
+          fi
+
+          # Extract the CHANGELOG entry for this version.
+          CHANGELOG_ENTRY=$(awk -v v="${VERSION}" '
+            $0 ~ "^## \\["v"\\]" { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$CHANGELOG_ENTRY" ]; then
+            echo "::error::Gate 5 §4.5 invariant 3 FAIL — no CHANGELOG entry found for ${VERSION}."
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            echo "fail_detail=CHANGELOG.md has no ## [${VERSION}] heading; release body cannot be cross-referenced." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Substring-contains check: the release body should include the
+          # CHANGELOG entry's first heading line (the `## [X.Y.Z] — YYYY-MM-DD ...`
+          # line). Exact-match is too strict because softprops may wrap or
+          # transform whitespace.
+          HEADING=$(echo "$CHANGELOG_ENTRY" | head -1)
+          # Strip the leading "## " — the release body usually doesn't preserve
+          # the markdown heading prefix.
+          HEADING_STRIPPED=$(echo "$HEADING" | sed 's/^## //')
+
+          # Try matching the body against either the full heading or the
+          # stripped form. Body may have HTML-rendered the heading.
+          if echo "$RELEASE_BODY" | grep -qF "$HEADING_STRIPPED" \
+             || echo "$RELEASE_BODY" | grep -qF "$HEADING"; then
+            echo "PASS — GitHub Release ${TAG} exists and body references CHANGELOG heading."
+            echo "result=pass" >> "$GITHUB_OUTPUT"
+          else
+            # Softer check: body contains the version string itself somewhere.
+            # If body is also empty, this still fails (which is correct — a
+            # release with no body referencing the version is a publish error).
+            if echo "$RELEASE_BODY" | grep -qF "[${VERSION}]"; then
+              echo "PASS — GitHub Release ${TAG} exists; body contains [${VERSION}] (CHANGELOG heading not exact-matched, version-reference present)."
+              echo "result=pass" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::Gate 5 §4.5 invariant 3 FAIL — GitHub Release ${TAG} exists but body does not reference CHANGELOG entry for ${VERSION}."
+              echo "Body excerpt: $(echo "$RELEASE_BODY" | head -3)"
+              echo "Expected substring (CHANGELOG heading): $HEADING_STRIPPED"
+              echo "result=fail" >> "$GITHUB_OUTPUT"
+              echo "fail_detail=GitHub Release ${TAG} exists but body does not contain the CHANGELOG heading or [${VERSION}] reference." >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          fi
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Success summary
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Summary — all invariants passed
+        if: |
+          steps.prerelease-check.outputs.skip != 'true'
+          && steps.invariant-1.outputs.result == 'pass'
+          && steps.invariant-2.outputs.result == 'pass'
+          && steps.invariant-3.outputs.result == 'pass'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ENTRY_COUNT: ${{ steps.invariant-2.outputs.entry_count }}
+        run: |
+          {
+            echo "### Gate 5 §4.5 verification PASSED for ${TAG}"
+            echo ""
+            echo "All three invariants verified from independent cold npm pull:"
+            echo ""
+            echo "- **Invariant 1 (registry presence)**: \`npm view @tapintomymind/tap-agents@${VERSION}\` returns ${VERSION}"
+            echo "- **Invariant 2 (tarball completeness)**: ${ENTRY_COUNT}/${ENTRY_COUNT} \`package.json#files\` entries present in tarball"
+            echo "- **Invariant 3 (GitHub Release parity)**: \`gh release view ${TAG}\` exists, body references CHANGELOG entry"
+            echo ""
+            echo "Defense-in-depth on top of operator-side \`/release\` Step 6a-6f."
+            echo "Parent publish run: ${{ github.event.workflow_run.html_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Gate 5 §4.5 verification PASSED for ${TAG}."
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Failure handling — auto-file an issue on any failed invariant
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Auto-file Gate 5 failure issue
+        if: |
+          failure()
+          && steps.prerelease-check.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INV1_RESULT: ${{ steps.invariant-1.outputs.result }}
+          INV1_DETAIL: ${{ steps.invariant-1.outputs.fail_detail }}
+          INV2_RESULT: ${{ steps.invariant-2.outputs.result }}
+          INV2_DETAIL: ${{ steps.invariant-2.outputs.fail_detail }}
+          INV3_RESULT: ${{ steps.invariant-3.outputs.result }}
+          INV3_DETAIL: ${{ steps.invariant-3.outputs.fail_detail }}
+          PUBLISH_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          VERIFY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # Idempotency — don't open a duplicate issue if one already exists
+          # for this tag. Search by title prefix.
+          EXISTING=$(gh issue list --state open --search "Gate 5 §4.5 verification failed for ${TAG} in:title" --json number --jq '.[0].number' || echo "")
+          if [ -n "${EXISTING:-}" ]; then
+            echo "Issue already exists (#${EXISTING}) for ${TAG} verification failure; appending comment instead."
+            gh issue comment "$EXISTING" --body "Re-fired verify-publish for ${TAG} — still failing. See run: ${VERIFY_RUN_URL}"
+            exit 0
+          fi
+
+          # Compose issue body
+          BODY_FILE="${RUNNER_TEMP}/issue-body.md"
+          {
+            echo "Gate 5 §4.5 post-publish verification failed for **${TAG}** (\`@tapintomymind/tap-agents@${VERSION}\`)."
+            echo ""
+            echo "**Per \`protocols/versioning-protocol.md §4.5\`, a Gate 5 failure is a release-incident, not a soft warning. The release is not considered \"complete\" until Gate 5 passes.**"
+            echo ""
+            echo "## Invariant status"
+            echo ""
+            echo "| Invariant | Result | Detail |"
+            echo "|---|---|---|"
+            echo "| 1. Registry presence | ${INV1_RESULT:-skipped} | ${INV1_DETAIL:-(no failure detail)} |"
+            echo "| 2. Tarball completeness | ${INV2_RESULT:-skipped} | ${INV2_DETAIL:-(no failure detail)} |"
+            echo "| 3. GitHub Release parity | ${INV3_RESULT:-skipped} | ${INV3_DETAIL:-(no failure detail)} |"
+            echo ""
+            echo "## Links"
+            echo ""
+            echo "- Publish run that triggered this verification: ${PUBLISH_RUN_URL}"
+            echo "- This verification run: ${VERIFY_RUN_URL}"
+            echo ""
+            echo "## Remediation"
+            echo ""
+            echo "Per \`protocols/versioning-protocol.md §4.5\` failure handling:"
+            echo ""
+            echo "- **Invariant 1 fail (registry presence)**: npm publish reported success to publish.yml but registry doesn't return the version. Investigate publish.yml output; check npm.com directly. Do NOT re-tag — npm packages are immutable. If the publish actually failed, cut the next version with the fix per \`commands/release.md\` Failure modes."
+            echo ""
+            echo "- **Invariant 2 fail (tarball completeness)**: \`package.json#files\` lost entries between local pack and registry upload (the v0.11.0-regression class). Cut the next version with a corrected files-array; document the broken version in CHANGELOG. Do NOT republish the broken version."
+            echo ""
+            echo "- **Invariant 3 fail (GitHub Release parity)**: \`softprops/action-gh-release@v2\` step in publish.yml errored after npm publish succeeded. Manually create the release: \`awk\` the CHANGELOG entry to a tempfile, then \`gh release create ${TAG} --notes-file <tempfile>\`. Document in \`memory/agent-changelog.md\` per \`protocols/changelog-protocol.md §1\`."
+            echo ""
+            echo "## Defense-in-depth context"
+            echo ""
+            echo "This issue was auto-filed by \`.github/workflows/verify-publish.yml\` which runs independently after \`publish.yml\` to catch the \"publishing-workflow-self-attesting\" bias. The operator-side \`/release\` Step 6a-6f (shipped v0.18.0) is the primary verification line; this workflow is the secondary independent check."
+            echo ""
+            echo "Cross-reference: \`scripts/version-parity-audit.ts\` (EA daily sweep) provides the third long-tail catch-net per \`protocols/versioning-protocol.md §4.6\`."
+            echo ""
+            echo "Operator: close this issue once remediation lands or once the failure is accepted (e.g., known-orphan). Do not silently auto-close on subsequent passing runs."
+          } > "$BODY_FILE"
+
+          gh issue create \
+            --title "Gate 5 §4.5 verification failed for ${TAG}" \
+            --body-file "$BODY_FILE" \
+            --label "gate-5-failure" \
+            || {
+              # If label doesn't exist, retry without it (don't let label-absence
+              # block the issue from being filed).
+              echo "::warning::Label 'gate-5-failure' may not exist; retrying without label."
+              gh issue create \
+                --title "Gate 5 §4.5 verification failed for ${TAG}" \
+                --body-file "$BODY_FILE"
+            }
+
+          # Also emit to step summary so the run page shows the failure inline.
+          {
+            echo "### Gate 5 §4.5 verification FAILED for ${TAG}"
+            echo ""
+            echo "Auto-filed issue. See body for invariant breakdown + remediation."
+          } >> "$GITHUB_STEP_SUMMARY"

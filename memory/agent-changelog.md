@@ -8,6 +8,18 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-13 — Framework v0.19.0 — Gate 5 defense-in-depth: verify-publish.yml + version-parity-audit
+
+Completes the Gate 5 amendment (started v0.18.0) by adding the deferred defense-in-depth layer. tap-agents/.github/workflows/verify-publish.yml fires on publish.yml workflow_run completion and re-verifies all three §4.5 invariants from a cold npm pull — independent of publish.yml's own attestation. scripts/version-parity-audit.ts audits four version channels (local tags / remote tags / npm versions / GitHub Releases) for divergence; EA invokes daily via `npm run audit:version-parity` and surfaces unknown divergence as P1 in the daily briefing.
+
+v0.18.0's operator-side Gate 5 remains primary. v0.19.0 adds independent CI verification (catches publish-workflow-self-attestation bias) + periodic safety-net (catches anything operator-side polling missed at release time).
+
+Critic adversarial review APPROVED with high confidence — Critic paste-tested all three load-bearing bash blocks in verify-publish.yml against the live tap-agents/v0.18.0 published tarball + GitHub Release body, and empirically ran the audit script (PASS, 2 known annotations: v0.8.3 + v0.15.0).
+
+The v0.15.0 orphan that originally motivated Gate 5 is now machine-detectable by both new components: verify-publish.yml would have surfaced the missing tag on publish-day, and version-parity-audit.ts surfaces on EA's daily sweep.
+
+Cross-reference: CHANGELOG.md v0.19.0 entry; workspace/_global/org-designer-proposals/20260512-2330-gate-5-post-publish-verification.md (now annotated COMPLETED 2026-05-13).
+
 ## 2026-05-13 — Framework v0.18.0 — Gate 5: post-publish verification + /release flow tightening
 
 Closes the publish-side gap in the version-honesty enforcement chain. Adds §4.5 (operator-side post-publish artifact verification covering registry presence, tarball completeness, GitHub Release parity) and §4.6 (cross-channel parity audit, marked [PARTIAL — full implementation deferred to v0.19.0]). `commands/release.md` Step 6 expanded from single `git push origin v<new>` into a six-sub-step verification flow (6a-6f) that operators run before declaring a release done.

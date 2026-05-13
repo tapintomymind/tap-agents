@@ -9,7 +9,7 @@
     {
       "name": "tapagents",
       "source": ".",
-      "version": "0.18.0",
+      "version": "0.19.0",
       "description": "The full TapAgents framework — 15 agents, 17 commands, 29 protocols, stack-aware templates, ten instrumented enforcement + telemetry hooks (every hook fire / block / classification / misfire lands in events.jsonl; v0.15.0 adds auto-registration of cross-cutting sessions), and an internal→public sync flow keeping the framework's two trees in lockstep. Installs a complete AI product team in your repo. v0.17.0 adds the producer-side auto-adoption pipeline: a notify-adopters workflow that dispatches `tap-agents-published` repository_dispatch events to downstream consumers after every npm publish, plus a tsx-based CHANGELOG.md format integration test wired into version-check CI."
     }
   ]

@@ -1,7 +1,7 @@
 # Versioning Protocol
 
 **Owner:** Org Designer (codification + maintenance). Critic enforces at artifact level on every release review.
-**Status:** Active 2026-05-11. Amended 2026-05-12: Gate 5 (post-publish artifact verification) + §4.6 cross-channel parity audit added — response to v0.15.0 orphan-tag incident.
+**Status:** Active 2026-05-11. Amended 2026-05-12: Gate 5 (post-publish artifact verification) + §4.6 cross-channel parity audit codified — response to v0.15.0 orphan-tag incident. Defense-in-depth layer (`verify-publish.yml` CI workflow + `scripts/version-parity-audit.ts` EA daily-sweep) shipped 2026-05-13 as v0.19.0; deferral markers removed from §4.5 and §4.6.
 **Authority:** User direction 2026-05-11 — distribution wedge requires strictly-enforced SemVer for npm + Claude Code marketplace dual-channel publish. Replaces ad-hoc `prompt_version: YYYY-MM-DD-N` agent-level versioning at the framework-release scope (prompt-version per agent stays unchanged — see §8).
 **Related:**
 - `protocols/framework-change-discipline.md` (Tier 1 doctrinal change rules — what *qualifies* as a versionable change)
@@ -153,11 +153,20 @@ Gate 5 verifies three invariants on every release after `publish.yml` reports su
   - Npm-publish-succeeded-but-tarball-incomplete (v0.11.0 class) — Step 6d via `dist.tarball` cold-pull + `tar -tzf` vs `package.json#files`.
   - GitHub-Release-missing-after-successful-publish — Step 6e.
 
-- **Independent `verify-publish.yml` workflow (DEFERRED to v0.19.0).** Would catch the "publishing-workflow-self-attesting" bias — i.e., the same workflow that publishes should not also self-attest registry presence. An in-`publish.yml` post-check is the same workflow that just published verifying its own output, which is structurally weaker than a separate cold-pull. This is defense-in-depth on top of the operator-side check; the operator-side check already empirically covers the v0.15.0 and v0.11.0 failure classes per the 2026-05-13 manual dogfood of `tap-agents/v0.17.0`. v0.19.0 territory.
+- **Independent `verify-publish.yml` workflow (live as of v0.19.0)** catches:
+  - **Publish-workflow-self-attestation bias.** A workflow that publishes shouldn't also be the sole verifier that its publish worked — that's structurally a self-attestation. An independent workflow running on a different runner network re-establishes the verification chain.
+  - **CDN-propagation race against operator-side timing.** Operator-side polling depends on the operator's network; the CI runner pulls from a different network with different CDN-edge cache state. If operator-side caught a stale cache, the CI runner provides a second sampling.
+  - **Claim-vs-reality drift between publish.yml's exit code and actual npm state.** `publish.yml` exits 0 when its actions succeeded according to their own attestation. The cold pull from a separate workflow's runner network re-verifies what's actually visible on the public registry.
 
-- **§4.6 cross-channel parity audit (DEFERRED to v0.19.0 — see §4.6 PARTIAL marker).** Periodic safety net. Catches any divergence between local tags / remote tags / npm / GitHub Releases that operator-side polling missed (e.g., a release authored months ago that silently rolled back, or a non-canonical-checkout publish). The operator-side check is release-time only; the parity audit is portfolio-wide and time-independent.
+  **Trigger semantics:** fires on `workflow_run` event for `publish` workflow completed-success. Pre-release tags (any hyphen-containing version, e.g., `v1.0.0-rc.1`) are skipped via a POSIX `case "$VERSION" in *-*) skip ;; esac` filter — mirrors the `notify-adopters.yml` pre-release filter. Lag from publish-success to verify-publish run is typically ~30-120s (workflow_run dispatch lag); end-to-end verification target is completion within 5 minutes of publish-success. Retry budgets are sized smaller than operator-side (e.g., invariant 1 uses 4 × 30s = 2-min budget vs operator's 8 × 30s = 4-min) because most of the CDN-propagation race is consumed by the workflow_run dispatch lag itself.
 
-**v0.18.0 implementation scope:** operator-side polling (per `commands/release.md` Step 6a-6f) covers all three invariants for go-forward releases. Defense-in-depth via an independent `verify-publish.yml` CI workflow is **DEFERRED to v0.19.0** — operator-side already empirically covers the v0.15.0 (tag-never-pushed) and v0.11.0 (tarball-incomplete) failure classes per the 2026-05-13 manual dogfood that shipped `tap-agents/v0.17.0` to npm. The deferred workflow adds independent self-attestation (mitigates "publishing-workflow-self-attesting" bias) but is not load-bearing for v0.18.0.
+  **Failure handling:** auto-files a GitHub issue titled `Gate 5 §4.5 verification failed for v<version>` with `gate-5-failure` label. Idempotent — appends a comment if an issue for the same tag already exists rather than opening a duplicate. Exits non-zero so the run is red in the Actions tab. Does NOT close auto-filed issues on subsequent passing runs; operator resolves and closes manually after deciding on remediation (next-version bump vs. accepted-orphan annotation).
+
+  **File location:** `tap-agents/.github/workflows/verify-publish.yml` only. Publish-pipeline asymmetry — same precedent as `publish.yml` and `notify-adopters.yml`. Not mirrored to `.claude/` because the workflow only ever runs in the public repo's Actions runners; the `.claude/` framework HQ does not have a runner.
+
+- **§4.6 cross-channel parity audit (live as of v0.19.0 — see §4.6).** Periodic safety net. Catches any divergence between local tags / remote tags / npm / GitHub Releases that operator-side polling and CI-side `verify-publish.yml` missed (e.g., a release authored months ago that silently rolled back, or a non-canonical-checkout publish). The operator-side check is release-time only; the CI-side check is publish-event only; the parity audit is portfolio-wide and time-independent.
+
+**Implementation scope (post-v0.19.0):** all three checkpoints live. Operator-side polling (`commands/release.md` Step 6a-6f, shipped v0.18.0) is the primary line at release time. CI-side `verify-publish.yml` (shipped v0.19.0) provides independent cold-pull verification with publish-workflow-asymmetric placement. EA daily sweep via `scripts/version-parity-audit.ts` (shipped v0.19.0) provides the long-tail catch-net for divergences that escape both per-release gates.
 
 **Failure handling.**
 
@@ -170,27 +179,46 @@ Gate 5 verifies three invariants on every release after `publish.yml` reports su
 
 ### §4.6 Cross-channel parity audit (EA daily sweep)
 
-`[PARTIAL — full implementation deferred to v0.19.0]` This section codifies the cross-channel parity audit's intent. The full implementation (`scripts/version-parity-audit.*` invocation + EA agent contract update specifying daily-sweep responsibility + EA tools-allowlist additions for `Bash(npm view:*)` / `Bash(gh release list:*)` / `Bash(git ls-remote:*)`) lands as v0.19.0. v0.18.0 ratifies the protocol clause; implementation follows.
-
 Gates 1-5 catch failures at release time. Some failure classes accumulate silently between releases — an orphaned tag that was never pushed, a CHANGELOG entry that never landed in `memory/agent-changelog.md`, a npm version that diverges from the GitHub Releases list. The EA daily briefing includes a **cross-channel version parity audit** as the catch-net for everything the per-release gates missed.
 
-The audit compares four channels:
+The audit is implemented as `.claude/scripts/version-parity-audit.ts` (tsx-based, mirrors `scripts/test-changelog-format.ts` style — no vitest devDep). It compares four channels:
 
-1. **Local tags** — `git tag -l 'v*'` (run in the framework root `tap-agents/` checkout).
-2. **Remote tags** — `git ls-remote --tags origin 'v*'` (origin is the public `tap-agents` GitHub repo).
+1. **Local tags** — `git -C <repo> tag -l 'v*'` (default `<repo>` is `../tap-agents/` resolved relative to the script's own location via `import.meta.url`; cwd-independent).
+2. **Remote tags** — `git -C <repo> ls-remote --tags origin 'v*'` (origin is the public `tap-agents` GitHub repo; filters out the `^{}` dereferenced peel-pointers).
 3. **npm versions** — `npm view @tapintomymind/tap-agents versions --json`.
-4. **GitHub Releases** — `gh release list --limit 50` (the same Releases that `publish.yml` creates via `softprops/action-gh-release@v2`).
+4. **GitHub Releases** — `gh release list --repo tapintomymind/tap-agents --limit 50 --json tagName` (the same Releases that `publish.yml` creates via `softprops/action-gh-release@v2`).
 
 Expected invariant: **for every version v that appears in any one channel, v appears in all four channels.**
 
-Any divergence is flagged to the user immediately in the next briefing under TEAM HEALTH. Common divergence shapes:
+**Known-orphan handling.** Some versions are documented as permanently missing from one-or-more channels with explicit reasoning. The audit carries a `KNOWN_ORPHANS` map that annotates these as `[ANNOT]` (with the documented reason) rather than `[WARN]`. The annotation is **subset-bounded** — if a known-orphan version unexpectedly becomes missing from a NEW channel beyond what's documented, that new channel-loss surfaces as an unknown divergence and the audit fails. This prevents the annotation from masking new divergences for already-known orphans.
 
-- **v in local, missing from remote** — tag was never pushed (the v0.15.0 class). Surface with the specific command to remediate: `git push origin v<v>`.
-- **v in remote + Releases, missing from npm** — `publish.yml` ran but npm publish failed mid-flight; the package wasn't registered. Surface as a release-incident; remediation requires republish under a new version per immutability rules.
-- **v in npm, missing from Releases** — `npm publish` succeeded but `softprops/action-gh-release@v2` errored in the workflow. Surface for manual `gh release create` remediation.
-- **v in npm + Releases, missing from local** — a release was published from a non-canonical checkout (e.g., a teammate's machine). Surface for investigation; this should not happen in normal flow.
+Currently-annotated orphans:
+- `v0.15.0` — missing from `[remote, npm, releases]`. Originally local-only in `tap-agents/` (tag pushed retroactively for archaeology). Permanent absence per v0.17.0 + v0.18.0 CHANGELOG entries.
+- `v0.8.3` — missing from `[npm, releases]`. Tag pushed cleanly; `publish.yml` ran but failed at the npm publish step pre-Trusted-Publishing-OIDC migration (OIDC fix shipped v0.9.0).
 
-EA runs the audit on every briefing where the `tap-agents/` workspace has been touched since the last sweep, and unconditionally once per 24h regardless of activity. Implementation hint: a small `scripts/version-parity-audit.ts` script that emits a structured comparison and exit-codes non-zero on divergence; EA reads the audit's output and includes the report in TEAM HEALTH when divergence is detected. Silence in TEAM HEALTH = parity confirmed.
+**Divergence-shape remediation table.** When an unknown divergence is detected, the audit prints an actionable remediation hint based on the missing-channel pattern:
+
+| Present in | Missing from | Class | Remediation |
+|---|---|---|---|
+| local | remote, npm, releases | Tag-never-pushed (v0.15.0 class) | `git push origin v<v>` |
+| remote, releases | npm | Publish-failed-mid-flight | Release-incident; cut next version with fix per npm immutability rules |
+| npm | releases | softprops-action-gh-release errored | `awk` CHANGELOG entry → `gh release create v<v> --notes-file <entry>` |
+| npm, releases | local | Non-canonical-checkout publish | Investigate; should not happen in normal flow |
+
+**Output.** Human-readable to stdout by default (the form EA folds into TEAM HEALTH); `--json` flag for machine-readable form (EA-parser-friendly, future agent-dashboard ingestion).
+
+**Exit codes.**
+- `0` — parity confirmed (zero unknown divergences; known-orphans annotated)
+- `1` — unknown divergence detected (audit failure; surface immediately)
+- `2` — environment error (couldn't read one of the channels — e.g., gh CLI not authenticated, network failure)
+
+**EA invocation.** EA runs `npm run audit:version-parity` from `.claude/` root daily as part of the briefing-prep pass. Exit code routes the surface treatment:
+- Exit 0 + zero known-orphan annotations → silent (parity confirmed; no TEAM HEALTH surface).
+- Exit 0 + N>0 known-orphan annotations → FYI-tier line in TEAM HEALTH (N annotations; no action required).
+- Exit 1 → **P1 surface — bubble immediately** rather than batching in FYI. The audit's human-readable output is included verbatim in TEAM HEALTH alongside the remediation hint.
+- Exit 2 → flagged as an environment error; EA prompts user to verify gh authentication or network access; does NOT surface as a parity-failure (parity is unknown, not divergent).
+
+Silence in TEAM HEALTH = parity confirmed.
 
 ## §5 The release commit
 

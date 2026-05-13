@@ -4,6 +4,74 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.19.0] — 2026-05-13 — Gate 5 defense-in-depth: verify-publish.yml + version-parity-audit
+
+**Minor release** completing the Gate 5 amendment (started v0.18.0) by adding the deferred defense-in-depth layer: an independent CI workflow that verifies the npm publish from a cold pull, and a parity-audit script that EA runs daily across four version channels. v0.18.0's operator-side coverage remains primary; v0.19.0 adds independent verification + periodic safety-net.
+
+### Added
+
+- **`.github/workflows/verify-publish.yml`** (publish-pipeline asymmetry — tap-agents/-only) — `workflow_run`-triggered on `publish` workflow completed-success. Verifies all three §4.5 invariants (registry presence, tarball completeness, GitHub Release parity) from a cold npm pull, independent of `publish.yml`'s own attestation. Pre-release versions (any hyphen-containing version, e.g., `v1.0.0-rc.1`) skipped via POSIX `case "$VERSION" in *-*) skip ;; esac` filter — mirrors `notify-adopters.yml` shape. Auto-files a GitHub issue titled `Gate 5 §4.5 verification failed for v<version>` with `gate-5-failure` label on any failure (idempotent — appends a comment if an issue already exists for the same tag rather than opening a duplicate). Retry budgets sized for the ~30-120s workflow_run dispatch lag (e.g., invariant 1: 4 × 30s = 2-min vs operator-side 8 × 30s = 4-min). End-to-end verification target: completion within 5 min of publish-success. Permissions: `contents: read`, `issues: write`, `actions: read`. (454 lines)
+
+- **`scripts/version-parity-audit.ts`** — tsx-based audit script (mirrors `scripts/test-changelog-format.ts` style — no vitest devDep). Audits 4 channels for `@tapintomymind/tap-agents`: local tags (`git -C <repo> tag -l 'v*'`), remote tags (`git -C <repo> ls-remote --tags origin 'v*'` with `^{}` peel-pointer filtering), npm versions (`npm view <pkg> versions --json`), and GitHub Releases (`gh release list --repo tapintomymind/tap-agents --limit 50 --json tagName`). Subset-bounded `KNOWN_ORPHANS` map annotates v0.15.0 (missing from remote+npm+releases) and v0.8.3 (missing from npm+releases) as `[ANNOT]` rather than `[WARN]`; a known-orphan version unexpectedly losing a NEW channel still surfaces as unknown divergence. CLI flags: `--repo-path <dir>` (default `../tap-agents/` resolved via `import.meta.url` — cwd-independent), `--json` (machine-readable output for EA/dashboard ingestion), `--help`. Wired into `package.json#scripts` as `audit:version-parity`. Exit codes: `0` parity / `1` unknown divergence / `2` environment error. Empirically validated 2026-05-13: ran live, output `PASS (2 known annotations; 0 unknown divergences)`. (646 lines)
+
+### Changed
+
+- **`protocols/versioning-protocol.md §4.5`** — verify-publish.yml lane finalized. Removed "DEFERRED to v0.19.0" marker. Prose now describes the actual implementation: workflow_run trigger, three invariants from cold pull, pre-release POSIX case filter, GitHub-issue auto-file with `gate-5-failure` label + idempotent comment-append, ~30-120s dispatch lag, 5-min end-to-end verification target, publish-pipeline-asymmetric placement (tap-agents/-only — not mirrored to `.claude/`). The "What each checkpoint catches" section's verify-publish.yml lane tightened to enumerate: publish-workflow-self-attestation bias mitigation, CDN-propagation race against operator-side timing (independent runner network), claim-vs-reality drift between publish.yml's exit code and actual npm state.
+
+- **`protocols/versioning-protocol.md §4.6`** — `[PARTIAL — full implementation deferred to v0.19.0]` marker removed. Prose now describes the actual `scripts/version-parity-audit.ts` implementation: 4 channels read via `git -C <repo>`, `npm view`, `gh release list --json`; subset-bounded `KNOWN_ORPHANS` map with v0.15.0 + v0.8.3 entries; divergence-shape remediation table (mirrors audit's `remediationHint` mapping); exit codes 0/1/2; EA daily invocation via `npm run audit:version-parity`. Documents the exit-code-driven surface treatment EA applies (silent on parity, FYI on annotated orphans, P1 on unknown divergence, environment-error flagging on exit 2).
+
+- **`agents/executive-assistant.md`** — `prompt_version` bumped to `2026-05-13-1`. New section "Version-Parity Daily Sweep (per `protocols/versioning-protocol.md §4.6`)" added between "Stale Detection" and "Session-Tracking Drift Sweep". Documents the daily-cadence invocation, the exit-code-driven surface table (silent / FYI / P1-immediate / environment-error), the do-NOT list (no auto-remediate, no silencing `[WARN]`, no unilateral `KNOWN_ORPHANS` mutation — that's an Org Designer route). Read-list addition: `protocols/versioning-protocol.md §4.6`.
+
+- **`package.json`** — adds `audit:version-parity` script entry (`tsx scripts/version-parity-audit.ts`). No new devDeps (tsx already present).
+
+### Provenance + acknowledgments
+
+- Built on v0.18.0's operator-side Gate 5 (Steps 6a-6f in `commands/release.md`). v0.18.0 was empirically dogfooded at ship time (~42s tag-push to publish.yml success during the v0.17.0 dogfood; npm view returned on attempt 1; tarball probe confirmed all four v0.11.0-regression-class directories present).
+- The v0.15.0 orphan that originally motivated Gate 5 is now machine-detectable by both `verify-publish.yml` (would have caught the missing tag's publish-day absence — though v0.15.0's specific failure mode was tag-never-pushed, which is operator-side Step 6a's beat, not CI-side; CI-side catches the cases where the tag DID reach origin) and `version-parity-audit.ts` (which surfaces v0.15.0 as `[ANNOT]` today — present in [local, remote], missing from [npm, releases]).
+- v0.8.3 (workflow-failed-after-tag-push, pre-OIDC migration) is now annotated as a known orphan in the parity audit's `KNOWN_ORPHANS` map.
+- Critic adversarial review 2026-05-12 (1st pass on Gate 5 amendment proposal) and 2026-05-13 (subsequent passes on v0.18.0 ship) flagged the operator-side ↔ CI-side split. v0.18.0 shipped operator-side per N2 deferral; v0.19.0 completes the design.
+
+### Empirical evidence from v0.19.0 Step A live audit run
+
+Before this CHANGELOG entry was drafted, `scripts/version-parity-audit.ts` was executed live against the v0.18.0-state repo. Output:
+
+```
+[ANNOT] v0.8.3 — present in [local, remote], missing from [npm, releases] (KNOWN ORPHAN)
+[ANNOT] v0.15.0 — present in [local], missing from [remote, npm, releases] (KNOWN ORPHAN)
+PASS (2 known annotations; 0 unknown divergences)
+```
+
+This validates: (1) the four-channel read paths work end-to-end (`git tag`, `git ls-remote`, `npm view`, `gh release list` all returned successfully); (2) the subset-bounded `KNOWN_ORPHANS` annotation logic correctly classifies both documented orphans; (3) `present_in` calculation correctly distinguishes v0.8.3 (local+remote, missing npm+releases) from v0.15.0 (local-only, missing remote+npm+releases) per their distinct underlying incident classes; (4) exit code 0 fires on `(0 unknown, N known)`, not on `(0 unknown, 0 known)` — so the audit usefully surfaces annotated state without false-failing.
+
+### SemVer classification
+
+**Minor** (per `protocols/versioning-protocol.md §3.2`):
+
+- Adds new workflow file (`verify-publish.yml`) + new audit script (`scripts/version-parity-audit.ts`) + new package.json script entry (`audit:version-parity`) — additive surface.
+- Updates protocol prose to remove deferral markers — codification-after-implementation matches the doctrinal-change-discipline that prose follows implementation (per `protocols/framework-change-discipline.md`).
+- Updates EA contract additively — new daily-sweep responsibility; existing EA behavior preserved (briefings still 250-400 words; Decision Packets unchanged; no responsibility removed).
+- No existing gate removed; no consumer-facing field removed; no marketplace plugin renamed.
+
+PATCH rejected: more than a doc-edit. New CI workflow file + new operational script + new EA responsibility + new test surface.
+
+MAJOR rejected: no downstream consumer (agent-dashboard Vercel build, marketplace users) breaks at the prior version. `verify-publish.yml` runs in the publish-pipeline and produces issues; it doesn't change the published artifact. `version-parity-audit.ts` is internal-discipline tooling; downstream consumers don't read it. EA's new responsibility is internal-cadence; the agent's user-facing output contract (briefings, Decision Packets) is unchanged.
+
+### Cross-channel sync
+
+All version-surface fields update atomically:
+- `package.json` `0.18.0 → 0.19.0`
+- `.claude-plugin/plugin.json` `0.18.0 → 0.19.0`
+- `.claude-plugin/marketplace.json` `plugins[0].version` `0.18.0 → 0.19.0`
+
+### Files-array audit
+
+- `.github/workflows/verify-publish.yml` lives under `.github/workflows/` which is NOT in `package.json#files` (workflows ship in the GitHub repo, not the npm tarball — same precedent as `publish.yml` and `notify-adopters.yml`). No files-array change required.
+- `scripts/version-parity-audit.ts` lives under `scripts/` (already in files-array). No files-array change required.
+- `agents/executive-assistant.md` lives under `agents/` (already in files-array). No files-array change required.
+- `protocols/versioning-protocol.md` lives under `protocols/` (already in files-array). No files-array change required.
+
+Step 6d tarball-completeness probe (codified in v0.18.0) will confirm the established files-array entries remain present in the v0.19.0 tarball during the release flow.
+
 ## [0.18.0] — 2026-05-13 — Gate 5: post-publish verification + /release flow tightening
 
 **Minor release** closing the publish-side gap exposed by the v0.15.0 incident (tag created locally, never pushed; publish.yml never fired; npm never received). Adds **Gate 5** to the version-honesty enforcement chain — operator-side verification that the tagged release actually reached npm before `/release` declares the release done.
