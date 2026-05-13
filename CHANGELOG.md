@@ -4,6 +4,43 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.17.0] — 2026-05-13 — Auto-adoption producer pipeline
+
+**Minor release** adding the producer-side of the auto-adoption pipeline that dispatches `tap-agents-published` events to downstream consumers (currently `tapintomymind/tapagents-app`) after every successful npm publish.
+
+### Added
+
+- **`.github/workflows/notify-adopters.yml`** — fires on `workflow_run: publish completed → success`. Dispatches `tap-agents-published` event (payload: version, tag, sha, publish_run_id, published_at) to the consumer via the `ADOPT_DISPATCH_TOKEN` PAT. Pre-release tag publishes (e.g., `v1.0.0-rc.1`) are filtered out via POSIX `case` idiom and do not dispatch. Concurrency group is per-publish-SHA so back-to-back publishes don't serialize. Lag from publish to consumer dispatch: ~1-3 min.
+
+- **`scripts/test-changelog-format.ts`** — tsx-based integration test asserting every `## [X.Y.Z] — YYYY-MM-DD` heading in `CHANGELOG.md` matches the canonical format. Uses `node:assert/strict` (no vitest dependency — tap-agents has no vitest devDep). Wired into `version-check.yml` as a required CI step on PRs touching CHANGELOG.md / hooks/ / scripts/ / package.json.
+
+### Changed
+
+- **`.github/workflows/version-check.yml`** — adds `Run CHANGELOG format test` step; gates PR merges to `main` on CHANGELOG format correctness.
+- **`package.json`** — adds `test:changelog-format` script.
+
+### Cross-channel sync
+
+All version-surface fields update atomically: `package.json` `0.16.0 → 0.17.0`, `.claude-plugin/plugin.json` same, `.claude-plugin/marketplace.json` `plugins[0].version` same.
+
+### Downstream consumer notes
+
+- `tapintomymind/tapagents-app` consumer workflow (`adopt-tap-agents.yml`) listens for the `tap-agents-published` repository_dispatch event. Per consumer's PR #31 (merged to dev 2026-05-13), the consumer workflow then bumps its own pin + opens a `chore(framework): adopt tap-agents v${TARGET}` PR on the `sync-tapagents` branch.
+- This release's tag push (`git tag v0.17.0 && git push origin v0.17.0`) WILL trigger the auto-adoption pipeline end-to-end for the first time. Operator should expect a PR to open on tapagents-app/dev within ~1-3 minutes of the npm publish landing.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3.2` ("new capability without removing any existing capability"): **MINOR.** Additive new workflow + test. No file removed, no agent contract changed.
+
+### Provenance
+
+- Design: `tapintomymind/tapagents-app#28` (4 Critic passes cleared; merged to tapagents-app/dev 2026-05-13).
+- Producer PR: `#1` on this repo (`feat/auto-adoption-producer`).
+- Consumer PR: `tapintomymind/tapagents-app#31` (merged to dev 2026-05-13).
+- Prereq PR: `tapintomymind/tapagents-app#32` (`.bot-no-touch` + 3 GitHub labels; merged to dev 2026-05-13).
+
+---
+
 ## [0.16.0] — 2026-05-12 — BL-056 CI-bot authorization path for sentinel-bound migration scripts (ratify-with-conditions)
 
 **Minor release** opening a third authorization source in `protocols/destructive-data-ops.md` — a named sentinel-bound CI script on push-to-branch can perform Tier A/B destructive ops, with the merge commit SHA + author + timestamp serving as `user_confirmation.verbatim`. Drives the BL-056 (`<project>`) auto-sync workflow for Drizzle migrations to Vercel Preview's Neon branch — empirically motivated by the 2026-05-11 + 2026-05-12 same-class drift incidents. Ratified by Org Designer 2026-05-12 with ten binding conditions (C-1 through C-10).
