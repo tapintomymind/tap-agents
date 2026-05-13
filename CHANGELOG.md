@@ -4,6 +4,56 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.18.0] — 2026-05-13 — Gate 5: post-publish verification + /release flow tightening
+
+**Minor release** closing the publish-side gap exposed by the v0.15.0 incident (tag created locally, never pushed; publish.yml never fired; npm never received). Adds **Gate 5** to the version-honesty enforcement chain — operator-side verification that the tagged release actually reached npm before `/release` declares the release done.
+
+### Added
+
+- **`protocols/versioning-protocol.md §4.5`** — new Gate 5 (post-publish artifact verification). Three invariants: registry presence (`npm view <pkg>@<v>`), tarball completeness (`dist.tarball` + tar -tzf vs package.json#files), GitHub Release parity. Operator-side coverage live in v0.18.0; independent CI workflow (`verify-publish.yml`) deferred to v0.19.0.
+- **`protocols/versioning-protocol.md §4.6`** — cross-channel parity audit clause (codified intent; implementation `[PARTIAL — deferred to v0.19.0]`).
+
+### Changed
+
+- **`commands/release.md` Step 6** — expanded from "`git push origin v<new>` and walk away" to a six-sub-step verification flow (6a-6f). Each sub-step has a single responsibility: tag-on-origin poll (6a, 120s timeout), publish.yml run resolution via headSha + watch (6b, B1-corrected filter), npm registry poll with backoff (6c), tarball completeness probe (6d, via `dist.tarball` + curl + tar -tzf), GitHub Release verification (6e), final all-channels-confirmed banner (6f). All FAIL paths have paste-safe heredoc remediation (B2-corrected).
+
+### Provenance + acknowledgments
+
+- Triggered by user observation 2026-05-12 of v0.15.0 missing from npm registry.
+- Empirically validated 2026-05-13 by manual dogfood shipping `tap-agents/v0.17.0` to npm (42s tag-push to publish-success; npm view returned 0.17.0 on attempt 1; tarball probe confirmed all four v0.11.0-regression-class directories present).
+- Critic adversarial review 2026-05-12 → CHANGES-REQUESTED (3 blocking + 6 non-blocking). All blocking resolved (B1 filter correction, B2 heredoc rewrite, B3 structural-pattern reframing). N1+N4+N5+N6 applied. N2+N3 deferred to v0.19.0.
+
+### Note on v0.15.0 (orphan)
+
+`v0.15.0 — BL-055 auto-register session-tracking hooks` was tagged locally in `tap-agents/` on 2026-05-12 but never pushed to origin; publish.yml never fired; npm never received. npm history shows `v0.14.0 → v0.16.0 → v0.17.0 → v0.18.0` with a gap at v0.15.0. Functionally non-impactful (v0.15.0's content is fully present in v0.16.0+, so downstream consumers are unaffected). Treated as permanent absent contrary signal — if a future incident makes republishing strictly cleaner, the framework reserves the right to revisit; until then, the gap stays. This v0.18.0 Gate 5 amendment closes the operator-flow loophole that caused the orphan.
+
+### SemVer classification
+
+**Minor** (per `protocols/versioning-protocol.md §3.2`):
+
+- Adds new gate (§4.5) and new section (§4.6) to the enforcement chain — additive surface contract.
+- Expands `commands/release.md` Step 6 with new sub-steps (6a-6f) — existing tag-push behavior preserved as a substep; additive verification.
+- No existing gate removed or narrowed; no consumer-facing field removed; no marketplace plugin renamed.
+
+PATCH rejected: more than a doc-edit. Release authors now must satisfy new operator-side verification before `/release` declares success. That's a contract change for release authors.
+
+MAJOR rejected: no downstream consumer (agent-dashboard Vercel build, marketplace users) breaks at the prior version. The amendment is internal release discipline; nothing in §4.5 or §4.6 retroactively invalidates v0.16.0 or v0.17.0 already-published versions.
+
+### Cross-channel sync
+
+All version-surface fields update atomically:
+- `package.json` `0.17.0 → 0.18.0`
+- `.claude-plugin/plugin.json` `0.17.0 → 0.18.0`
+- `.claude-plugin/marketplace.json` `plugins[0].version` `0.17.0 → 0.18.0`
+
+### Files-array audit
+
+The two modified surfaces both fall under existing `package.json#files` entries:
+- `protocols/versioning-protocol.md` — under `protocols/` (already in files-array)
+- `commands/release.md` — under `commands/` (already in files-array)
+
+No `package.json#files` change required. Step 6d tarball-completeness probe (newly codified in this release) will confirm the four v0.11.0-regression-class entries (`playbooks/`, `memory/`, `docs/`, `settings.json`) remain present in the published tarball.
+
 ## [0.17.0] — 2026-05-13 — Auto-adoption producer pipeline
 
 **Minor release** adding the producer-side of the auto-adoption pipeline that dispatches `tap-agents-published` events to downstream consumers (currently `tapintomymind/tapagents-app`) after every successful npm publish.

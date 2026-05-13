@@ -8,6 +8,20 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-13 — Framework v0.18.0 — Gate 5: post-publish verification + /release flow tightening
+
+Closes the publish-side gap in the version-honesty enforcement chain. Adds §4.5 (operator-side post-publish artifact verification covering registry presence, tarball completeness, GitHub Release parity) and §4.6 (cross-channel parity audit, marked [PARTIAL — full implementation deferred to v0.19.0]). `commands/release.md` Step 6 expanded from single `git push origin v<new>` into a six-sub-step verification flow (6a-6f) that operators run before declaring a release done.
+
+Triggered by user observation 2026-05-12 of v0.15.0 missing from npm registry. Empirically validated 2026-05-13 by manual dogfood shipping tap-agents/v0.17.0 to npm (42s tag-push to publish-success; npm view returned 0.17.0 on attempt 1; tarball probe confirmed all four v0.11.0-regression-class directories present).
+
+Critic adversarial review 2026-05-12 → CHANGES-REQUESTED (3 blocking + 6 non-blocking). All blocking resolved (B1 filter correction, B2 heredoc rewrite, B3 structural-pattern reframing across 5 incident classes). Critic pass 2 → CHANGES-REQUESTED on B-2.1 (mechanically broken files-array extraction) + B-2.2 (truncated CHANGELOG). Both resolved. Critic pass 3 → APPROVED.
+
+v0.19.0 will land verify-publish.yml independent CI workflow + scripts/version-parity-audit.* + EA daily-sweep contract update (defense-in-depth on top of operator-side coverage).
+
+Cross-reference: CHANGELOG.md v0.18.0 entry.
+
+---
+
 ## 2026-05-12 — Org Designer ratifies CI-bot authorization path in `destructive-data-ops.md` (v0.16.0)
 
 **What changed.** `protocols/destructive-data-ops.md §4.1` (Authorization sources) and `§8 #6` (sentinel-bound CI scripts carve-out) flipped from `[PROVISIONAL]` to `[Ratified by Org Designer 2026-05-12]`. The amendment, drafted by `db-admin`, opens a third authorization path alongside the two pre-existing operator-typing paths: a named sentinel-bound CI script can perform Tier A/B destructive ops on push-to-branch with the merge commit SHA + author + timestamp recorded as `user_confirmation.verbatim`. Six binding constraints (sentinel-verify, static destructive-pattern guard, atomicity scope, Tier-B-or-lower, branch-ID provenance, audit-log writeback) were already part of the amendment text.

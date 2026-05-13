@@ -1,7 +1,7 @@
 # Versioning Protocol
 
 **Owner:** Org Designer (codification + maintenance). Critic enforces at artifact level on every release review.
-**Status:** Active 2026-05-11.
+**Status:** Active 2026-05-11. Amended 2026-05-12: Gate 5 (post-publish artifact verification) + §4.6 cross-channel parity audit added — response to v0.15.0 orphan-tag incident.
 **Authority:** User direction 2026-05-11 — distribution wedge requires strictly-enforced SemVer for npm + Claude Code marketplace dual-channel publish. Replaces ad-hoc `prompt_version: YYYY-MM-DD-N` agent-level versioning at the framework-release scope (prompt-version per agent stays unchanged — see §8).
 **Related:**
 - `protocols/framework-change-discipline.md` (Tier 1 doctrinal change rules — what *qualifies* as a versionable change)
@@ -82,9 +82,9 @@ A major bump signals **any change that could break a downstream consumer at the 
 
 When in doubt, choose MAJOR. The cost of an unnecessary major bump (Dependabot won't auto-merge — a human reads the release notes) is much smaller than the cost of an unflagged break (downstream consumer's Vercel build silently breaks).
 
-## §4 The four-gate enforcement chain
+## §4 The five-gate enforcement chain
 
-Honesty of the version field is enforced at four gates. Each layer catches what earlier layers missed.
+Honesty of the version field is enforced at five gates. Each layer catches what earlier layers missed. Gates 1-4 verify the release is correctly **authored**. Gate 5 verifies the release was correctly **published** — closing the loop between local intent and registry reality.
 
 ### §4.1 Gate 1 — AI-led release flow (`/release` command)
 
@@ -130,6 +130,68 @@ When the orchestrator dispatches Critic on any artifact during a release, Critic
 
 A BLOCKING Critic verdict at this gate stops the release.
 
+### §4.5 Gate 5 — Post-publish artifact verification
+
+Gates 1-4 verify the release is correctly **authored** (local commit, CHANGELOG, tag, classifier-aligned). None of them verify the artifact actually reached the npm registry or that the registry's tarball is complete. Gate 5 closes that loop.
+
+**Why this gate exists.** Two failure modes accumulated in 30 days established the need:
+
+- **v0.15.0 orphan (2026-05-12).** A `release: v0.15.0` commit + `v0.15.0` tag exist in the local `tap-agents/` checkout. `git ls-remote --tags origin` showed the tag was never pushed. `publish.yml` never fired. `npm view @tapintomymind/tap-agents versions` jumped `v0.14.0 → v0.16.0`. The operator step `git push origin v<new>` was issued but its completion was unverified; nothing downstream caught the gap. The release was correctly **authored** but never **published**.
+- **v0.11.0–v0.12.1 files-array regression.** `package.json#files` silently lost 4 directories (`playbooks/`, `memory/`, `docs/`, `settings.json`) at v0.11.0. The tag pushed, `publish.yml` ran, `npm publish` succeeded — but the tarball that landed on the registry was missing the dropped paths. Downstream `agent-dashboard` prebuild broke. Different failure class, same gap shape: no verification that the **published artifact** matches the release author's intent.
+
+Gate 5 verifies three invariants on every release after `publish.yml` reports success:
+
+1. **Registry presence.** `npm view @tapintomymind/tap-agents@<v> version` returns `<v>` (not a 404, not an older version). Catches: tag-not-pushed (v0.15.0 case), `publish.yml` silent failure, registry-side rejection that the workflow misread as success.
+2. **Tarball completeness.** Re-fetch the just-published tarball via `npm view <pkg>@<v> dist.tarball` + curl + `tar -tzf`, then verify each entry in `package.json#files` appears in the tarball under the `package/` prefix. Catches: files-array regression (v0.11.0 case), accidental `.npmignore` clobber, build-step output truncation.
+3. **GitHub Release parity.** `gh release view v<v>` returns a non-error result, the release body contains the CHANGELOG entry's title line (or a substring match against the entry's first heading), and `v<v>` appears in `gh release list --limit 50`. Catches: GitHub Release creation step failure (the workflow uses `softprops/action-gh-release@v2`; if the action errors after `npm publish` succeeds, npm has the package but no Release exists).
+
+**What each checkpoint catches.**
+
+- **Operator-side polling (Step 6a-6f in `/release`)** catches:
+  - Tag-never-pushed-to-origin (v0.15.0 class) — Step 6a.
+  - Workflow-failed-after-tag-push (v0.8.3 class) — Step 6b via `gh run watch --exit-status`.
+  - Npm-publish-succeeded-but-tarball-incomplete (v0.11.0 class) — Step 6d via `dist.tarball` cold-pull + `tar -tzf` vs `package.json#files`.
+  - GitHub-Release-missing-after-successful-publish — Step 6e.
+
+- **Independent `verify-publish.yml` workflow (DEFERRED to v0.19.0).** Would catch the "publishing-workflow-self-attesting" bias — i.e., the same workflow that publishes should not also self-attest registry presence. An in-`publish.yml` post-check is the same workflow that just published verifying its own output, which is structurally weaker than a separate cold-pull. This is defense-in-depth on top of the operator-side check; the operator-side check already empirically covers the v0.15.0 and v0.11.0 failure classes per the 2026-05-13 manual dogfood of `tap-agents/v0.17.0`. v0.19.0 territory.
+
+- **§4.6 cross-channel parity audit (DEFERRED to v0.19.0 — see §4.6 PARTIAL marker).** Periodic safety net. Catches any divergence between local tags / remote tags / npm / GitHub Releases that operator-side polling missed (e.g., a release authored months ago that silently rolled back, or a non-canonical-checkout publish). The operator-side check is release-time only; the parity audit is portfolio-wide and time-independent.
+
+**v0.18.0 implementation scope:** operator-side polling (per `commands/release.md` Step 6a-6f) covers all three invariants for go-forward releases. Defense-in-depth via an independent `verify-publish.yml` CI workflow is **DEFERRED to v0.19.0** — operator-side already empirically covers the v0.15.0 (tag-never-pushed) and v0.11.0 (tarball-incomplete) failure classes per the 2026-05-13 manual dogfood that shipped `tap-agents/v0.17.0` to npm. The deferred workflow adds independent self-attestation (mitigates "publishing-workflow-self-attesting" bias) but is not load-bearing for v0.18.0.
+
+**Failure handling.**
+
+- Gate 5 failure is a **release-incident**, not a soft warning. The release is not considered "complete" until Gate 5 passes.
+- If Gate 5 surfaces a tag-not-pushed condition, the remediation is `git push origin v<new>` (the operator did Step 6 incompletely). The recovery is the same action that should have happened the first time; re-running it is safe and idempotent.
+- If Gate 5 surfaces an npm-tarball-incomplete condition, the remediation is **not** to re-publish to the same version (npm packages are immutable per `commands/release.md` "Failure modes"). The remediation is to cut the next version (PATCH or MINOR per §3) with the fix and document the broken version in CHANGELOG.
+- If Gate 5 surfaces a GitHub-Release-missing condition, the remediation is to invoke `gh release create v<v>` manually using the CHANGELOG entry as the body. Document in `memory/agent-changelog.md` per `protocols/changelog-protocol.md §1`.
+
+**Surface to user.** Gate 5 failures surface immediately to the user through EA per Gate 5's incident-class severity. Do not silently retry; do not auto-remediate without user direction.
+
+### §4.6 Cross-channel parity audit (EA daily sweep)
+
+`[PARTIAL — full implementation deferred to v0.19.0]` This section codifies the cross-channel parity audit's intent. The full implementation (`scripts/version-parity-audit.*` invocation + EA agent contract update specifying daily-sweep responsibility + EA tools-allowlist additions for `Bash(npm view:*)` / `Bash(gh release list:*)` / `Bash(git ls-remote:*)`) lands as v0.19.0. v0.18.0 ratifies the protocol clause; implementation follows.
+
+Gates 1-5 catch failures at release time. Some failure classes accumulate silently between releases — an orphaned tag that was never pushed, a CHANGELOG entry that never landed in `memory/agent-changelog.md`, a npm version that diverges from the GitHub Releases list. The EA daily briefing includes a **cross-channel version parity audit** as the catch-net for everything the per-release gates missed.
+
+The audit compares four channels:
+
+1. **Local tags** — `git tag -l 'v*'` (run in the framework root `tap-agents/` checkout).
+2. **Remote tags** — `git ls-remote --tags origin 'v*'` (origin is the public `tap-agents` GitHub repo).
+3. **npm versions** — `npm view @tapintomymind/tap-agents versions --json`.
+4. **GitHub Releases** — `gh release list --limit 50` (the same Releases that `publish.yml` creates via `softprops/action-gh-release@v2`).
+
+Expected invariant: **for every version v that appears in any one channel, v appears in all four channels.**
+
+Any divergence is flagged to the user immediately in the next briefing under TEAM HEALTH. Common divergence shapes:
+
+- **v in local, missing from remote** — tag was never pushed (the v0.15.0 class). Surface with the specific command to remediate: `git push origin v<v>`.
+- **v in remote + Releases, missing from npm** — `publish.yml` ran but npm publish failed mid-flight; the package wasn't registered. Surface as a release-incident; remediation requires republish under a new version per immutability rules.
+- **v in npm, missing from Releases** — `npm publish` succeeded but `softprops/action-gh-release@v2` errored in the workflow. Surface for manual `gh release create` remediation.
+- **v in npm + Releases, missing from local** — a release was published from a non-canonical checkout (e.g., a teammate's machine). Surface for investigation; this should not happen in normal flow.
+
+EA runs the audit on every briefing where the `tap-agents/` workspace has been touched since the last sweep, and unconditionally once per 24h regardless of activity. Implementation hint: a small `scripts/version-parity-audit.ts` script that emits a structured comparison and exit-codes non-zero on divergence; EA reads the audit's output and includes the report in TEAM HEALTH when divergence is detected. Silence in TEAM HEALTH = parity confirmed.
+
 ## §5 The release commit
 
 A release is **one commit** that contains exactly:
@@ -148,7 +210,7 @@ release: v0.8.0 — <one-line summary>
 <paragraph summary, same as the CHANGELOG entry's title>
 ```
 
-The tag triggers the `publish.yml` workflow which builds + `npm publish`es to the registry.
+The tag triggers the `publish.yml` workflow which builds + `npm publish`es to the registry. Gate 5 (§4.5) then verifies the published artifact reached the registry intact and that all three distribution channels (npm + GitHub Releases + git remote tags) agree on the version. The release is not considered complete until Gate 5 passes.
 
 ## §6 Marketplace and npm channel synchronization
 
