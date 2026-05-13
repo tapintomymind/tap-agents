@@ -4,12 +4,17 @@
   "hooks": {
     "SessionStart": [
       {
-        "_purpose": "Orchestrator briefing on every session start (startup/resume/clear/compact). Auto-detects Tier 1 (multi-project cross-project view) vs Tier 2 (single-project active-milestone view) workspace shape. Encodes the TapAgents thesis (orchestrator dispatches, doesn't implement) so the routing rule survives compactions + resumes.",
+        "_purpose": "Two-hook SessionStart chain. (1) session-start-brief.py: orchestrator briefing on every session start (startup/resume/clear/compact); auto-detects Tier 1 vs Tier 2 workspace shape; encodes the TapAgents thesis so the routing rule survives compactions + resumes. (2) session-tracking-register.py: auto-registers a stub entry in active-sessions.md keyed by Claude Code's payload.session_id (BL-055 v0.15.0); paired with the PreToolUse hook session-tracking-files.py and Stop hook session-tracking-seal.py; graduates protocols/session-coordination-protocol.md §247 from Future-enforcement to Current.",
         "matcher": "*",
         "hooks": [
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-brief.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-tracking-register.py\"",
             "timeout": 10
           }
         ]
@@ -35,7 +40,7 @@
     ],
     "Stop": [
       {
-        "_purpose": "Two-stage Stop hook chain. (1) stop-critic-check.py: blocks Stop if any project is mid-flight (blocked_on set, contested artifacts, unresolved BLOCKING critic concerns). (2) stop-dispatch-monitor.py: observational — reads .claude/workspace/_global/events.jsonl, counts orchestrator-source dispatch-gate blocks for this session, writes a memory pattern note + appends to MEMORY.md when ≥ 3. Never blocks Stop; pattern detection is best-effort telemetry rollup.",
+        "_purpose": "Three-stage Stop hook chain. (1) stop-critic-check.py: blocks Stop if any project is mid-flight (blocked_on set, contested artifacts, unresolved BLOCKING critic concerns). (2) stop-dispatch-monitor.py: observational — reads .claude/workspace/_global/events.jsonl, counts orchestrator-source dispatch-gate blocks for this session, writes a memory pattern note + appends to MEMORY.md when ≥ 3. (3) session-tracking-seal.py: BL-055 v0.15.0; reads the per-session sidecar at <workspace>/_global/sessions/<cc_session_id>.json, compares files_in_flight against git log main since started, and writes status: sealed | partial | noop into active-sessions.md. Never blocks Stop (stop-critic-check is the gate); bookkeeping only.",
         "matcher": "*",
         "hooks": [
           {
@@ -47,13 +52,18 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-dispatch-monitor.py\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-tracking-seal.py\"",
+            "timeout": 15
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "_purpose": "Three-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). Order: safety first, version-gate second, routing-discipline third.",
+        "_purpose": "Four-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). (4) session-tracking-files.py: BL-055 v0.15.0; observational, NEVER blocks — fires on Edit/Write/NotebookEdit and appends the target path to the active session's files_in_flight if it matches the cross-cutting scope list in protocols/session-coordination-protocol.md §31-46. Order: safety first, version-gate second, routing-discipline third, manifest-tracking last (after gates so a gate-blocked edit doesn't pollute the manifest).",
         "matcher": "Write|Edit|Bash|NotebookEdit",
         "hooks": [
           {
@@ -69,6 +79,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator-dispatch-gate.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-tracking-files.py\"",
             "timeout": 10
           }
         ]

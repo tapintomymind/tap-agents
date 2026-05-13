@@ -244,16 +244,36 @@ This protocol is largely **advisory at the filesystem layer** — sessions follo
 - **Auto-seal on promotion (Rule 1, A).** Project promotion scripts seal in-progress `active-sessions.md` entries whose `files_in_flight:` overlaps the merged file set. Reference implementation: `agent-dashboard/scripts/promote-to-prod.sh`. Closes the most common drift-source: work that ships but whose session entry is left open.
 - **EA stale-session sweep (Rule 1, B).** Executive Assistant flags stale-but-shipped entries on every `/status` and `/briefing`. Catches cases auto-seal can't see — manual merges, hotfixes, work shipped via paths that don't run the promotion script. Read-only; surfaces only.
 
-## Future enforcement (hooks)
+## Current enforcement (hooks) — landed v0.15.0
 
-Future hardening via Claude Code hooks (in `.claude/settings.json` per the `update-config` skill):
+Three coordinated Claude Code hooks (registered in `.claude/settings.json` per the `update-config` skill) now auto-register, materialize, and seal `active-sessions.md` entries WITHOUT manual operator action. Provenance: BL-055, shipped 2026-05-12 in `v0.15.0`. The May 6 manual-discipline version of Rule 1 demonstrably failed (six days of zero new entries while four concurrent feature branches collided on the v0.13.1 slot — see BL-055 incident analysis). These hooks remove the manual step.
 
-- **Pre-edit hook on `CHANGELOG.md`** — checks `active-sessions.md` for collision; refuses if another session has the file in `files_in_flight` and `last_updated` is recent.
-- **Pre-edit hook on `conductor.md`** — requires session manifest entry first.
+- **SessionStart — `hooks/session-tracking-register.py`.** Fires on `startup` / `resume` / `clear` / `compact`. Writes a per-session sidecar at `<workspace>/_global/sessions/<cc_session_id>.json` and a corresponding STUB entry to `active-sessions.md` (with `scope: <auto — pending first cross-cutting edit>` and empty `files_in_flight: []`). Resume/compact fires upsert (preserves accumulated state, bumps `last_updated`, increments `resume_count`).
+
+- **PreToolUse — `hooks/session-tracking-files.py`.** Fires on Edit / Write / NotebookEdit AFTER the three existing gates (so a gate-blocked edit never pollutes the manifest). Tests the target path against the §31-46 cross-cutting scope list; on match, appends the path to the active session's `files_in_flight` (set-semantics — no duplicates) and upgrades the stub's `pending-<hash>` session-id suffix to a scope label (e.g., `2026-05-12T15-22-protocol`). Non-cross-cutting paths (project `src/`, single-project workspace artifacts) are noops — keeps the manifest signal-to-noise high. ALWAYS exits 0 — never blocks.
+
+- **Stop — `hooks/session-tracking-seal.py`.** Fires after `stop-critic-check.py` (which is the actual gate). Reads the sidecar, compares `files_in_flight` against `git log main` since `started`. Three outcomes: (1) all merged → `status: sealed` + `auto_sealed: <ts>` + `auto_seal_merge: <SHA>` + `auto_seal_files: [list]` + `completion_note: AUTO-SEALED via Stop hook — shipped via <SHA> at <ts>; N of N claimed files merged.`; (2) some merged, some unmerged → `status: partial` with the unmerged subset noted; (3) none merged → leave `status: in-progress`, bump `last_updated` (the session may resume). On empty `files_in_flight` stubs → `status: noop` (the session did no cross-cutting work). Bookkeeping only — never blocks Stop.
+
+**Subagent attribution.** Empirically verified during the v0.15.0 architect dispatch (2026-05-12): hook scripts run as subprocesses; their `os.environ` mutations don't propagate to Claude Code's main process, let alone to a forked Agent dispatch context. Path (a) "set TAPAGENTS_SESSION_ID env" is therefore structurally impossible. The hook stack uses path (b): persist the binding to disk keyed by Claude Code's own `payload.session_id` (present in every hook's stdin JSON; stable across orchestrator + subagent dispatches inside one Claude Code instance — the same primitive `hooks/stop-dispatch-monitor.py` already relies on). A subagent dispatch's PreToolUse reads the SAME sidecar SessionStart wrote at the parent's startup — automatic correct attribution to the parent session.
+
+**Schema-version contract.** Sidecars carry a `schema_version: 1` integer. Future hooks that find sidecars with mismatched versions should warn + skip rather than corrupt them.
+
+**Known limitations.**
+1. If Claude Code ever changes its semantics so subagents get distinct `payload.session_id` values, sub-sessions would materialize their own stub entries. Forensic-detectable via the auto-emitted HTML-comment sentinels in `active-sessions.md`.
+2. The Stop-hook seal only fires when Stop fires — sessions that end abruptly (process kill, crash) leave entries in `in-progress`. The EA stale-session sweep + quarterly cleanup remain the long-tail handlers.
+3. The auto-seal git-log query is filtered against `main` only — work that ships via a non-main integration branch isn't auto-sealed. Same long-tail handlers cover.
+
+The manual fallback path (operator writes a session entry directly to `active-sessions.md`) remains valid and unchanged — sessions running outside Claude Code (e.g., external editors) cannot use the hooks but can still follow Rule 1 by hand.
+
+## Future enforcement (additional hooks — not yet landed)
+
+Further hardening possibilities (not implemented as of v0.15.0):
+
+- **Pre-edit hook on `CHANGELOG.md` collision** — checks `active-sessions.md` for collision; refuses if another session has the file in `files_in_flight` and `last_updated` is recent. (The current PreToolUse hook records edits but does NOT block on collision.)
 - **Pre-commit hook** — validates atomic-cadence rule (CHANGELOG entry paired with agent-changelog narrative entry, per `protocols/changelog-protocol.md`).
-- **Pre-edit hook on agent contracts** — requires the editing session to be the agent's owner OR have a decision packet authorizing the cross-lane edit.
+- **Pre-edit hook on agent contracts (lane ownership)** — requires the editing session to be the agent's owner OR have a decision packet authorizing the cross-lane edit.
 
-Hooks are out of scope for this initial protocol document. Track activation as a backlog item; revisit if friction persists.
+Track activation via the backlog; revisit if collision friction persists despite the v0.15.0 registration layer.
 
 ---
 

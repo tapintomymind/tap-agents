@@ -4,6 +4,122 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.16.0] — 2026-05-12 — BL-056 CI-bot authorization path for sentinel-bound migration scripts (ratify-with-conditions)
+
+**Minor release** opening a third authorization source in `protocols/destructive-data-ops.md` — a named sentinel-bound CI script on push-to-branch can perform Tier A/B destructive ops, with the merge commit SHA + author + timestamp serving as `user_confirmation.verbatim`. Drives the BL-056 (`<project>`) auto-sync workflow for Drizzle migrations to Vercel Preview's Neon branch — empirically motivated by the 2026-05-11 + 2026-05-12 same-class drift incidents. Ratified by Org Designer 2026-05-12 with ten binding conditions (C-1 through C-10).
+
+**Motivation.** Vercel Preview deployments connect to a different Neon branch than `.env.local` resolves to. Until this release, applying a migration to one branch via the local-resolved URL silently failed to reach the Preview branch, surfacing as `column "..." does not exist` on `/dashboard` queries. Manual two-branch discipline failed twice in 48 hours (2026-05-11 BL-034 redispatch warning ignored → 2026-05-12 outage recurrence). The CI-bot path closes the latency-failure surface that human discipline cannot reliably close.
+
+### Added
+
+- **`protocols/destructive-data-ops.md` §4.1 — Authorization sources.** New table codifying the three authorization paths: live operator typing (Tiers A/B/C), pre-approved batch (A/B), and CI-bot sentinel-bound script on push-to-branch (A/B only — never Tier C). The CI-bot row carries six binding constraints (named-script-in-register, sentinel-verify, static destructive-pattern guard, branch-ID provenance, audit-log writeback, Tier-C-refused-unconditionally) and a `[Ratified by Org Designer 2026-05-12]` marker. Existing authorization paths (live operator, batch-approved) continue to function unchanged.
+
+- **`protocols/destructive-data-ops.md` §8 #6 — Carve-out for sentinel-bound CI scripts.** New subsection codifying that a NAMED script registered in the per-project `db-register.md` MAY perform destructive ops in deferred-execution context provided all six binding constraints hold on every invocation. The carve-out is narrow by design: only named scripts, only Tier A/B, only with the guard chain intact. Marked `[Ratified by Org Designer 2026-05-12 — conditions per §4.1 ratification block]`.
+
+- **`protocols/destructive-data-ops.md` §4.1 — Ratification conditions (C-1 through C-10).** Org Designer's ten binding conditions on the carve-out, including: register-growth-gate (C-1), Tier C absolute floor (C-2), branch-ID probe HARD-required by 2026-06-11 (C-3 — closes the host-prefix-fallback hole), branch-protection probe by 2026-07-11 (C-4), mid-flight failure handling (C-5), audit-commit-failure escalation (C-6), script-hash versioning to close the swap-script-keep-name attack (C-7), 6-month sunset clause (C-8 — 2026-11-12), monthly OD audit lane (C-9), no expansion to non-migration ops without re-ratification (C-10).
+
+- **`memory/agent-changelog.md`** — public-safe narrative entry documenting the OD ratification trigger, the as-shipped amendment's gap surfaces, the ten-condition mitigation, and the team-shape recommendation (no `ci-ops` role; existing four-pass review chain is the right cardinality). Cross-references this CHANGELOG entry per `protocols/changelog-protocol.md §5`.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+
+- **MINOR.** New authorization-source path added (CI-bot) — additive per §3.2 ("new capability without removing any existing capability"). Existing operator-typing and batch-approved authorization paths continue to function unchanged. New §8 #6 carve-out is additive — non-carve-out destructive ops still bound by the pre-existing §8 #6 strict prohibition. No file removed/renamed; no agent contract changed.
+- **PATCH rejected.** New authorization-source path is more than a doc-edit — it codifies a new capability that downstream consumers (the first being `<project>/scripts/migrate-preview-branch.mjs` per its `db-register.md`'s Named-CI-scripts section) materially rely on.
+- **MAJOR rejected.** No public-surface removal or rename. Pre-existing authorization sources continue unchanged.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `0.15.0 → 0.16.0`, `.claude-plugin/plugin.json` `0.15.0 → 0.16.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.15.0 → 0.16.0`.
+
+### Files-array audit
+
+No new file paths added to the framework root. `protocols/destructive-data-ops.md` is already under `protocols/` in `package.json#files`. `memory/agent-changelog.md` is under `memory/` in `files[]`. Verify both surface via `npm pack --dry-run` per `runtime_tap_agents_files_array_regression.md` discipline.
+
+### Downstream consumer notes
+
+- **`<project>`** is the first consumer of the new authorization path via `scripts/migrate-preview-branch.mjs` (committed separately on `<project>@dev` at SHA `799753e`). The script implements all six binding constraints + closes C-3's 30-day window early (token HARD-required, no host-prefix fallback).
+- Future consumers must register every named CI script in their per-project `db-register.md` "Named CI Scripts" section per C-1 + C-7. Joint `db-admin` + `org-designer` review is binding before any new named script runs in CI.
+
+### Provenance
+
+- BL-056 P1 Tier 2 (`<project>`) — full audit chain in `<project>/.claude/audits/destructive-ops.log` + `<project>/.claude/scope/migration-auto-sync.md`.
+- Two-class same-day recurrence: 2026-05-11 BL-034 preview redispatch warning ignored → 2026-05-12 /dashboard outage. Cleared 2026-05-12 by manual SQL against the Neon "dev" branch (`ep-broad-moon-apiaksv1`).
+- Critic-reviewed twice (REWORK→REWORK→ship-ready); Org-Designer-ratified with ten conditions, all operationally enforced as of this release.
+
+---
+
+## [0.15.0] — 2026-05-12 — BL-055 auto-register session-tracking hooks (graduate §247 from Future to Current)
+
+**Minor release** landing the three-hook stack that auto-registers, materializes, and seals `active-sessions.md` entries WITHOUT manual operator action. Graduates `protocols/session-coordination-protocol.md §247` from "Future enforcement (hooks)" to "Current enforcement (hooks)." Closes BL-055 (P1 Tier 1).
+
+**Motivation.** The May 6 manual-discipline version of Rule 1 demonstrably failed. Six days passed (2026-05-06 → 2026-05-12) with zero new `active-sessions.md` entries despite four concurrent feature branches colliding on the v0.13.1 version slot AND two parallel sessions independently dispatching architect to fix the same backlog item (BL-049 sync transformer field-merge nearly redispatched as BL-053, ultimately reconciled into BL-051 via Path A reconciliation). The friction the protocol exists to eliminate persisted because the entrance fee — open `active-sessions.md`, append a YAML block, remember to seal it — wasn't paid. User directive 2026-05-12: *"session tracking should be defaulted, and almost always added on session start hook or something."* This release makes it default.
+
+### Added
+
+- **`hooks/session-tracking-register.py`** — SessionStart hook. Fires on `startup` / `resume` / `clear` / `compact` alongside the existing `session-start-brief.py` (briefing emits stdout JSON; registration writes to disk — independent effects). Writes a per-session sidecar at `<workspace>/_global/sessions/<cc_session_id>.json` keyed by Claude Code's `payload.session_id`, and upserts a stub entry into `active-sessions.md` with `scope: <auto — pending first cross-cutting edit>` and empty `files_in_flight: []`. Resume/compact bumps `last_updated` + increments `resume_count`, preserving accumulated state.
+
+- **`hooks/session-tracking-files.py`** — PreToolUse hook. Fires on Edit / Write / NotebookEdit AFTER the existing three-gate chain (`pre-tool-gate.py` → `version-gate.py` → `orchestrator-dispatch-gate.py`) so a gate-blocked edit never pollutes the manifest. Matches the target path against the cross-cutting scope list in `protocols/session-coordination-protocol.md §31-46`; on match, appends the path to the active session's `files_in_flight` (set-semantics — no duplicates) and upgrades the stub's `-pending-<hash>` suffix to a scope label (e.g., `2026-05-12T15-22-protocol`). Non-cross-cutting paths (project `src/`, single-project workspace artifacts) are noops. ALWAYS exits 0 — observational only, never blocks.
+
+- **`hooks/session-tracking-seal.py`** — Stop hook. Fires after `stop-critic-check.py` (the actual gate) and `stop-dispatch-monitor.py`. Reads the sidecar; compares `files_in_flight` against `git log main` since `started`. Three outcomes: (1) all merged → `status: sealed` + `auto_sealed: <ts>` + `auto_seal_merge: <SHA>` + `auto_seal_files: [list]` + `completion_note: AUTO-SEALED via Stop hook — shipped via <SHA> at <ts>; N of N claimed files merged.` (matches the existing `<project>/scripts/promote-to-prod.sh` auto-seal shape per protocol Rule 1 §A); (2) some merged, some not → `status: partial` with the unmerged subset noted; (3) none merged → leave `status: in-progress`, bump `last_updated` (the session may resume). Empty stubs (no cross-cutting work) seal as `status: noop` with a clear completion note. NEVER blocks Stop.
+
+- **`hooks/_session_tracking.py`** — shared helpers module imported by all three hooks. Underscore-prefixed (convention from `_telemetry.py`) so the build-script's frontmatter-listing logic doesn't pick it up as a top-level hook. Owns: sidecar I/O (atomic temp-file + rename), `is_cross_cutting_path()` matcher with regex-based protocol §31-46 patterns, `render_entry()` / `upsert_entry()` for the active-sessions.md projection, `files_landed_on_main_since()` + `latest_main_sha()` git helpers for the Stop hook's auto-seal decision, and `normalize_for_manifest()` for the path-format contract (repo-relative paths only — never basenames; the protocol's Rule 1 path-format contract is load-bearing for cross-monorepo false-positive avoidance).
+
+- **`scripts/test-session-tracking.py`** — integration test harness. Spawns each hook as a subprocess with synthetic Claude Code JSON payloads against a temp workspace + temp git repo. Eight scenarios: fresh SessionStart writes stub; non-cross-cutting edit is noop; cross-cutting edit materializes `files_in_flight` + upgrades id; duplicate edit is idempotent; distinct `cc_session_id` writes a separate sidecar (parallel-session isolation); Stop after full merge writes `auto_sealed`; partial-merge case writes `status: partial`; empty stub seals as `status: noop`. All 8 scenarios pass on v0.15.0 commit.
+
+### Changed
+
+- **`settings.json` (internal + public, byte-identical per the sync transformer's pass-through sanitizer)** — three new hook wirings, escape-quoted paths per `runtime_claude_code_hook_path_quoting.md` (the workspace path has a space; unquoted `$CLAUDE_PROJECT_DIR/hooks/foo.py` silently fails exit 127). `SessionStart` chain becomes 2 hooks (briefing + register). `Stop` chain becomes 3 hooks (critic-check + dispatch-monitor + seal). `PreToolUse` chain becomes 4 hooks (safety + version + dispatch + tracking). Order matters in all three chains; documented in each chain's `_purpose` annotation.
+
+- **`scripts/sync-src/manifest.json5` (internal + public)** — four new entries in the `sanitize:` block routing the three new hook scripts + the shared lib through `sanitize-passthrough`. Discipline matches the existing hook entries; verify-sync now covers the new files.
+
+- **`protocols/session-coordination-protocol.md §247`** — rewritten from "Future enforcement (hooks)" to **"Current enforcement (hooks) — landed v0.15.0"**, documenting the three hooks' guarantees + the empirically-verified subagent-attribution decision (path b, not path a). Three Known Limitations enumerated explicitly: (1) future Claude Code semantics change could fragment session_id across subagents — forensic-detectable via the auto-emitted HTML-comment sentinels; (2) Stop-hook seal only fires on Stop — abrupt session ends leave `in-progress` entries (long-tail handlers unchanged); (3) auto-seal git-log query targets `main` only — non-main integration branches don't auto-seal. A separate "Future enforcement" block lists three further hardening hooks not landed in this release (CHANGELOG-collision pre-edit, atomic-cadence pre-commit, lane-ownership pre-edit). The manual fallback path (Rule 1's hand-authored entries) remains valid for sessions outside Claude Code.
+
+- **`.claude-plugin/marketplace.json` (both trees)** — `plugins[0].description` updated to reflect "ten instrumented enforcement + telemetry hooks" (up from "seven") with "v0.15.0 adds auto-registration of cross-cutting sessions" provenance.
+
+### Subagent-attribution decision (the load-bearing design choice)
+
+Two paths considered for binding subagent-context PreToolUse hook calls back to their parent's session manifest entry:
+
+- **(a) Env inheritance** — SessionStart sets `TAPAGENTS_SESSION_ID`; PreToolUse in subagent context reads it.
+- **(b) File-based binding** — SessionStart writes a sidecar keyed by Claude Code's `payload.session_id`; PreToolUse looks it up.
+
+Empirical finding from the v0.15.0 architect dispatch (2026-05-12): hook scripts run as subprocesses; their `os.environ` mutations don't propagate to Claude Code's main process. Claude Code hooks have no documented `additionalEnv` field. Even if SessionStart sets the env, Claude Code's main process never sees the mutation; the subsequent subagent dispatch inherits Claude Code's environment, NOT the SessionStart subprocess's. **Path (a) is structurally impossible.**
+
+Path (b) was therefore chosen. `payload.session_id` is Claude Code's own session identifier, present in every hook's stdin JSON, stable across orchestrator + subagent dispatches inside one Claude Code instance — `hooks/stop-dispatch-monitor.py` has relied on this primitive across v0.10.0–v0.14.0 (it thresholds dispatch-gate blocks within a single session counting orchestrator + subagent events that share `session_id`). A subagent dispatch's PreToolUse reads the SAME sidecar SessionStart wrote at the parent's startup — automatic correct attribution to the parent session. Subagent attribution falls out of the design for free.
+
+### SemVer classification
+
+Per `protocols/versioning-protocol.md §3`:
+
+- **MINOR.** Three new hook script files + one new shared lib file under `hooks/` — additive per §3.2 (severity floor for additions in `hooks/`). New file `scripts/test-session-tracking.py`. New protocol prose in `protocols/session-coordination-protocol.md` (graduates §247 from "Future" to "Current" — additive enforcement, no removals). Manifest sanitize-list additions. Three settings.json `_purpose` block edits + chain extensions (additive hook entries). No agent contract changes; no agent's authority narrowed; no removed/renamed files.
+- **PATCH rejected.** Three new hooks at the `hooks/` directory severity-floor; new public protocol enforcement surface.
+- **MAJOR rejected.** No public-surface removal or rename. The manual fallback path documented in Rule 1 remains valid.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically: `package.json` `0.14.0 → 0.15.0`, `.claude-plugin/plugin.json` `0.14.0 → 0.15.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.14.0 → 0.15.0`. Both internal and public trees updated byte-identically.
+
+### Files-array audit
+
+Per memory note `runtime_tap_agents_files_array_regression.md`, every release that touches `tap-agents/` must verify new content surfaces via `npm pack --dry-run`. v0.15.0 additions:
+
+- `hooks/_session_tracking.py` — `hooks/` already in `package.json#files`. Verified included.
+- `hooks/session-tracking-register.py` — `hooks/` already in `files[]`. Verified included.
+- `hooks/session-tracking-files.py` — `hooks/` already in `files[]`. Verified included.
+- `hooks/session-tracking-seal.py` — `hooks/` already in `files[]`. Verified included.
+- `scripts/test-session-tracking.py` — `scripts/` already in `files[]`. Verified included.
+- `protocols/session-coordination-protocol.md` (modified body) — `protocols/` already in `files[]`. Verified included.
+
+### Provenance
+
+- BL-055 P1 Tier 1 filed 2026-05-12T15:00 via curator dispatch (commit `71c5291` on branch `backlog-bl054-bl055-filing`). Source: four-branch v0.13.1 collision incident; user-confirmed *"session tracking should be defaulted."*
+- Empirical subagent-attribution verification: v0.15.0 architect dispatch 2026-05-12 (this release). The empty `CLAUDE_PROJECT_DIR` + absent `TAPAGENTS_*` vars in the architect subagent context confirmed env-inheritance was structurally impossible BEFORE writing the hooks.
+- Implementation: branch `bl055-session-tracking-hooks` off `main` post-v0.14.0. Eight integration-test scenarios passing.
+- Related-but-out-of-scope (surfaced for OD): BL-018 may be an earlier formulation of BL-055 — OD to evaluate `wontfix-in-favor-of-BL-055`. Curator-notes entry 2026-05-12T15:00 carries the audit trail of the harness-vs-framework distinction in this filing.
+
+---
+
 ## [0.14.0] — 2026-05-12 — Framework-Hardening Wave 1 + BL-046 subagent execution context discipline
 
 **Minor release** bundling two coordinated framework-quality lifts on the same 14 agent contract surface — combining them avoids a rebase since both touch the same files. Each independently MINOR per `protocols/versioning-protocol.md §3.2` (additive frontmatter, additive Authority-section prose, additive protocol file); bundled here because they ship on the same coordinated edit pass.
