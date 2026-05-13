@@ -44,6 +44,7 @@
     "sync:dry-run": "tsx scripts/sync-src/sync.ts --dry-run",
     "sync:apply": "tsx scripts/sync-src/sync.ts --apply",
     "verify-sync": "tsx scripts/sync-src/verify-sync.ts",
+    "test:changelog-format": "tsx scripts/test-changelog-format.ts",
     "prepublishOnly": "npm run build && npm run verify"
   },
   "keywords": [

@@ -1,0 +1,241 @@
+name: notify-adopters
+
+# Fires after `publish.yml` completes successfully on a `v*.*.*` tag push.
+# Sends a `repository_dispatch` event to `tapintomymind/tapagents-app` so its
+# auto-adoption workflow can open a paired `chore(framework): adopt tap-agents
+# vX.Y.Z` PR within minutes of the npm publish landing.
+#
+# Why a separate file (not bolted onto publish.yml):
+#   - Single Responsibility — publish.yml's contract is "build + verify + push
+#     to npm + create GitHub Release". Notifying adopters is a downstream
+#     concern. Failure-mode separation: if notification fails after publish
+#     succeeded, publish.yml stays green (correct — npm publish IS the source
+#     of truth, the dispatch is convenience).
+#   - Easy to disable — delete one file to turn off auto-adoption without
+#     disturbing the publish path.
+#   - Brief constraint — explicit "do NOT touch tap-agents' publish.yml"
+#     (per tapagents-app PR #28 design — scope §7 #4).
+#
+# Trigger semantics:
+#   `workflow_run` on `publish` workflow `completed` event, filtered to
+#   `conclusion == 'success'`. This means notification ONLY fires after npm
+#   publish has actually succeeded — never on a publish-failed run.
+#
+# Pre-release filter (CR-3 + NF-5 per Pass-3 design):
+#   POSIX `case "$VERSION" in *-*) skip ;; esac` — any version with a hyphen
+#   is treated as pre-release (semver pre-release identifier marker) and
+#   skipped without dispatch. Operator-driven adoption of pre-releases is
+#   gated on the consumer's `workflow_dispatch.inputs.allow_prerelease=true`
+#   escape hatch instead.
+#
+# What gets dispatched:
+#   - Event type:      tap-agents-published
+#   - Target repo:     tapintomymind/tapagents-app
+#   - Client payload:  { version: "X.Y.Z", tag: "vX.Y.Z", sha: "<commit-sha>",
+#                        publish_run_id: "<gh-run-id>", published_at: "<iso>" }
+#
+# Required repo secrets:
+#   ADOPT_DISPATCH_TOKEN — fine-grained PAT, scoped to
+#     tapintomymind/tapagents-app with permission: contents:write ONLY
+#     (CR-7 Pass-3 narrowing — the cross-repo dispatch endpoint only needs
+#     contents:write; the prior contents+actions scope was over-broad).
+#     Quarterly rotation (calendar reminder per tapagents-app scope §5 + §10).
+#
+# Failure modes + recovery:
+#   - Pre-release tag (e.g., 0.17.0-rc.1) → workflow logs ::notice:: and
+#                                            exits 0 with no dispatch (CR-3 + NF-5).
+#                                            Adoption is NOT automatic for
+#                                            pre-releases; use consumer's
+#                                            workflow_dispatch.inputs.allow_prerelease.
+#   - 401 (token expired)              → workflow fails red; operator rotates
+#                                         PAT and re-runs via workflow_dispatch
+#                                         on adopt-tap-agents.yml (consumer side)
+#                                         with the version input.
+#   - 404 (target repo renamed/moved)  → workflow fails red; update the target
+#                                         in this file's `repository: …` line.
+#   - 422 (event payload malformed)    → unlikely (we control payload shape);
+#                                         workflow fails red, diagnose payload.
+#   - Network/registry blip            → workflow fails red; consumer's daily
+#                                         cron poll catches the missed publish
+#                                         within 24h regardless (B fallback).
+
+on:
+  workflow_run:
+    workflows: ["publish"]
+    types:
+      - completed
+
+# Concurrency (CR-6 Pass-3 fix): per-publish-SHA group. Each publish run has
+# its OWN group key (one publish == one commit SHA). No inter-publish
+# serialization at the producer; two back-to-back publishes both dispatch
+# in parallel. Consumer-side serialization is handled by the consumer's
+# `concurrency: group: adopt-tap-agents`.
+#
+# Old (Phase 1): `group: notify-adopters-${{ github.workflow }}` — constant
+# group across all publishes, causing second dispatch to queue/cancel.
+concurrency:
+  group: notify-adopters-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  # Only need read on this repo for the version + CHANGELOG extraction. The
+  # cross-repo dispatch authenticates via the ADOPT_DISPATCH_TOKEN secret
+  # (a separate PAT), not via GITHUB_TOKEN — GITHUB_TOKEN is scoped to the
+  # firing repo and CANNOT dispatch to another repo.
+  contents: read
+
+jobs:
+  notify:
+    name: Dispatch tap-agents-published to tapagents-app
+    runs-on: ubuntu-latest
+    # Fire only on successful publish runs. Failed publishes don't propagate.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout publish ref
+        uses: actions/checkout@v4
+        with:
+          # The publish workflow's run-head SHA — same commit npm just published.
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Resolve version from package.json
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          if [ -z "$VERSION" ]; then
+            echo "::error::package.json#version is empty — cannot dispatch."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Construct the v-prefixed tag form too (consumer uses both)
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Skip pre-release tags (CR-3 + NF-5)
+        # POSIX `case` idiom (not grep): tests against
+        #   0.16.0           -> skip=false  (stable; dispatch)
+        #   0.17.0-rc.1      -> skip=true   (pre-release; do not dispatch)
+        #   0.16.0-beta      -> skip=true
+        #   1.0.0            -> skip=false
+        #   1.0.0-alpha.5+build123 -> skip=true (contains hyphen)
+        #   ""               -> skip=false (caught later by tag-existence check)
+        # Pre-release adoption requires operator to manually trigger consumer's
+        # workflow_dispatch with allow_prerelease=true.
+        id: prerelease-check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "$VERSION" in
+            *-*)
+              echo "::notice::Skip pre-release dispatch for $VERSION (contains hyphen; not a stable release). Operator-driven adoption available via tapagents-app workflow_dispatch + allow_prerelease=true."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Stable release; dispatch proceeds."
+              ;;
+          esac
+
+      - name: Early exit for pre-release
+        if: steps.prerelease-check.outputs.skip == 'true'
+        run: |
+          echo "### Pre-release v${{ steps.version.outputs.version }} — no dispatch" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pre-release tags are not auto-adopted. Operator can manually trigger consumer-side adoption via \`workflow_dispatch\` with \`allow_prerelease=true\` if desired." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sanity-check the tag exists on this commit
+        # Defense against the edge case where publish.yml succeeded but the
+        # tag wasn't pushed (shouldn't happen — publish.yml validates tag ==
+        # package.json version — but worth a belt-and-suspenders check before
+        # we tell a downstream repo "this version was published").
+        if: steps.prerelease-check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          if ! gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG not found in repo refs. Did publish.yml complete cleanly? Aborting dispatch."
+            exit 1
+          fi
+          echo "Tag $TAG confirmed present."
+
+      - name: Pre-flight — ADOPT_DISPATCH_TOKEN present
+        if: steps.prerelease-check.outputs.skip != 'true'
+        env:
+          DISPATCH_TOKEN: ${{ secrets.ADOPT_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "::error::ADOPT_DISPATCH_TOKEN secret not seeded. See tapagents-app/.claude/scope/tap-agents-auto-adoption.md §10 — create a fine-grained PAT scoped to tapintomymind/tapagents-app with contents:write ONLY, then add to this repo's Settings → Secrets → ADOPT_DISPATCH_TOKEN."
+            exit 1
+          fi
+          echo "ADOPT_DISPATCH_TOKEN present (length redacted)."
+
+      - name: Dispatch tap-agents-published event to tapagents-app
+        # Uses the GitHub REST API directly (no third-party action) so the
+        # only trust surface is GitHub + the secret. peter-evans/repository-
+        # dispatch is the popular alternative but adds a supply-chain
+        # dependency for a 10-line curl call.
+        if: steps.prerelease-check.outputs.skip != 'true'
+        env:
+          DISPATCH_TOKEN: ${{ secrets.ADOPT_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          PAYLOAD=$(jq -n \
+            --arg v "$VERSION" \
+            --arg t "$TAG" \
+            --arg s "$SHA" \
+            --arg r "$PUBLISH_RUN_ID" \
+            --arg p "$PUBLISHED_AT" \
+            '{
+              event_type: "tap-agents-published",
+              client_payload: {
+                version: $v,
+                tag: $t,
+                sha: $s,
+                publish_run_id: $r,
+                published_at: $p
+              }
+            }')
+
+          echo "Dispatching to tapintomymind/tapagents-app:"
+          echo "$PAYLOAD" | jq .
+
+          HTTP_CODE=$(curl --silent --show-error --output /tmp/dispatch-response.json \
+            --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: Bearer $DISPATCH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --data "$PAYLOAD" \
+            "https://api.github.com/repos/tapintomymind/tapagents-app/dispatches")
+
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "::error::repository_dispatch returned HTTP $HTTP_CODE (expected 204). Response body:"
+            cat /tmp/dispatch-response.json
+            exit 1
+          fi
+          echo "Dispatch accepted (HTTP 204) for v$VERSION."
+
+      - name: Summary
+        if: steps.prerelease-check.outputs.skip != 'true'
+        run: |
+          echo "### tap-agents v${{ steps.version.outputs.version }} adoption dispatch sent" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Target:** tapintomymind/tapagents-app" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Event type:** tap-agents-published" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Publish run:** ${{ github.event.workflow_run.html_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Consumer workflow: tapagents-app → adopt-tap-agents.yml" >> "$GITHUB_STEP_SUMMARY"
+          echo "Expected PR within ~5 min on branch \`sync-tapagents\`." >> "$GITHUB_STEP_SUMMARY"
