@@ -8,6 +8,18 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-13 — Framework v0.20.0 — Three stub activations: biz-finance + biz-legal + gtm-launch-strategist
+
+Three tier-1 STUBs promoted to active contracts in a single batched release. The cross-cutting planning cycle that produced founding artifacts for pricing strategy, legal-scope specification, and launch-distribution planning operated all three roles in tier-1 mode during the cycle — Critic passes reached WARN-or-better verdicts and the agents demonstrated stable operational discipline across multiple revision passes. Promoting from STUB to active closes the contract-vs-operational-reality drift gap that was emerging.
+
+Three cross-cutting disciplines are codified into all three active contracts: a three-named-risks shape (severity / first-milestone / likelihood / impact / mitigation contract / cross-coupling / severity-contingency), a cross-coupling discipline (explicit Open Questions Deferred enumeration with no implicit hand-offs), and a production posture (revision-history block at artifact head; cite-don't-invent verbatim on cross-role inputs; readiness goal at sign-off; WARN-or-better Critic verdict by the second pass).
+
+Each contract preserves a role boundary that the planning cycle exercised: biz-finance owns pricing arithmetic + cost-anchor math, NOT positioning. Biz-legal scopes legal work for counsel-handoff, NOT customer-facing legal language — output is informational, never substitutes for licensed counsel. GTM Launch Strategist owns distribution coordination + pricing-positioning narrative + comparative-marketing claims, NOT content authoring (PMM's scope) and NOT displayed-price math (biz-finance's scope).
+
+STUBs preserved in `agents/_planned/` as historical activation record. The archive convention referenced in the org-designer proposal (`_archive/<role>-promoted-<date>.md`) is deferred to a future session once the `_archive/` directory pattern is established framework-wide.
+
+Cross-reference: CHANGELOG.md v0.20.0 entry; `workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md`.
+
 ## 2026-05-13 — Framework v0.19.0 — Gate 5 defense-in-depth: verify-publish.yml + version-parity-audit
 
 Completes the Gate 5 amendment (started v0.18.0) by adding the deferred defense-in-depth layer. tap-agents/.github/workflows/verify-publish.yml fires on publish.yml workflow_run completion and re-verifies all three §4.5 invariants from a cold npm pull — independent of publish.yml's own attestation. scripts/version-parity-audit.ts audits four version channels (local tags / remote tags / npm versions / GitHub Releases) for divergence; EA invokes daily via `npm run audit:version-parity` and surfaces unknown divergence as P1 in the daily briefing.

@@ -4,6 +4,34 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.20.0] — 2026-05-13 — Three stub activations: biz-finance + biz-legal + gtm-launch-strategist
+
+**Minor release** promoting three `_planned/` STUBs to active tier-1 contracts. The `ip-protection-mcp-execution-model` planning cycle (2026-05-12 → 2026-05-13) produced founding artifacts — `pricing-tier-design.md`, `legal-scope-spec.md`, `gtm-distribution-plan.md` — that walked through multiple Critic passes and reached WARN-or-better verdicts. Each agent operated in tier-1 mode during the planning cycle (per session evidence in the proposal); promoting from STUB to active contract closes the contract-vs-operational-reality drift gap. New `fires_when` triggers; no existing fields removed; no breaking changes.
+
+### Added
+
+- **`agents/biz-finance.md`** — VP of Pricing & Unit Economics. Translates upstream architecture cost anchors + ops-security compliance constraints + PRD success-metric constraints into defensible pricing-tier designs with cite-don't-invent discipline, 3+-named-risks-with-mitigation-contracts, cross-coupling discipline, pricing-arithmetic-not-positioning role boundary, divergence-threshold + adaptive-formula contracts, production posture. Outputs `workspace/<slug>/pricing-tier-design.md` and `workspace/<slug>/unit-economics.md`. Fires when project has non-trivial pricing model OR unit economics becomes load-bearing decision.
+
+- **`agents/biz-legal.md`** — VP of Legal Scoping. Drafts informational legal-scope specs for counsel-handoff (ToS amendment, Privacy Policy, USPTO filings, attribution metadata, stub-license posture, comparative-marketing FTC §5 review). NOT a substitute for actual licensed counsel — output is scoping work, not customer-facing legal language. Honors upstream constraints verbatim; uses Path (a) / Path (b) coordination offer rather than unilateral override when cross-coupling tension surfaces. Two-artifact output: in-workspace `legal-scope-spec.md` + genericized `legal-scope-spec--counsel-handoff.md`. Fires when project enters regulated domain or counsel-handoff scoping needed.
+
+- **`agents/gtm-launch-strategist.md`** — Launch Strategist (renamed from `gtm-strategist` STUB on 2026-05-11). Owns distribution moat analysis, phase-based launch plan, channel mix design, campaign timing, pricing-positioning narrative (consumes biz-finance pricing-arithmetic + produces external messaging frame), comparative-marketing claims (substantiation-flagged for biz-legal review), conversational/outbound asset production, demo scripts. Anti-positioning discipline (abandon parity-frame; win on different attention surfaces). Re-anchors biz-finance CAC for actual channel mix. 5-phase distribution plan over 0-12+ months. Operator-time-budget reality check at every plan-level commitment. Fires when project enters phase with concrete buyer surface (paid tier, B2B angle, multi-user shipped) OR biz-finance pricing-tier-design phase requires parallel gtm coordination.
+
+### Changed
+
+- **`package.json`** — version bumped to 0.20.0; description updated to reflect 18 curated agents (was 15).
+- **`.claude-plugin/plugin.json`** — version bumped to 0.20.0; description updated to enumerate the three newly activated roles.
+- **`.claude-plugin/marketplace.json`** — plugin entry version bumped to 0.20.0.
+
+### Provenance
+
+- Activation proposal: `workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md` — Org Designer authored 2026-05-13 from session evidence (5 Critic passes, 0 false anchors) during the `ip-protection-mcp-execution-model` planning cycle.
+- Founding artifacts (read-by-future-activations as canonical templates):
+  - biz-finance → `workspace/ip-protection/pricing-tier-design.md` (3 Critic passes → CLEAR)
+  - biz-legal → `workspace/ip-protection/legal-scope-spec.md` (2 Critic passes → WARN)
+  - gtm-launch-strategist → `workspace/ip-protection/gtm-distribution-plan.md` (2 Critic passes → WARN)
+- Three cross-cutting disciplines codified into all three contracts: three-named-risks (shared shape with severity/first-milestone/likelihood/impact/mitigation contract/cross-coupling/severity-contingency), cross-coupling (explicit Open Questions Deferred enumeration; no implicit hand-offs), production posture (revision-history block at artifact head; cite-don't-invent verbatim; readiness goal at sign-off; WARN-or-better Critic verdict by pass 2).
+- STUBs preserved in `agents/_planned/biz-finance.md`, `agents/_planned/biz-legal.md`, `agents/_planned/gtm-launch-strategist.md` as historical activation record (archive convention deferred — `_archive/` directory not yet established).
+
 ## [0.19.0] — 2026-05-13 — Gate 5 defense-in-depth: verify-publish.yml + version-parity-audit
 
 **Minor release** completing the Gate 5 amendment (started v0.18.0) by adding the deferred defense-in-depth layer: an independent CI workflow that verifies the npm publish from a cold pull, and a parity-audit script that EA runs daily across four version channels. v0.18.0's operator-side coverage remains primary; v0.19.0 adds independent verification + periodic safety-net.
