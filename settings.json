@@ -63,7 +63,7 @@
     ],
     "PreToolUse": [
       {
-        "_purpose": "Four-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). (4) session-tracking-files.py: BL-055 v0.15.0; observational, NEVER blocks — fires on Edit/Write/NotebookEdit and appends the target path to the active session's files_in_flight if it matches the cross-cutting scope list in protocols/session-coordination-protocol.md §31-46. Order: safety first, version-gate second, routing-discipline third, manifest-tracking last (after gates so a gate-blocked edit doesn't pollute the manifest).",
+        "_purpose": "Five-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). (4) sync-discipline-gate.py: enforces protocols/sync-tapagents-protocol.md — blocks framework-sync commits/pushes on dev/main; canonical destination is sync-tapagents branch. Bypasses via `[sync-protocol-override: <reason>]` token in commit message. Added 2026-05-14 in response to v0.20.0 rider-commit incident. (5) session-tracking-files.py: BL-055 v0.15.0; observational, NEVER blocks. Order: safety first, version-gate second, routing-discipline third, sync-discipline fourth, manifest-tracking last.",
         "matcher": "Write|Edit|Bash|NotebookEdit",
         "hooks": [
           {
@@ -79,6 +79,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator-dispatch-gate.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/sync-discipline-gate.py\"",
             "timeout": 10
           },
           {

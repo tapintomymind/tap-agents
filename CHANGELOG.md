@@ -4,6 +4,33 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.21.0] — 2026-05-14 — sync-tapagents branch discipline + sync-discipline-gate hook
+
+**Minor release** codifying the `sync-tapagents` branch protocol that isolates framework-adoption commits in downstream consumers from rider commits. Triggered by the v0.20.0 adoption incident on agent-dashboard 2026-05-14: a `dev → main` no-ff merge for the framework version bump dragged 4 unrelated dev commits to prod alongside the framework adoption. The branch `sync-tapagents` already existed (Vercel-whitelisted since 2026-05-12) and the producer-side auto-adoption workflow already targeted it, but the discipline of routing manual adoptions through it had eroded. This release adds mechanical enforcement at five layers so it cannot erode again.
+
+### Added
+
+- **`protocols/sync-tapagents-protocol.md`** — new canonical protocol defining the framework-sync fingerprint (§3 signatures A/B/C: `package.json` dep change for `@tapintomymind/tap-agents`, `scaffold-source/` regen, `.scaffold-meta.json` change), the canonical flow (§4: `sync-tapagents → main` no-ff → `main → dev` back-merge), the five enforcement layers (§5), exception clause `[sync-protocol-override: <reason>]` (§6), and branch-naming customization via `.tapagents-manifest.json#syncBranch` (§7). Applies to ANY Tier 2 project scaffolded by TapAgents — generic by design.
+
+- **`hooks/sync-discipline-gate.py`** — new PreToolUse hook (Layer B). Fires on Bash `git commit` / `git push` with staged-diff fingerprint matching against §3 signatures. Blocks framework-sync commits on `dev` or `main` with authenticity markers `Sync-discipline gate BLOCKED:` + `TAPAGENTS_SYNC_GATE_FIRED_V1`. Telemetry emission to `events.jsonl` via shared `_telemetry` helper. Override-token recognition for §6 exception clause. Wired into `settings.json` PreToolUse chain as the 4th gate (after pre-tool-gate, version-gate, orchestrator-dispatch-gate; before session-tracking-files).
+
+### Changed
+
+- **`settings.json`** — PreToolUse chain extended from 4 gates to 5 to include `sync-discipline-gate.py`. The `_purpose` docstring updated to reflect the new layer order and rationale.
+- **`commands/release.md`** — Step 7 "Consumer adoption path" added directing consumers to `protocols/sync-tapagents-protocol.md`. Captures the v0.20.0 incident as motivating context.
+- **`package.json`** — version bumped to 0.21.0.
+- **`.claude-plugin/plugin.json`** — version bumped to 0.21.0; description updated (29 → 30 protocols, ten → eleven hooks).
+- **`.claude-plugin/marketplace.json`** — plugin entry version bumped to 0.21.0; description updated.
+
+### Provenance
+
+- Triggering incident: agent-dashboard v0.20.0 adoption 2026-05-14. `git log --oneline` on agent-dashboard `main` at SHA `3e6ca5d` shows the framework adoption (`049963e sync: bump @tapintomymind/tap-agents to v0.20.0`) merged via `3e6ca5d sync: promote v0.20.0 to main (3-STUB promotions live)` alongside 4 rider commits (`3c4f32d`, `c09bf96`, `80752fa`, `cbda843`) that had no relation to the framework bump.
+- User direction 2026-05-14: *"We need to enforce this strictly somehow. And this is also important for the TapAgents framework to remember in general about project flow. We can't override process."*
+- Parent convention: `feedback_no_direct_commits_on_main_back_merge_discipline.md` — this protocol is the framework-sync carve-out from that convention.
+- Cross-channel partners (live before this release): `tap-agents/.github/workflows/notify-adopters.yml` (dispatches `tap-agents-published` events to consumer side); `agent-dashboard/.github/workflows/adopt-tap-agents.yml` (consumer-side auto-adoption that already targets `sync-tapagents`). Layer A discipline pre-existed; v0.21.0 adds Layers B-E.
+- CI guard `sync-protocol-check.yml` lands separately in `agent-dashboard/.github/workflows/` as part of the v0.21.0 consumer-side adoption (not in the framework npm package — CI workflows live in consumer repos).
+- Dogfood proof of the loop closing: agent-dashboard adopts v0.21.0 via the new sync-tapagents flow, end-to-end, as the same session that codifies the protocol.
+
 ## [0.20.0] — 2026-05-13 — Three stub activations: biz-finance + biz-legal + gtm-launch-strategist
 
 **Minor release** promoting three `_planned/` STUBs to active tier-1 contracts. The `ip-protection-mcp-execution-model` planning cycle (2026-05-12 → 2026-05-13) produced founding artifacts — `pricing-tier-design.md`, `legal-scope-spec.md`, `gtm-distribution-plan.md` — that walked through multiple Critic passes and reached WARN-or-better verdicts. Each agent operated in tier-1 mode during the planning cycle (per session evidence in the proposal); promoting from STUB to active contract closes the contract-vs-operational-reality drift gap. New `fires_when` triggers; no existing fields removed; no breaking changes.

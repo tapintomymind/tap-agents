@@ -8,6 +8,18 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-14 — Framework v0.21.0 — sync-tapagents branch discipline + sync-discipline-gate hook
+
+A consumer-side adoption-flow protocol is codified at the framework level. When a downstream consumer (today: agent-dashboard; tomorrow: any Tier 2 project scaffolded by TapAgents) adopts a new framework version, the adoption commits flow through a dedicated long-lived branch named `sync-tapagents`, not directly through the consumer's `dev` branch. The branch promotes to `main` via no-ff merge as a clean framework-only release; `main` then back-merges to `dev` so the dev branch catches up. This isolates framework adoptions from any unrelated work that has accumulated on `dev`, preserving the audit-trail shape "one framework adoption = one auditable commit" rather than "five commits with riders, one of which happens to be the framework bump."
+
+The protocol is generic by design: branch naming is configurable via `.tapagents-manifest.json#syncBranch`, the fingerprint that defines a framework-sync commit is stable across consumers (a `package.json` change for `@tapintomymind/tap-agents`, a `scaffold-source/` regen, or a `.scaffold-meta.json` change), and the enforcement layers — PreToolUse hook, CI workflow check, doctrine in CLAUDE.md, memory entries — all apply uniformly across any consumer that adopts the framework.
+
+The release introduces a new PreToolUse hook `sync-discipline-gate.py` to the framework's settings.json hook chain (now five gates: classic safety, version-gate, dispatch-gate, sync-discipline-gate, session-tracking). The gate fires on Bash commit/push operations, detects framework-sync content via the fingerprint, refuses to allow it on `dev` or `main` unless the commit message carries an explicit `[sync-protocol-override: <reason>]` token, and logs both blocks and overrides to events.jsonl. The hook is silent on any commit that does not match the framework-sync fingerprint — so feature work, hotfixes, and routine application changes are unaffected.
+
+The triggering shape was a single shipped incident on 2026-05-14: a v0.20.0 framework adoption flowed through `dev → main` and dragged four unrelated commits into prod alongside it. The branch `sync-tapagents` already existed for exactly this purpose, with Vercel deliberately whitelisted to build it, and the producer-side `notify-adopters.yml` already dispatched repository-dispatch events targeting that branch on the consumer. What was missing was strict-enforcement discipline. This release adds it.
+
+Cross-references: `protocols/sync-tapagents-protocol.md` (canonical spec), `hooks/sync-discipline-gate.py` (mechanical enforcement at Layer B), `agent-dashboard/.github/workflows/sync-protocol-check.yml` (CI guard at Layer C — consumer-side, not in the framework npm package).
+
 ## 2026-05-13 — Framework v0.20.0 — Three stub activations: biz-finance + biz-legal + gtm-launch-strategist
 
 Three tier-1 STUBs promoted to active contracts in a single batched release. The cross-cutting planning cycle that produced founding artifacts for pricing strategy, legal-scope specification, and launch-distribution planning operated all three roles in tier-1 mode during the cycle — Critic passes reached WARN-or-better verdicts and the agents demonstrated stable operational discipline across multiple revision passes. Promoting from STUB to active closes the contract-vs-operational-reality drift gap that was emerging.

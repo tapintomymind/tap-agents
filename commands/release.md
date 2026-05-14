@@ -367,8 +367,9 @@ State to the user, in this order:
 1. The release commit SHA + tag name
 2. **Gate 5 verification status** — confirm all five channels (git remote tag, publish.yml run, npm registry, tarball completeness, GitHub Release) returned positive per Step 6a-6e. If any failed, the release is **not complete** — surface the failure and the remediation command; do not proceed.
 3. Whether `publish.yml` was triggered AND completed (the Step 6b run ID + outcome)
-4. The Dependabot expectation for `agent-dashboard` (PR will open within ~24h)
-5. Whether any follow-up release is queued (e.g., a known-deferred change)
+4. The Dependabot expectation for `agent-dashboard` (PR will open within ~24h via `notify-adopters.yml` → consumer-side `adopt-tap-agents.yml`)
+5. **Consumer adoption path** — adopters MUST follow `protocols/sync-tapagents-protocol.md`. The auto-adoption workflow already targets the consumer's `sync-tapagents` branch by default; any manual adoption must do the same. NEVER adopt framework versions on `dev` directly — the `sync-tapagents` branch isolates the adoption from rider commits per the v0.20.0 incident on 2026-05-14.
+6. Whether any follow-up release is queued (e.g., a known-deferred change)
 
 ## Failure modes (and what to do)
 
