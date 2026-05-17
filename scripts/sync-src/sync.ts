@@ -34,7 +34,7 @@
  */
 
 import { readFile, writeFile, mkdir, readdir, stat, rm, unlink } from "node:fs/promises";
-import { existsSync, createReadStream } from "node:fs";
+import { existsSync, createReadStream, realpathSync } from "node:fs";
 import { join, relative, dirname, sep, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
@@ -55,6 +55,8 @@ const DEFAULT_TARGET = join(DEFAULT_SOURCE, "..", "tap-agents");
 // CLI parse
 // ----------------------------------------------------------------------------
 
+type SourceMode = "auto" | "git" | "filesystem";
+
 interface CliFlags {
   apply: boolean;
   dryRun: boolean;
@@ -62,6 +64,7 @@ interface CliFlags {
   includeReadme: boolean;
   source: string;
   target: string;
+  sourceMode: SourceMode;
 }
 
 function parseFlags(argv: string[]): CliFlags {
@@ -72,6 +75,7 @@ function parseFlags(argv: string[]): CliFlags {
     includeReadme: false,
     source: DEFAULT_SOURCE,
     target: DEFAULT_TARGET,
+    sourceMode: "auto",
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -81,7 +85,14 @@ function parseFlags(argv: string[]): CliFlags {
     else if (arg === "--include-readme") flags.includeReadme = true;
     else if (arg === "--source") flags.source = argv[++i];
     else if (arg === "--target") flags.target = argv[++i];
-    else if (arg === "-h" || arg === "--help") {
+    else if (arg === "--source-mode") {
+      const v = argv[++i];
+      if (v !== "auto" && v !== "git" && v !== "filesystem") {
+        console.error(`--source-mode must be one of: auto, git, filesystem (got: ${v})`);
+        process.exit(2);
+      }
+      flags.sourceMode = v;
+    } else if (arg === "-h" || arg === "--help") {
       printHelp();
       process.exit(0);
     } else {
@@ -103,8 +114,11 @@ function printHelp(): void {
 Usage:
   tsx scripts/sync-src/sync.ts [--dry-run|--apply] [--delete] [--include-readme]
                                [--source <path>] [--target <path>]
+                               [--source-mode <auto|git|filesystem>]
 
-Default mode is --dry-run. See file header for full flag documentation.`);
+Default mode is --dry-run. Default --source-mode is 'auto' (uses git ls-files
+when source has a .git/ tree; otherwise walks the filesystem under manifest
+include[]/exclude[] globs). See file header for full flag documentation.`);
 }
 
 // ----------------------------------------------------------------------------
@@ -119,6 +133,13 @@ interface Manifest {
   template: Record<string, string>;
   warn_on_target_orphans: boolean;
   changelog_project_slugs: string[];
+  // Per-rule lint exemption map. Key is the lint rule code (matches
+  // LintIssue.code, e.g. "project-slug-ref"); value is an array of exact
+  // relative-POSIX paths where that rule is suppressed. Other rules continue
+  // to fire normally on the same path — exemption is rule-scoped.
+  // See manifest.json5 for the canonical comment block + when-to-add policy.
+  // Optional in the parsed manifest; defaults to {} when absent.
+  lint_exemptions: Record<string, string[]>;
 }
 
 async function readManifest(sourceRoot: string): Promise<Manifest> {
@@ -142,6 +163,27 @@ async function readManifest(sourceRoot: string): Promise<Manifest> {
   }
   if (parsed.changelog_project_slugs === undefined) {
     (parsed as Manifest).changelog_project_slugs = [];
+  }
+  // lint_exemptions may be absent in legacy manifests; default to {}.
+  // Shape validation: object whose values are string[]. Fail loud on shape
+  // drift (caught early at manifest load, not deep in lintPropagatedBody).
+  const rawExemptions = (parsed as Record<string, unknown>).lint_exemptions;
+  if (rawExemptions === undefined) {
+    (parsed as Manifest).lint_exemptions = {};
+  } else if (typeof rawExemptions !== "object" || rawExemptions === null || Array.isArray(rawExemptions)) {
+    throw new Error("manifest lint_exemptions must be an object keyed by lint rule code");
+  } else {
+    for (const [k, v] of Object.entries(rawExemptions as Record<string, unknown>)) {
+      if (!Array.isArray(v)) {
+        throw new Error(`manifest lint_exemptions.${k} must be an array of relative POSIX paths`);
+      }
+      for (const p of v) {
+        if (typeof p !== "string") {
+          throw new Error(`manifest lint_exemptions.${k} entries must be strings`);
+        }
+      }
+    }
+    (parsed as Manifest).lint_exemptions = rawExemptions as Record<string, string[]>;
   }
   return parsed;
 }
@@ -220,20 +262,38 @@ interface FileEntry {
 }
 
 /**
- * Walk the source tree via git ls-files (tracked files only). Apply manifest
- * include/exclude rules to derive the candidate sync set.
+ * Walk the source tree and derive the candidate sync set.
  *
- * Tracked-file scope is deliberate: it means a file must be `git add`-ed in
- * source before it's eligible for sync — preserves the discipline that
- * unreviewed local work doesn't accidentally ship.
+ * Source enumeration mode:
+ *   - `git`: iterate `git ls-files` against source. Discipline: a file must
+ *     be `git add`-ed in source before it's eligible for sync — preserves
+ *     the gate that unreviewed local work doesn't accidentally ship.
+ *   - `filesystem`: walk the filesystem under the manifest include[] globs
+ *     directly. Used when source has no `.git/` tree (e.g., HQ-as-unmanaged-
+ *     filesystem post-v0.22.0-fix C-1). The discipline shifts from "git-
+ *     tracked at source" to "matches manifest include[]" + lint pass +
+ *     Critic + tarball-completeness probe before publish.
+ *   - `auto`: detect via `.git/` presence at source root.
+ *
+ * Both modes feed the same downstream filter (matchesAny against include[]
+ * + exclude[]) and the same template/sanitize/copy bucketing logic.
  */
-async function computeSyncSet(sourceRoot: string, manifest: Manifest): Promise<FileEntry[]> {
-  const { stdout } = await exec("git", ["ls-files"], { cwd: sourceRoot, maxBuffer: 16 * 1024 * 1024 });
-  const tracked = stdout.split(/\r?\n/).filter(Boolean);
+async function computeSyncSet(
+  sourceRoot: string,
+  manifest: Manifest,
+  sourceMode: SourceMode = "auto",
+): Promise<FileEntry[]> {
+  const resolvedMode = resolveSourceMode(sourceRoot, sourceMode);
+  console.error(`[sync] source enumeration: ${resolvedMode}${resolvedMode === "filesystem" ? " (no .git/ at source root)" : ""}`);
+
+  const candidates =
+    resolvedMode === "git"
+      ? await enumerateViaGitLsFiles(sourceRoot)
+      : await enumerateViaFilesystem(sourceRoot, manifest);
 
   const entries: FileEntry[] = [];
 
-  for (const rel of tracked) {
+  for (const rel of candidates) {
     // Skip the manifest's own working files from the sync-src directory
     // EXCEPT those explicitly in include[] (scripts/sync-src is included
     // so the public tree can run sync too if reverse-publish ever needs).
@@ -261,6 +321,82 @@ async function computeSyncSet(sourceRoot: string, manifest: Manifest): Promise<F
 
   entries.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return entries;
+}
+
+function resolveSourceMode(sourceRoot: string, requested: SourceMode): "git" | "filesystem" {
+  if (requested === "git") return "git";
+  if (requested === "filesystem") return "filesystem";
+  // auto: detect git presence at source root.
+  return existsSync(join(sourceRoot, ".git")) ? "git" : "filesystem";
+}
+
+async function enumerateViaGitLsFiles(sourceRoot: string): Promise<string[]> {
+  const { stdout } = await exec("git", ["ls-files"], { cwd: sourceRoot, maxBuffer: 16 * 1024 * 1024 });
+  return stdout.split(/\r?\n/).filter(Boolean);
+}
+
+/**
+ * enumerateViaFilesystem — walk the source filesystem and return relative
+ * POSIX paths for every file matching the manifest include[] globs (minus
+ * exclude[] hits). The final include/exclude filter still runs in
+ * `computeSyncSet`; this enumeration is the candidate-set generator.
+ *
+ * Hard-skipped during traversal (defense-in-depth, regardless of manifest):
+ *   - `.git/`  — never walk a git directory
+ *   - `node_modules/` — never walk dependency trees
+ *   - `dist/`  — never walk build output
+ *   - `.DS_Store` — macOS metadata; never propagate
+ *
+ * The hard-skip set keeps recursion bounded on common noise. Manifest
+ * exclude[] still applies as the authoritative filter — these are just
+ * descent-pruning shortcuts.
+ *
+ * Symlinks are followed via `stat` (not `lstat`) for parity with git's
+ * default behavior; cycles are not expected in `.claude/` trees in practice.
+ */
+async function enumerateViaFilesystem(sourceRoot: string, _manifest: Manifest): Promise<string[]> {
+  const HARD_SKIP_DIRS = new Set([".git", "node_modules", "dist"]);
+  const HARD_SKIP_NAMES = new Set([".DS_Store"]);
+  const out: string[] = [];
+
+  async function walk(absDir: string, relDir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(absDir, { withFileTypes: true });
+    } catch (err) {
+      // Source directory unreadable — fail loud rather than silently
+      // skipping content. Operator needs to see this.
+      throw new Error(`enumerateViaFilesystem: could not read ${absDir}: ${(err as Error).message}`);
+    }
+    for (const ent of entries) {
+      if (HARD_SKIP_NAMES.has(ent.name)) continue;
+      const absChild = join(absDir, ent.name);
+      const relChild = relDir === "" ? ent.name : `${relDir}/${ent.name}`;
+      // Resolve symlinks for type detection.
+      let isDir = ent.isDirectory();
+      let isFile = ent.isFile();
+      if (ent.isSymbolicLink()) {
+        try {
+          const s = await stat(absChild);
+          isDir = s.isDirectory();
+          isFile = s.isFile();
+        } catch {
+          // Dangling symlink — skip silently. (Common with editor temp files.)
+          continue;
+        }
+      }
+      if (isDir) {
+        if (HARD_SKIP_DIRS.has(ent.name)) continue;
+        await walk(absChild, relChild);
+      } else if (isFile) {
+        out.push(relChild);
+      }
+      // Other types (sockets, FIFOs, etc.) — skip silently.
+    }
+  }
+
+  await walk(sourceRoot, "");
+  return out;
 }
 
 function hasGlobChars(s: string): boolean {
@@ -634,7 +770,11 @@ const USER_AUTO_MEMORY_RE = /(?:\/Users\/[^/\s'"`)]+|\$HOME|~)\/\.claude\/projec
 const INTERNAL_ABS_PATH_RE = /App Development[\/\\]\.claude/g;
 const USER_HOME_RE = /\/Users\/[a-z0-9_]+/gi;
 
-async function lintPropagatedBody(relPath: string, body: string): Promise<LintIssue[]> {
+async function lintPropagatedBody(
+  relPath: string,
+  body: string,
+  exemptions: Record<string, string[]> = {},
+): Promise<LintIssue[]> {
   const issues: LintIssue[] = [];
   const isMarkdown = relPath.endsWith(".md");
   const isCommand = relPath.startsWith("commands/") && isMarkdown;
@@ -650,6 +790,16 @@ async function lintPropagatedBody(relPath: string, body: string): Promise<LintIs
   // The internal-abs-path and secret-pattern checks still apply — those
   // catch real leaks regardless of file location.
   const isExampleFixture = relPath.startsWith("workspace/_examples/");
+
+  // B2 audit follow-up (2026-05-17): per-rule manifest exemption lookup.
+  // Exact-path match; other lint rules still fire for this file. See
+  // manifest.json5 `lint_exemptions` block for canonical when-to-add policy.
+  // Helper used per-rule below so each exemption is auditable.
+  const isExemptFromRule = (ruleCode: string): boolean => {
+    const list = exemptions[ruleCode];
+    if (!list || list.length === 0) return false;
+    return list.includes(relPath);
+  };
 
   // §4 FAIL #2 — user-specific auto-memory path references in markdown bodies.
   // Framework `memory/` directory ships publicly. Only Claude Code's
@@ -678,22 +828,30 @@ async function lintPropagatedBody(relPath: string, body: string): Promise<LintIs
   }
 
   // §4 FAIL #3 — project-slug workspace paths.
+  // Skip when: not markdown, under workspace/_examples/, OR the file is on
+  // the manifest's per-rule exemption list for `project-slug-ref`. Other
+  // lint rules continue to fire for exempted files (exemption is rule-
+  // scoped, not file-scoped). Exemption hits log to stderr for audit.
   if (isMarkdown && !isExampleFixture) {
-    const lines = body.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      PROJECT_SLUG_RE.lastIndex = 0;
-      const matches = lines[i].match(PROJECT_SLUG_RE);
-      if (!matches) continue;
-      for (const m of matches) {
-        const allowed = [...ALLOWED_WORKSPACE_PREFIXES].some((p) => m.startsWith(p));
-        if (!allowed) {
-          issues.push({
-            level: "FAIL",
-            code: "project-slug-ref",
-            path: relPath,
-            lineNo: i + 1,
-            message: `references project-specific workspace path: ${m}`,
-          });
+    if (isExemptFromRule("project-slug-ref")) {
+      console.error(`[sync] lint exemption: project-slug-ref skipped for ${relPath}`);
+    } else {
+      const lines = body.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        PROJECT_SLUG_RE.lastIndex = 0;
+        const matches = lines[i].match(PROJECT_SLUG_RE);
+        if (!matches) continue;
+        for (const m of matches) {
+          const allowed = [...ALLOWED_WORKSPACE_PREFIXES].some((p) => m.startsWith(p));
+          if (!allowed) {
+            issues.push({
+              level: "FAIL",
+              code: "project-slug-ref",
+              path: relPath,
+              lineNo: i + 1,
+              message: `references project-specific workspace path: ${m}`,
+            });
+          }
         }
       }
     }
@@ -966,7 +1124,7 @@ async function plan(flags: CliFlags, manifest: Manifest, syncSet: FileEntry[]): 
  * Scope contract: this function scans whatever bytes will sit in the public
  * tree after this run completes, regardless of whether the run changed them.
  */
-async function lintActions(actions: PlannedAction[]): Promise<LintIssue[]> {
+async function lintActions(actions: PlannedAction[], manifest: Manifest): Promise<LintIssue[]> {
   const issues: LintIssue[] = [];
   for (const a of actions) {
     let body: string | undefined;
@@ -980,24 +1138,57 @@ async function lintActions(actions: PlannedAction[]): Promise<LintIssue[]> {
       body = a.targetBody;
     }
     if (body === undefined || body === "") continue;
-    issues.push(...(await lintPropagatedBody(a.relPath, body)));
+    issues.push(...(await lintPropagatedBody(a.relPath, body, manifest.lint_exemptions)));
   }
   return issues;
 }
 
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
+
+  // B1 fail-loud guard: source and target MUST resolve to different trees.
+  // If they collide (e.g., `DEFAULT_SOURCE = join(HERE, "..", "..")` resolves
+  // to tap-agents/ when invoked from tap-agents/scripts/sync-src/ — making
+  // tap-agents BOTH source and target), the sync becomes a self-sanitizer
+  // not a propagator. Hard-fail before any read/write.
+  let sourceReal: string;
+  let targetReal: string;
+  try {
+    sourceReal = realpathSync(flags.source);
+  } catch (err) {
+    console.error(`sync.ts: source path does not exist or is not resolvable: ${flags.source}`);
+    console.error(`  ${(err as Error).message}`);
+    process.exit(2);
+  }
+  try {
+    targetReal = realpathSync(flags.target);
+  } catch (err) {
+    console.error(`sync.ts: target path does not exist or is not resolvable: ${flags.target}`);
+    console.error(`  ${(err as Error).message}`);
+    process.exit(2);
+  }
+  if (sourceReal === targetReal) {
+    console.error(`sync.ts: FATAL — source and target resolve to the same tree (${sourceReal}).`);
+    console.error(`  Sync must propagate HQ -> tap-agents/. Running with source == target turns sync`);
+    console.error(`  into a self-sanitizer (every file diffs against itself; lint passes operate on`);
+    console.error(`  the would-be public tree using the would-be public tree as source).`);
+    console.error(`  Pass explicit --source <HQ-path> --target <tap-agents-path> when invoking from`);
+    console.error(`  a sync-src directory inside the target tree. See protocols/sync-tapagents-protocol.md.`);
+    process.exit(2);
+  }
+
   const manifest = await readManifest(flags.source);
 
   console.log(`sync.ts — manifest v${manifest.version}`);
   console.log(`  source: ${flags.source}`);
   console.log(`  target: ${flags.target}`);
   console.log(`  mode:   ${flags.apply ? "APPLY" : "DRY-RUN"}${flags.delete ? " +delete" : ""}${flags.includeReadme ? " +include-readme" : ""}`);
+  console.log(`  source-mode: ${flags.sourceMode}`);
   console.log("");
 
   await preflight(flags.target);
 
-  const syncSet = await computeSyncSet(flags.source, manifest);
+  const syncSet = await computeSyncSet(flags.source, manifest, flags.sourceMode);
   console.log(`sync set: ${syncSet.length} files (${syncSet.filter((e) => e.category === "copy").length} copy, ${syncSet.filter((e) => e.category === "sanitize").length} sanitize, ${syncSet.filter((e) => e.category === "template").length} template)`);
 
   const actions = await plan(flags, manifest, syncSet);
@@ -1030,7 +1221,7 @@ async function main(): Promise<void> {
   }
 
   // Lint.
-  const issues = await lintActions(actions);
+  const issues = await lintActions(actions, manifest);
   const fails = issues.filter((i) => i.level === "FAIL");
   const warns = issues.filter((i) => i.level === "WARN");
   if (warns.length) {

@@ -47,6 +47,7 @@ Turn an approved intake brief into a PRD that defines target user concretely, pr
 4. **Acceptance criteria are testable.** A criterion that can't be checked isn't a criterion.
 5. **Distribution is required.** No PRD ships without at least a sketch of how users find this. (GTM Strategist refines later when activated.)
 6. **Write in `[WIP]` first; finalize after Critic review.** Critic runs in parallel.
+7. **Anchor-grep pre-flight before sealing.** Before sealing any PRD or PRD revision, grep/Read every cited file path, function name, table name, schema column, route, or infrastructure-status claim against the live codebase. Empirical anchors only. Aspirational anchors must be explicitly labeled `planned per <roadmap citation>` — never stated as live infrastructure. See `${MEMORY_ROOT:-memory}/lessons-learned.md` 2026-05-16 entry. Same failure-class historically recurs across projects scaffolded against this framework when anchor-grep is skipped — each occurrence costs a full Critic round trip + Strategist revision pass.
 
 ## Read on Every Invocation
 
@@ -61,6 +62,7 @@ Turn an approved intake brief into a PRD that defines target user concretely, pr
 - `${MEMORY_ROOT:-memory}/lessons-learned.md` (filter by relevance — recent + same-domain projects)
 - Web research via WebSearch/WebFetch when needed (cite URLs)
 - `workspace/<slug>/critic-notes.md` if exists (for revision requests)
+- Anchor-grep pre-flight required before sealing — see Operating Principle 7 + `${MEMORY_ROOT:-memory}/lessons-learned.md` 2026-05-16 entry.
 
 ## Algorithm
 

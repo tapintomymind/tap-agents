@@ -148,10 +148,14 @@
     "workspace/_global/backlog.json",
 
     // Project workspaces — instance state, never ships.
-    "workspace/agent-dashboard/**/*",
-    "workspace/claude-team-app/**/*",
+    // (agent-dashboard + claude-team-app slots consolidated into tapagents-app
+    // via BL-059 cascade-rename 2026-05-14; old paths kept in changelog_project_slugs
+    // below so historical CHANGELOG refs still genericize cleanly.)
+    "workspace/tapagents-app/**/*",
+    "workspace/tapagents-football-gm/**/*",
     "workspace/ip-protection/**/*",
     "workspace/_inbox/**/*",
+    "workspace/_archived/**/*",
 
     // _private — explicit private spaces.
     "agents/_private/**/*",
@@ -208,20 +212,65 @@
   //
   // Two rewrites apply:
   //   1. Path-shaped: `workspace/<slug>/...` -> `workspace/<project>/...`
-  //      (catches every entry of the form `workspace/agent-dashboard/foo.md`).
+  //      (catches every entry of the form `workspace/tapagents-app/foo.md`).
   //   2. Bare label: standalone occurrences of a known slug -> `<project>`
-  //      (catches phrases like "agent-dashboard's BL-034" or
-  //      "agent-dashboard/.claude/docs/..." outside workspace/).
+  //      (catches phrases like "tapagents-app's BL-034" or
+  //      "tapagents-app/.claude/docs/..." outside workspace/).
   //
   // Update this list when a new Tier-1 project workspace is created. The
   // list MUST stay in sync with the `workspace/<slug>/**` exclude globs above
   // — every excluded project slug here implies the path is private, so the
   // CHANGELOG narration must also be genericized.
+  //
+  // Historical slugs (agent-dashboard, claude-team-app) RETAINED to keep
+  // pre-2026-05-14 CHANGELOG narration genericizing cleanly even after the
+  // BL-059 cascade-rename consolidated those slots into tapagents-app.
   changelog_project_slugs: [
+    "tapagents-app",
+    "tapagents-football-gm",
+    "ip-protection",
     "agent-dashboard",
     "claude-team-app",
-    "ip-protection",
   ],
+
+  // Per-rule lint exemption surface — consumed by `lintPropagatedBody()` in
+  // sync.ts. Each key is a lint rule code (matching the `code` field on
+  // emitted LintIssue records); each value is an array of exact relative-
+  // POSIX paths where that one rule is suppressed. Other lint rules continue
+  // to fire normally on the same path — exemption is rule-scoped, not file-
+  // scoped (a file exempted from `project-slug-ref` is still scanned for
+  // `private-memory-ref`, secret patterns, etc.).
+  //
+  // When to add an entry:
+  //   The file legitimately tracks concrete projects as its content (e.g., a
+  //   registry of active slugs, a planning README that cites real projects to
+  //   illustrate activation triggers), AND sanitizing the slug-refs would
+  //   break the file's purpose. Alternative options (template-substitution
+  //   like `<project>` placeholders) were considered and rejected here
+  //   because the prose reads naturally with the real slugs and the file's
+  //   audience is the operator who already knows the project slugs.
+  //
+  // Match shape: exact relative-POSIX path equality. No globs at v1 — extend
+  // the matcher in `lintPropagatedBody()` if a pattern emerges that needs
+  // wildcards. Exact-match keeps the exemption auditable per file.
+  //
+  // Initial population (B2 audit follow-up, 2026-05-17):
+  //   - agents/_planned/README.md — planning doc that cites concrete project
+  //     examples to illustrate when planned agents would activate. Sanitizing
+  //     would erase the illustration's clarity.
+  //   - workspace/_registry.md — by design, the cross-project registry that
+  //     tracks active slugs. Genericizing every slug would empty the file's
+  //     entire content surface.
+  //   - agents/_planned/knowledge-curator.md — surfaced by filesystem-mode
+  //     sync; same legitimate-tracking pattern as the README (cites concrete
+  //     projects to illustrate the curator's intended scope).
+  lint_exemptions: {
+    "project-slug-ref": [
+      "agents/_planned/README.md",
+      "workspace/_registry.md",
+      "agents/_planned/knowledge-curator.md",
+    ],
+  },
 
   // When true, files present in target but absent in source (after applying
   // include/exclude/sanitize/template) are listed as WARN — operator decides

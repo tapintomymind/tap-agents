@@ -9,8 +9,8 @@
     {
       "name": "tapagents",
       "source": ".",
-      "version": "0.21.0",
-      "description": "The full TapAgents framework — 18 agents, 17 commands, 30 protocols, stack-aware templates, eleven instrumented enforcement + telemetry hooks (every hook fire / block / classification / misfire lands in events.jsonl; v0.15.0 adds auto-registration of cross-cutting sessions; v0.21.0 adds the sync-discipline gate that enforces framework adoptions through the dedicated `sync-tapagents` branch), and an internal→public sync flow keeping the framework's two trees in lockstep. Installs a complete AI product team in your repo. v0.21.0 codifies the sync-tapagents branch discipline: framework version bumps in downstream consumers (e.g., agent-dashboard) flow through the dedicated branch, isolating adoption commits from rider commits."
+      "version": "0.22.0",
+      "description": "The full TapAgents framework — 18 agents, 20 commands, 32 protocols, stack-aware templates, fifteen instrumented enforcement + telemetry hooks (every hook fire / block / classification / misfire lands in events.jsonl; M0 adds redacted permission-denial / harness-block telemetry; v0.15.0 adds auto-registration of cross-cutting sessions; v0.21.0 adds the sync-discipline gate that enforces framework adoptions through the dedicated `sync-tapagents` branch; v0.22.0 shifts HQ topology to filesystem-only sync (no git tree at the source root) and adds the manifest `lint_exemptions` block + `--source-mode` flag for sync.ts), and an internal→public sync flow keeping the framework's two trees in lockstep. Installs a complete AI product team in your repo."
     }
   ]
 }

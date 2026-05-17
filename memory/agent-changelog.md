@@ -8,6 +8,26 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-17 — Framework v0.22.0 — Operator infrastructure + framework discipline: sync reliability, HQ topology, Strategist OP#7
+
+v0.22.0 is an operator-facing infrastructure and framework-discipline release. The clearest signal that this release is operator-oriented rather than consumer-oriented: pure consumers scaffolding this framework into a project see no change in the shipped agent prompts, protocols, hooks, or templates delivered to their environment — except for one, which is load-bearing.
+
+The exception: `agents/strategist.md` gains Operating Principle 7 — anchor-grep pre-flight before sealing. This is a new mandatory discipline rule for the Strategist agent. Before signing off any PRD or PRD revision, Strategist must grep or Read every cited file path, function name, table name, schema column, route, or infrastructure-status claim against the live codebase. Aspirational anchors must be explicitly labeled as planned — never asserted as live infrastructure. The rule is additive; it tightens the Strategist's verification discipline without changing the PRD output format or the role's responsibilities. A companion bullet in "Read on Every Invocation" ensures the rule is visible at the top of every Strategist invocation.
+
+On the operator side: the framework's sync tool (`scripts/sync-src/sync.ts`) had two silent failure modes. When invoked from inside the publish target, source and target resolved to the same path — sync would silently sanitize its own tree rather than propagating content, and complete successfully. When the source tree had no `.git/` directory, `computeSyncSet()` called `git ls-files`, received an empty set, and propagated nothing — no error, no warning, exit 0. Both are now loud failures.
+
+What changed structurally in sync.ts: `computeSyncSet()` auto-detects `.git/` presence at the source root. When absent, it falls back to a recursive filesystem walk matched against `manifest.json5` include/exclude globs. A new `--source-mode <auto|git|filesystem>` flag lets operators override auto-detection explicitly. A fail-loud guard at flag-resolution time catches source-equals-target before any file I/O runs. Every run emits the active enumeration mode to stderr.
+
+`scripts/sync-src/manifest.json5` gains a `lint_exemptions` config surface — per-rule, per-path exemptions for files whose content is legitimately lint-exempt (e.g., a doc that must cite concrete slug examples to illustrate its own scope). Exempting a path from one rule leaves all other rules active on that file.
+
+`protocols/sync-tapagents-protocol.md §10` documents a topology change effective this release: framework HQ becomes a filesystem-only authoring surface, retiring its prior local git layer. The section covers what changed and why, the three-layer topology table (HQ authoring surface / `tap-agents/` publish target / `sync.ts` propagation bridge), how sync auto-selects enumeration mode now that HQ has no `.git/`, the editing discipline going forward (author at HQ, dry-run, apply, commit at tap-agents — no HQ commit step), risk and mitigation including a one-command rollback tombstone, and cross-references.
+
+Operators syncing from a non-git source tree no longer need workarounds — filesystem-walk engages automatically. Operators who were inadvertently invoking sync with source and target pointing at the same directory will now see a fail-loud error rather than a silent no-op.
+
+The feature payload (Constrained Implementation Mode, permission-denial telemetry activation, multi-host scaffolding foundation, marketing-designer agent, Next.js stack templates, 14-protocol prose refresh, knowledge-curator stub) ships in v0.22.1 through the clean pipe this release establishes.
+
+Cross-reference: CHANGELOG.md v0.22.0 entry; `protocols/sync-tapagents-protocol.md §10`; `agents/strategist.md §Operating Principles`.
+
 ## 2026-05-14 — Framework v0.21.0 — sync-tapagents branch discipline + sync-discipline-gate hook
 
 A consumer-side adoption-flow protocol is codified at the framework level. When a downstream consumer (today: agent-dashboard; tomorrow: any Tier 2 project scaffolded by TapAgents) adopts a new framework version, the adoption commits flow through a dedicated long-lived branch named `sync-tapagents`, not directly through the consumer's `dev` branch. The branch promotes to `main` via no-ff merge as a clean framework-only release; `main` then back-merges to `dev` so the dev branch catches up. This isolates framework adoptions from any unrelated work that has accumulated on `dev`, preserving the audit-trail shape "one framework adoption = one auditable commit" rather than "five commits with riders, one of which happens to be the framework bump."

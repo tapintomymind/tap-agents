@@ -4,60 +4,70 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
-## [0.21.0] — 2026-05-14 — sync-tapagents branch discipline + sync-discipline-gate hook
+## [0.22.0] — 2026-05-17 — Operator infrastructure + framework discipline: sync reliability, HQ topology, Strategist OP#7
 
-**Minor release** codifying the `sync-tapagents` branch protocol that isolates framework-adoption commits in downstream consumers from rider commits. Triggered by the v0.20.0 adoption incident on agent-dashboard 2026-05-14: a `dev → main` no-ff merge for the framework version bump dragged 4 unrelated dev commits to prod alongside the framework adoption. The branch `sync-tapagents` already existed (Vercel-whitelisted since 2026-05-12) and the producer-side auto-adoption workflow already targeted it, but the discipline of routing manual adoptions through it had eroded. This release adds mechanical enforcement at five layers so it cannot erode again.
+**Minor release.** This is an operator-facing infrastructure and framework-discipline release. Operators running the framework publish pipeline see direct behavioral changes. Pure consumers scaffolding this framework into their projects see no behavioral change in shipped agent prompts, protocols, hooks, or templates — the indirect benefit is a more reliable publish pipeline going forward. One exception: `agents/strategist.md` gains a new Operating Principle 7 (anchor-grep pre-flight) that affects all future Strategist dispatches in consumer environments.
 
-### Added
-
-- **`protocols/sync-tapagents-protocol.md`** — new canonical protocol defining the framework-sync fingerprint (§3 signatures A/B/C: `package.json` dep change for `@tapintomymind/tap-agents`, `scaffold-source/` regen, `.scaffold-meta.json` change), the canonical flow (§4: `sync-tapagents → main` no-ff → `main → dev` back-merge), the five enforcement layers (§5), exception clause `[sync-protocol-override: <reason>]` (§6), and branch-naming customization via `.tapagents-manifest.json#syncBranch` (§7). Applies to ANY Tier 2 project scaffolded by TapAgents — generic by design.
-
-- **`hooks/sync-discipline-gate.py`** — new PreToolUse hook (Layer B). Fires on Bash `git commit` / `git push` with staged-diff fingerprint matching against §3 signatures. Blocks framework-sync commits on `dev` or `main` with authenticity markers `Sync-discipline gate BLOCKED:` + `TAPAGENTS_SYNC_GATE_FIRED_V1`. Telemetry emission to `events.jsonl` via shared `_telemetry` helper. Override-token recognition for §6 exception clause. Wired into `settings.json` PreToolUse chain as the 4th gate (after pre-tool-gate, version-gate, orchestrator-dispatch-gate; before session-tracking-files).
-
-### Changed
-
-- **`settings.json`** — PreToolUse chain extended from 4 gates to 5 to include `sync-discipline-gate.py`. The `_purpose` docstring updated to reflect the new layer order and rationale.
-- **`commands/release.md`** — Step 7 "Consumer adoption path" added directing consumers to `protocols/sync-tapagents-protocol.md`. Captures the v0.20.0 incident as motivating context.
-- **`package.json`** — version bumped to 0.21.0.
-- **`.claude-plugin/plugin.json`** — version bumped to 0.21.0; description updated (29 → 30 protocols, ten → eleven hooks).
-- **`.claude-plugin/marketplace.json`** — plugin entry version bumped to 0.21.0; description updated.
-
-### Provenance
-
-- Triggering incident: agent-dashboard v0.20.0 adoption 2026-05-14. `git log --oneline` on agent-dashboard `main` at SHA `3e6ca5d` shows the framework adoption (`049963e sync: bump @tapintomymind/tap-agents to v0.20.0`) merged via `3e6ca5d sync: promote v0.20.0 to main (3-STUB promotions live)` alongside 4 rider commits (`3c4f32d`, `c09bf96`, `80752fa`, `cbda843`) that had no relation to the framework bump.
-- User direction 2026-05-14: *"We need to enforce this strictly somehow. And this is also important for the TapAgents framework to remember in general about project flow. We can't override process."*
-- Parent convention: `feedback_no_direct_commits_on_main_back_merge_discipline.md` — this protocol is the framework-sync carve-out from that convention.
-- Cross-channel partners (live before this release): `tap-agents/.github/workflows/notify-adopters.yml` (dispatches `tap-agents-published` events to consumer side); `agent-dashboard/.github/workflows/adopt-tap-agents.yml` (consumer-side auto-adoption that already targets `sync-tapagents`). Layer A discipline pre-existed; v0.21.0 adds Layers B-E.
-- CI guard `sync-protocol-check.yml` lands separately in `agent-dashboard/.github/workflows/` as part of the v0.21.0 consumer-side adoption (not in the framework npm package — CI workflows live in consumer repos).
-- Dogfood proof of the loop closing: agent-dashboard adopts v0.21.0 via the new sync-tapagents flow, end-to-end, as the same session that codifies the protocol.
-
-## [0.20.0] — 2026-05-13 — Three stub activations: biz-finance + biz-legal + gtm-launch-strategist
-
-**Minor release** promoting three `_planned/` STUBs to active tier-1 contracts. The `ip-protection-mcp-execution-model` planning cycle (2026-05-12 → 2026-05-13) produced founding artifacts — `pricing-tier-design.md`, `legal-scope-spec.md`, `gtm-distribution-plan.md` — that walked through multiple Critic passes and reached WARN-or-better verdicts. Each agent operated in tier-1 mode during the planning cycle (per session evidence in the proposal); promoting from STUB to active contract closes the contract-vs-operational-reality drift gap. New `fires_when` triggers; no existing fields removed; no breaking changes.
+The release has four components: (1) `scripts/sync-src/sync.ts` gains fail-loud guards and a `--source-mode` flag; (2) `scripts/sync-src/manifest.json5` gains a `lint_exemptions` config surface; (3) `protocols/sync-tapagents-protocol.md §10` canonicalizes the HQ filesystem-only topology; (4) `agents/strategist.md` adds Operating Principle 7.
 
 ### Added
 
-- **`agents/biz-finance.md`** — VP of Pricing & Unit Economics. Translates upstream architecture cost anchors + ops-security compliance constraints + PRD success-metric constraints into defensible pricing-tier designs with cite-don't-invent discipline, 3+-named-risks-with-mitigation-contracts, cross-coupling discipline, pricing-arithmetic-not-positioning role boundary, divergence-threshold + adaptive-formula contracts, production posture. Outputs `workspace/<slug>/pricing-tier-design.md` and `workspace/<slug>/unit-economics.md`. Fires when project has non-trivial pricing model OR unit economics becomes load-bearing decision.
+- **`agents/strategist.md` — Operating Principle 7 (anchor-grep pre-flight).** New framework discipline rule: before sealing any PRD or PRD revision, Strategist must grep or Read every cited file path, function name, table name, schema column, route, or infrastructure-status claim against the live codebase. Empirical anchors only — aspirational anchors must be explicitly labeled `planned per <roadmap citation>`, never stated as live infrastructure. A companion bullet in "Read on Every Invocation" reinforces the rule at the top of every Strategist invocation. Affects all future Strategist dispatches in consumer environments. See `agents/strategist.md §Operating Principles` for the full text.
 
-- **`agents/biz-legal.md`** — VP of Legal Scoping. Drafts informational legal-scope specs for counsel-handoff (ToS amendment, Privacy Policy, USPTO filings, attribution metadata, stub-license posture, comparative-marketing FTC §5 review). NOT a substitute for actual licensed counsel — output is scoping work, not customer-facing legal language. Honors upstream constraints verbatim; uses Path (a) / Path (b) coordination offer rather than unilateral override when cross-coupling tension surfaces. Two-artifact output: in-workspace `legal-scope-spec.md` + genericized `legal-scope-spec--counsel-handoff.md`. Fires when project enters regulated domain or counsel-handoff scoping needed.
+- **`--source-mode <auto|git|filesystem>` flag on `scripts/sync-src/sync.ts`** — explicit CLI override for source enumeration mode. `auto` (default) detects by `.git/` presence at the source root; `git` forces `git ls-files` enumeration; `filesystem` forces a manifest-glob directory walk. Every run prints the active mode to stderr as `[sync] source enumeration: <mode>`. Useful when the source tree is intentionally not git-tracked, or when the operator needs to override auto-detection without modifying the source tree.
 
-- **`agents/gtm-launch-strategist.md`** — Launch Strategist (renamed from `gtm-strategist` STUB on 2026-05-11). Owns distribution moat analysis, phase-based launch plan, channel mix design, campaign timing, pricing-positioning narrative (consumes biz-finance pricing-arithmetic + produces external messaging frame), comparative-marketing claims (substantiation-flagged for biz-legal review), conversational/outbound asset production, demo scripts. Anti-positioning discipline (abandon parity-frame; win on different attention surfaces). Re-anchors biz-finance CAC for actual channel mix. 5-phase distribution plan over 0-12+ months. Operator-time-budget reality check at every plan-level commitment. Fires when project enters phase with concrete buyer surface (paid tier, B2B angle, multi-user shipped) OR biz-finance pricing-tier-design phase requires parallel gtm coordination.
+- **`lint_exemptions` block in `scripts/sync-src/manifest.json5`** — new top-level config key consumed by `lintPropagatedBody()` in sync.ts. Structure: `{ "<rule-code>": ["<path1>", "<path2>"] }` — exact relative-POSIX path matching, rule-scoped. A path exempted from one rule is still scanned by all other rules. Initial population exempts three paths from the `project-slug-ref` rule: `agents/_planned/README.md`, `workspace/_registry.md`, and `agents/_planned/knowledge-curator.md` — each contains slug references that are load-bearing content, not lint targets. Header comment in the file documents the "when to add an entry" contract and explains why exact-path (not glob) was chosen for exemption auditability.
+
+- **`protocols/sync-tapagents-protocol.md §10` — HQ filesystem-only topology canonicalized** (+67 lines). Documents the topology change effective 2026-05-17: HQ becomes a filesystem-only authoring surface (no local git layer); `tap-agents/` is the git-tracked publish surface; `scripts/sync-src/sync.ts` is the one-way propagation bridge. Six subsections cover: what changed and why, the topology table, how sync auto-detects enumeration mode against a filesystem-only source, the editing discipline (author at HQ, dry-run, apply, commit at tap-agents — no HQ commit step), risk and mitigation (including the `.git.archived-2026-05-17/` tombstone for one-command rollback), and cross-references. See `protocols/sync-tapagents-protocol.md §10` for the canonical spec.
 
 ### Changed
 
-- **`package.json`** — version bumped to 0.20.0; description updated to reflect 18 curated agents (was 15).
-- **`.claude-plugin/plugin.json`** — version bumped to 0.20.0; description updated to enumerate the three newly activated roles.
-- **`.claude-plugin/marketplace.json`** — plugin entry version bumped to 0.20.0.
+- **`scripts/sync-src/sync.ts` — two behavioral additions** (+223 lines):
+
+  1. **Fail-loud source-equals-target guard.** At flag-resolution time, sync resolves both `--source` and `--target` to real paths via `realpathSync`. If they resolve to the same directory, sync emits a clear error and exits non-zero. Prior behavior: invoking sync from inside the publish target resolved source and target to the same tree, causing a silent self-sanitization pass rather than a propagation error. The guard makes this class of mistake loud rather than silent.
+
+  2. **Filesystem-walk fallback in `computeSyncSet()`.** When the resolved source has no `.git/` directory, `computeSyncSet()` enumerates files via a recursive filesystem walk matched against the manifest's `include[]` / `exclude[]` globs, instead of calling `git ls-files`. Auto-mode selects the walk automatically when `.git/` is absent. Prior behavior: on a non-git source, `git ls-files` returned an empty set — sync appeared to succeed while propagating nothing.
+
+- **`.claude-plugin/plugin.json` — hooks count corrected.** Description previously said "thirteen instrumented hooks"; actual count is fifteen. Now matches the hook wiring count in `settings.json`.
+
+### Migration notes
+
+**No breaking changes.** All additions are optional and auto-detect preserves prior invocation semantics.
+
+- **Operators syncing from a non-git source** no longer need workarounds; filesystem-walk engages automatically.
+- **Operators where source and target share a path** will now receive a fail-loud error rather than a silent no-op pass. Adjust the `--source` flag to point at the authoring tree, not the publish target.
+- **Strategist OP#7** is additive; existing PRD artifacts are unaffected. The discipline applies on the next Strategist dispatch forward.
+
+### Forward-pointer to v0.22.1
+
+The feature payload ships in v0.22.1 through the pipe this release establishes: Constrained Implementation Mode (`protocols/dispatch-efficiency.md §7`), permission-denial telemetry activation (`hooks/permission-denial-capture.py`), multi-host scaffolding foundation (`runtime-adapters/`), marketing-designer agent, Next.js stack templates, 14-protocol prose refresh, and knowledge-curator stub.
+
+### SemVer classification: MINOR
+
+Per `protocols/versioning-protocol.md §3.2`:
+
+- **`agents/strategist.md` OP#7** → MINOR: new operating principle added to an active agent contract; additive to existing behavior, no prior responsibility removed.
+- **`--source-mode` flag** → MINOR: new optional CLI flag on a tarball-shipped operator-facing tool.
+- **`lint_exemptions` config surface** → MINOR: new optional top-level key; additive config contract, no narrowing.
+- **Filesystem-walk fallback** → MINOR: behavioral change to the source enumeration path in `computeSyncSet()`. Auto-mode now branches on `.git/` presence; operators invoking sync against a non-git source tree will see different (correct) behavior.
+
+Additionally PATCH-class in the same ship: protocol §10 addition (additive documentation), plugin.json hooks-count correction (metadata; no capability change).
+
+MAJOR rejected: no agent removed, no command removed, no protocol removed, no hook authenticity marker removed, no `fires_when` trigger narrowed.
+
+### Files-array audit
+
+All modified files fall under existing `package.json#files` entries — no new top-level entry required:
+
+- `agents/strategist.md` — under `agents/`
+- `scripts/sync-src/sync.ts` — under `scripts/sync-src/**/*`
+- `scripts/sync-src/manifest.json5` — under `scripts/sync-src/**/*`
+- `protocols/sync-tapagents-protocol.md` — under `protocols/`
+- `.claude-plugin/plugin.json` — under `.claude-plugin/**/*`
 
 ### Provenance
 
-- Activation proposal: `workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md` — Org Designer authored 2026-05-13 from session evidence (5 Critic passes, 0 false anchors) during the `ip-protection-mcp-execution-model` planning cycle.
-- Founding artifacts (read-by-future-activations as canonical templates):
-  - biz-finance → `workspace/ip-protection/pricing-tier-design.md` (3 Critic passes → CLEAR)
-  - biz-legal → `workspace/ip-protection/legal-scope-spec.md` (2 Critic passes → WARN)
-  - gtm-launch-strategist → `workspace/ip-protection/gtm-distribution-plan.md` (2 Critic passes → WARN)
-- Three cross-cutting disciplines codified into all three contracts: three-named-risks (shared shape with severity/first-milestone/likelihood/impact/mitigation contract/cross-coupling/severity-contingency), cross-coupling (explicit Open Questions Deferred enumeration; no implicit hand-offs), production posture (revision-history block at artifact head; cite-don't-invent verbatim; readiness goal at sign-off; WARN-or-better Critic verdict by pass 2).
-- STUBs preserved in `agents/_planned/biz-finance.md`, `agents/_planned/biz-legal.md`, `agents/_planned/gtm-launch-strategist.md` as historical activation record (archive convention deferred — `_archive/` directory not yet established).
+Triggered by an internal framework discipline pass that identified two classes of silent failure in the publish pipeline (empty propagation set on non-git sources; no guard on source-equals-target invocations) and a recurring pattern of aspirational anchors in Strategist-produced PRDs being stated as live infrastructure. v0.22.0 closes both gaps: the sync tool fails loud where it was previously silent, and Strategist gains a mandatory anchor-grep discipline before PRD sign-off. SemVer reclassified from PATCH to MINOR on Critic review (new `--source-mode` flag + `lint_exemptions` config surface + `agents/strategist.md` OP#7 are all additive consumer-visible surfaces per §3.2).
 
 ## [0.19.0] — 2026-05-13 — Gate 5 defense-in-depth: verify-publish.yml + version-parity-audit
 
@@ -65,7 +75,7 @@ Format: see [Common Changelog](https://common-changelog.org/).
 
 ### Added
 
-- **`.github/workflows/verify-publish.yml`** (publish-pipeline asymmetry — tap-agents/-only) — `workflow_run`-triggered on `publish` workflow completed-success. Verifies all three §4.5 invariants (registry presence, tarball completeness, GitHub Release parity) from a cold npm pull, independent of `publish.yml`'s own attestation. Pre-release versions (any hyphen-containing version, e.g., `v1.0.0-rc.1`) skipped via POSIX `case "$VERSION" in *-*) skip ;; esac` filter — mirrors `notify-adopters.yml` shape. Auto-files a GitHub issue titled `Gate 5 §4.5 verification failed for v<version>` with `gate-5-failure` label on any failure (idempotent — appends a comment if an issue already exists for the same tag rather than opening a duplicate). Retry budgets sized for the ~30-120s workflow_run dispatch lag (e.g., invariant 1: 4 × 30s = 2-min vs operator-side 8 × 30s = 4-min). End-to-end verification target: completion within 5 min of publish-success. Permissions: `contents: read`, `issues: write`, `actions: read`. (454 lines)
+- **`tap-agents/.github/workflows/verify-publish.yml`** (publish-pipeline asymmetry — tap-agents/-only) — `workflow_run`-triggered on `publish` workflow completed-success. Verifies all three §4.5 invariants (registry presence, tarball completeness, GitHub Release parity) from a cold npm pull, independent of `publish.yml`'s own attestation. Pre-release versions (any hyphen-containing version, e.g., `v1.0.0-rc.1`) skipped via POSIX `case "$VERSION" in *-*) skip ;; esac` filter — mirrors `notify-adopters.yml` shape. Auto-files a GitHub issue titled `Gate 5 §4.5 verification failed for v<version>` with `gate-5-failure` label on any failure (idempotent — appends a comment if an issue already exists for the same tag rather than opening a duplicate). Retry budgets sized for the ~30-120s workflow_run dispatch lag (e.g., invariant 1: 4 × 30s = 2-min vs operator-side 8 × 30s = 4-min). End-to-end verification target: completion within 5 min of publish-success. Permissions: `contents: read`, `issues: write`, `actions: read`. (454 lines)
 
 - **`scripts/version-parity-audit.ts`** — tsx-based audit script (mirrors `scripts/test-changelog-format.ts` style — no vitest devDep). Audits 4 channels for `@tapintomymind/tap-agents`: local tags (`git -C <repo> tag -l 'v*'`), remote tags (`git -C <repo> ls-remote --tags origin 'v*'` with `^{}` peel-pointer filtering), npm versions (`npm view <pkg> versions --json`), and GitHub Releases (`gh release list --repo tapintomymind/tap-agents --limit 50 --json tagName`). Subset-bounded `KNOWN_ORPHANS` map annotates v0.15.0 (missing from remote+npm+releases) and v0.8.3 (missing from npm+releases) as `[ANNOT]` rather than `[WARN]`; a known-orphan version unexpectedly losing a NEW channel still surfaces as unknown divergence. CLI flags: `--repo-path <dir>` (default `../tap-agents/` resolved via `import.meta.url` — cwd-independent), `--json` (machine-readable output for EA/dashboard ingestion), `--help`. Wired into `package.json#scripts` as `audit:version-parity`. Exit codes: `0` parity / `1` unknown divergence / `2` environment error. Empirically validated 2026-05-13: ran live, output `PASS (2 known annotations; 0 unknown divergences)`. (646 lines)
 
@@ -77,7 +87,7 @@ Format: see [Common Changelog](https://common-changelog.org/).
 
 - **`agents/executive-assistant.md`** — `prompt_version` bumped to `2026-05-13-1`. New section "Version-Parity Daily Sweep (per `protocols/versioning-protocol.md §4.6`)" added between "Stale Detection" and "Session-Tracking Drift Sweep". Documents the daily-cadence invocation, the exit-code-driven surface table (silent / FYI / P1-immediate / environment-error), the do-NOT list (no auto-remediate, no silencing `[WARN]`, no unilateral `KNOWN_ORPHANS` mutation — that's an Org Designer route). Read-list addition: `protocols/versioning-protocol.md §4.6`.
 
-- **`package.json`** — adds `audit:version-parity` script entry (`tsx scripts/version-parity-audit.ts`). No new devDeps (tsx already present).
+- **`.claude/package.json`** — adds `audit:version-parity` script entry (`tsx scripts/version-parity-audit.ts`). No new devDeps (tsx already present).
 
 ### Provenance + acknowledgments
 
@@ -109,7 +119,7 @@ This validates: (1) the four-channel read paths work end-to-end (`git tag`, `git
 
 PATCH rejected: more than a doc-edit. New CI workflow file + new operational script + new EA responsibility + new test surface.
 
-MAJOR rejected: no downstream consumer (agent-dashboard Vercel build, marketplace users) breaks at the prior version. `verify-publish.yml` runs in the publish-pipeline and produces issues; it doesn't change the published artifact. `version-parity-audit.ts` is internal-discipline tooling; downstream consumers don't read it. EA's new responsibility is internal-cadence; the agent's user-facing output contract (briefings, Decision Packets) is unchanged.
+MAJOR rejected: no downstream consumer (<project> Vercel build, marketplace users) breaks at the prior version. `verify-publish.yml` runs in the publish-pipeline and produces issues; it doesn't change the published artifact. `version-parity-audit.ts` is internal-discipline tooling; downstream consumers don't read it. EA's new responsibility is internal-cadence; the agent's user-facing output contract (briefings, Decision Packets) is unchanged.
 
 ### Cross-channel sync
 
@@ -120,8 +130,8 @@ All version-surface fields update atomically:
 
 ### Files-array audit
 
-- `.github/workflows/verify-publish.yml` lives under `.github/workflows/` which is NOT in `package.json#files` (workflows ship in the GitHub repo, not the npm tarball — same precedent as `publish.yml` and `notify-adopters.yml`). No files-array change required.
-- `scripts/version-parity-audit.ts` lives under `scripts/` (already in files-array). No files-array change required.
+- `tap-agents/.github/workflows/verify-publish.yml` lives under `.github/workflows/` which is NOT in `package.json#files` (workflows ship in the GitHub repo, not the npm tarball — same precedent as `publish.yml` and `notify-adopters.yml`). No files-array change required.
+- `.claude/scripts/version-parity-audit.ts` lives under `scripts/` (already in files-array). No files-array change required.
 - `agents/executive-assistant.md` lives under `agents/` (already in files-array). No files-array change required.
 - `protocols/versioning-protocol.md` lives under `protocols/` (already in files-array). No files-array change required.
 
@@ -148,7 +158,13 @@ Step 6d tarball-completeness probe (codified in v0.18.0) will confirm the establ
 
 ### Note on v0.15.0 (orphan)
 
-`v0.15.0 — BL-055 auto-register session-tracking hooks` was tagged locally in `tap-agents/` on 2026-05-12 but never pushed to origin; publish.yml never fired; npm never received. npm history shows `v0.14.0 → v0.16.0 → v0.17.0 → v0.18.0` with a gap at v0.15.0. Functionally non-impactful (v0.15.0's content is fully present in v0.16.0+, so downstream consumers are unaffected). Treated as permanent absent contrary signal — if a future incident makes republishing strictly cleaner, the framework reserves the right to revisit; until then, the gap stays. This v0.18.0 Gate 5 amendment closes the operator-flow loophole that caused the orphan.
+`v0.15.0 — BL-055 auto-register session-tracking hooks` was tagged locally in `tap-agents/` on 2026-05-12 but never pushed to origin; publish.yml never fired; npm never received. npm history shows `v0.14.0 → v0.16.0 → v0.17.0 → v0.18.0` with a gap at v0.15.0. (The `.claude/` framework HQ checkout DID tag and ship v0.15.0 at commit `a640efc`; the orphan is npm-channel-only — see v0.17.0 CHANGELOG entry for the full chain.) Functionally non-impactful (v0.15.0's content is fully present in v0.16.0+, so downstream consumers are unaffected). Treated as permanent absent contrary signal — if a future incident makes republishing strictly cleaner, the framework reserves the right to revisit; until then, the gap stays. This v0.18.0 Gate 5 amendment closes the operator-flow loophole that caused the orphan.
+
+### Note on v0.17.0 reconciliation
+
+Prior to v0.18.0 ship, two reconciliations landed in commits before this release:
+- `tap-agents/afa41bf` (release: v0.17.0 — Auto-adoption producer pipeline) was tagged + pushed + published manually 2026-05-13 (this acted as the empirical dogfood for the Gate 5 design).
+- `.claude/c5f86ed` (sync: tap-agents v0.17.0 back-merged into .claude/) brought the producer-pipeline content into the canonical authority. `notify-adopters.yml` stays tap-agents/-only (publish-pipeline asymmetry per established precedent).
 
 ### SemVer classification
 
@@ -160,7 +176,7 @@ Step 6d tarball-completeness probe (codified in v0.18.0) will confirm the establ
 
 PATCH rejected: more than a doc-edit. Release authors now must satisfy new operator-side verification before `/release` declares success. That's a contract change for release authors.
 
-MAJOR rejected: no downstream consumer (agent-dashboard Vercel build, marketplace users) breaks at the prior version. The amendment is internal release discipline; nothing in §4.5 or §4.6 retroactively invalidates v0.16.0 or v0.17.0 already-published versions.
+MAJOR rejected: no downstream consumer (<project> Vercel build, marketplace users) breaks at the prior version. The amendment is internal release discipline; nothing in §4.5 or §4.6 retroactively invalidates v0.16.0 or v0.17.0 already-published versions.
 
 ### Cross-channel sync
 
@@ -179,38 +195,36 @@ No `package.json#files` change required. Step 6d tarball-completeness probe (new
 
 ## [0.17.0] — 2026-05-13 — Auto-adoption producer pipeline
 
-**Minor release** adding the producer-side of the auto-adoption pipeline that dispatches `tap-agents-published` events to downstream consumers (currently `tapintomymind/tapagents-app`) after every successful npm publish.
+**Minor release** mirroring `tap-agents/v0.17.0` (npm-published 2026-05-13). Brings the producer-pipeline content into `.claude/` as the canonical authority per `protocols/versioning-protocol.md §2`. Reverse-direction sync: the producer-pipeline feature was authored in `tap-agents/` directly (feature branch `feat/auto-adoption-producer`); this release back-merges the appropriate subset into `.claude/`. Asymmetric file set per established publish-pipeline precedent: `notify-adopters.yml` lives only in `tap-agents/` (publish-pipeline-only, fires on `publish.yml` workflow_run completion); the CHANGELOG-format test + version-check step + package script mirror into `.claude/` so `.claude/CHANGELOG.md` benefits from the same drift-prevention guard.
 
 ### Added
 
-- **`.github/workflows/notify-adopters.yml`** — fires on `workflow_run: publish completed → success`. Dispatches `tap-agents-published` event (payload: version, tag, sha, publish_run_id, published_at) to the consumer via the `ADOPT_DISPATCH_TOKEN` PAT. Pre-release tag publishes (e.g., `v1.0.0-rc.1`) are filtered out via POSIX `case` idiom and do not dispatch. Concurrency group is per-publish-SHA so back-to-back publishes don't serialize. Lag from publish to consumer dispatch: ~1-3 min.
-
-- **`scripts/test-changelog-format.ts`** — tsx-based integration test asserting every `## [X.Y.Z] — YYYY-MM-DD` heading in `CHANGELOG.md` matches the canonical format. Uses `node:assert/strict` (no vitest dependency — tap-agents has no vitest devDep). Wired into `version-check.yml` as a required CI step on PRs touching CHANGELOG.md / hooks/ / scripts/ / package.json.
+- **`scripts/test-changelog-format.ts`** — tsx-based integration test asserting every `## [X.Y.Z] — YYYY-MM-DD` heading in `CHANGELOG.md` matches the canonical regex (`/^## \[\d+\.\d+\.\d+\] — \d{4}-\d{2}-\d{2}( .+)?$/`). Mirrored byte-for-byte from `tap-agents/v0.17.0`. Uses `node:assert/strict` — no vitest dependency. The regex is the same one the consumer's awk extractor in `<project>/.github/workflows/adopt-tap-agents.yml` relies on; if a heading drifts, the consumer silently emits an empty CHANGELOG section in adoption PRs. This test catches drift before merge.
 
 ### Changed
 
-- **`.github/workflows/version-check.yml`** — adds `Run CHANGELOG format test` step; gates PR merges to `main` on CHANGELOG format correctness.
-- **`package.json`** — adds `test:changelog-format` script.
+- **`.github/workflows/version-check.yml`** — adds `Run CHANGELOG format test (CR-13 / NF-9)` step after the existing `Run version-check` step. Gates PR merges on CHANGELOG format correctness. Mirrored from `tap-agents/v0.17.0`. The `paths:` filter already covers `CHANGELOG.md` + `scripts/**` + `package.json` so the new step fires whenever it can usefully fire.
+- **`package.json`** — adds `test:changelog-format` script (`tsx scripts/test-changelog-format.ts`). `tsx` is already a devDependency at `^4.19.0`, so no new dependency was introduced.
+
+### Files explicitly NOT mirrored
+
+- **`.github/workflows/notify-adopters.yml`** — publish-pipeline-only file (fires on `publish.yml` workflow_run completion). Has no function in `.claude/` because `.claude/` does not publish to npm. Stays in `tap-agents/` exclusively. This asymmetry mirrors the pre-existing `publish.yml` asymmetry: `tap-agents/` has it, `.claude/` does not.
 
 ### Cross-channel sync
 
-All version-surface fields update atomically: `package.json` `0.16.0 → 0.17.0`, `.claude-plugin/plugin.json` same, `.claude-plugin/marketplace.json` `plugins[0].version` same.
-
-### Downstream consumer notes
-
-- `tapintomymind/tapagents-app` consumer workflow (`adopt-tap-agents.yml`) listens for the `tap-agents-published` repository_dispatch event. Per consumer's PR #31 (merged to dev 2026-05-13), the consumer workflow then bumps its own pin + opens a `chore(framework): adopt tap-agents v${TARGET}` PR on the `sync-tapagents` branch.
-- This release's tag push (`git tag v0.17.0 && git push origin v0.17.0`) WILL trigger the auto-adoption pipeline end-to-end for the first time. Operator should expect a PR to open on tapagents-app/dev within ~1-3 minutes of the npm publish landing.
+All three channel-version fields update atomically: `package.json` `0.16.0 → 0.17.0`, `.claude-plugin/plugin.json` `0.16.0 → 0.17.0`, `.claude-plugin/marketplace.json` `plugins[0].version` `0.16.0 → 0.17.0`. Matches `tap-agents/v0.17.0` npm-published version.
 
 ### SemVer classification
 
-Per `protocols/versioning-protocol.md §3.2` ("new capability without removing any existing capability"): **MINOR.** Additive new workflow + test. No file removed, no agent contract changed.
+Per `protocols/versioning-protocol.md §3.2` ("new capability without removing any existing capability"): **MINOR.** Additive new test script + new CI step + new package script. No file removed, no agent contract changed.
+
+### Notes on v0.15.0 (orphan from prior release flow)
+
+`tap-agents/v0.15.0` (BL-055 auto-register session-tracking hooks) was tagged locally in `tap-agents/` on 2026-05-12 but the tag was never pushed to origin, so `publish.yml` never fired. npm shows `v0.14.0 → v0.16.0 → v0.17.0` (gap at v0.15.0). The functional content of v0.15.0 is present in v0.16.0 and onwards on npm, so downstream consumers are not affected. The `.claude/` tree DID tag and ship v0.15.0 (commit `a640efc`) — the gap exists only in the public `tap-agents/` channel. The forthcoming Gate 5 amendment (queued in `workspace/_global/org-designer-proposals/20260512-2330-gate-5-post-publish-verification.md`, scheduled for v0.18.0) closes the operator-flow gap that caused the missed tag-push.
 
 ### Provenance
 
-- Design: `tapintomymind/tapagents-app#28` (4 Critic passes cleared; merged to tapagents-app/dev 2026-05-13).
-- Producer PR: `#1` on this repo (`feat/auto-adoption-producer`).
-- Consumer PR: `tapintomymind/tapagents-app#31` (merged to dev 2026-05-13).
-- Prereq PR: `tapintomymind/tapagents-app#32` (`.bot-no-touch` + 3 GitHub labels; merged to dev 2026-05-13).
+Back-merged from `tap-agents/afa41bf` (release: `v0.17.0 — Auto-adoption producer pipeline`). Original feature work landed on `feat/auto-adoption-producer` branch in `tap-agents/`. This `.claude/` commit syncs the appropriate subset back into the canonical authority. The marketing-designer working-tree content (`agents/marketing-designer.md`, `commands/marketing-design.md`, supporting templates, related agent edits) remains uncommitted in `.claude/` and is queued for a separate release after the Gate 5 amendment ships as v0.18.0.
 
 ---
 

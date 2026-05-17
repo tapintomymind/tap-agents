@@ -10,13 +10,13 @@
 - `protocols/dev-to-main-promotion.md` — the default consumer-side promotion flow; this protocol is the carve-out for framework adoptions
 - `memory/feedback_no_direct_commits_on_main_back_merge_discipline.md` — the parent convention; this protocol adds the framework-sync exception
 - `tap-agents/.github/workflows/notify-adopters.yml` — producer-side dispatch that already targets the consumer's `sync-tapagents` branch
-- `agent-dashboard/.github/workflows/adopt-tap-agents.yml` — consumer-side auto-adoption that opens PRs on `sync-tapagents`
+- `tapagents-app/.github/workflows/adopt-tap-agents.yml` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`) — consumer-side auto-adoption that opens PRs on `sync-tapagents`
 
 ---
 
 ## §1 Why this exists
 
-The framework `@tapintomymind/tap-agents` ships through npm; downstream consumers (currently `agent-dashboard`; future Tier 2 projects scaffolded via TapAgents) adopt each release by bumping the dependency pin + regenerating `scaffold-source/`. The mechanical surface of a framework adoption is small and well-defined: three to five files changed, all under a known fingerprint (see §3).
+The framework `@tapintomymind/tap-agents` ships through npm; downstream consumers (currently `tapagents-app`, formerly `agent-dashboard` pre-2026-05-14 BL-059 cascade-rename; future Tier 2 projects scaffolded via TapAgents) adopt each release by bumping the dependency pin + regenerating `scaffold-source/`. The mechanical surface of a framework adoption is small and well-defined: three to five files changed, all under a known fingerprint (see §3).
 
 If framework adoptions land on `dev` and are then promoted via `dev → main` no-ff merge, they accumulate **rider commits** — any unrelated dev work merged into `dev` between releases also crosses to main alongside the framework bump. That is the v0.20.0 incident: 4 unrelated commits rode along, all of which independently had legitimate paths to prod through the standard `dev → main` promotion flow, but none of which had been individually approved as ready for prod.
 
@@ -29,12 +29,12 @@ The `sync-tapagents` branch isolates framework adoptions to a single-purpose bra
 
 ## §2 Scope
 
-This protocol governs the adoption of `@tapintomymind/tap-agents` npm releases by any Tier 2 project scaffolded via TapAgents (currently `agent-dashboard`; future projects inherit the convention).
+This protocol governs the adoption of `@tapintomymind/tap-agents` npm releases by any Tier 2 project scaffolded via TapAgents (currently `tapagents-app`, formerly `agent-dashboard` pre-2026-05-14 BL-059; future projects inherit the convention).
 
 It governs:
 - Commits that modify `package.json` to change the `@tapintomymind/tap-agents` dependency version
 - Commits that modify `package-lock.json` corresponding to the above version change
-- Commits that regenerate `scaffold-source/` (typically from `npm run prebuild` per agent-dashboard convention, OR equivalent in future consumers)
+- Commits that regenerate `scaffold-source/` (typically from `npm run prebuild` per tapagents-app convention, OR equivalent in future consumers)
 - Commits that update `scaffold-source/.scaffold-meta.json` (or equivalent scaffold metadata file declaring the bundled framework version)
 - Commits to consumer-side `.bot-manifest.json`, hook payload sync state, or any other adoption-bookkeeping files written by `adopt-tap-agents.yml`
 
@@ -145,7 +145,7 @@ The framework HQ `CLAUDE.md` and each Tier 2 project's `CLAUDE.md` reference thi
 
 ### §5.5 Layer E — Memory entries
 
-Two `~/.claude/projects/-Users-tapandesai-App-Development/memory/` entries:
+Two `~/.claude/projects/<your-machine-tag>/memory/` entries:
 
 1. `feedback_no_direct_commits_on_main_back_merge_discipline.md` — extended with the framework-sync carve-out clause referencing this protocol.
 2. `project_sync_tapagents_protocol_2026-05-14.md` — new memory file capturing the protocol's existence, the v0.20.0 incident that triggered it, and when to consult it.
@@ -185,7 +185,7 @@ The PreToolUse hook (§5.2) and CI guard (§5.3) both read this file (with fallb
 
 This protocol responds to the 2026-05-14 v0.20.0 adoption incident on agent-dashboard. The branch `sync-tapagents` already existed (since 2026-05-12 per `cc7fa17`) with deliberate Vercel whitelist configuration; the producer-side auto-adoption workflow already targets it. What was missing was the strict-enforcement discipline that the branch is the ONLY legitimate destination for framework-sync content. This protocol fixes that.
 
-The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. agent-dashboard is the first dogfood case; the same rules will apply to `tapagents-football-gm`, `tapintomymind` (the marketing site if it ever consumes the framework), and any new project the user spins up.
+The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. tapagents-app (formerly agent-dashboard) is the first dogfood case; the same rules will apply to `tapagents-football-gm`, `tapintomymind` (the marketing site if it ever consumes the framework), and any new project the user spins up.
 
 ## §9 Related protocols at a glance
 
@@ -195,3 +195,63 @@ The protocol is generic: it applies to any current or future Tier 2 project scaf
 | `dev-to-main-promotion.md` | The default consumer-side promotion flow. This protocol carves out framework adoptions from that flow. |
 | `framework-change-discipline.md` | What changes qualify as Tier 1 doctrinal. This protocol is itself a Tier 1 doctrinal addition. |
 | `destructive-data-ops.md` | The other chokepoint protocol — same pattern: dedicated path for a specific class of operation, refuse-by-default outside it. |
+
+## §10 HQ topology: filesystem-only (effective 2026-05-17)
+
+**Status:** Active 2026-05-17 — framework HQ adopts filesystem-only authoring, retiring its prior local git layer.
+
+### §10.1 What changed
+
+Prior to 2026-05-17, the framework HQ carried its own local `.git/` directory at the authoring root. That layer was never wired to a remote — no `origin` was ever pushed — and it created two compounding hazards:
+
+1. **Doubled audit surface.** HQ-side commits drifted from `tap-agents/` commits, producing a second "source of truth" that nobody actually consulted. Releases are cut from `tap-agents/` commits + npm tags; the HQ-side commit history added noise without adding signal.
+2. **Sync-mode ambiguity.** `scripts/sync-src/sync.ts` used `.git/` presence at the source root to choose between `git ls-files` enumeration and filesystem-walk enumeration. With a `.git/` directory present at BOTH the HQ source root and the `tap-agents/` target root, the two enumeration modes had subtly different file sets (git-mode honored `.gitignore`; filesystem-walk did not), and the choice depended on which directory was passed as `--source`.
+
+HQ now becomes a filesystem-only working tree. The HQ git layer is retired. The prior `.git/` directory at the HQ root was renamed on 2026-05-17 to `.git.archived-2026-05-17/` at the same path — kept as a tombstone for one-command reversibility, scheduled for deletion at v1.0.0 final cleanup (or sooner once filesystem-only mode has soaked).
+
+### §10.2 The new topology
+
+| Layer | Role | Version control |
+|---|---|---|
+| Framework HQ (authoring root, filesystem-only) | Working source-of-truth for protocols, agents, hooks, scripts, memory, workspace. Edited directly. | None. Filesystem snapshots via Time Machine or equivalent. |
+| `tap-agents/` (publish target) | npm-publishable mirror of HQ content. Read-only with respect to authoring — propagated INTO via sync.ts. | Full git history. Commits + tags + npm releases provide the audit trail. |
+| `scripts/sync-src/sync.ts` (propagation bridge) | One-way HQ → tap-agents propagation. Lint validation + plan/apply staging + idempotent overwrite. | Lives in HQ; runs from `tap-agents/` working directory typically. |
+
+The audit trail moves entirely into `tap-agents/` — every framework version that ever shipped is reconstructable from `tap-agents/` commits + npm tags + the per-release CHANGELOG. HQ's role is the authoring surface; `tap-agents/` is the publish-record surface.
+
+### §10.3 How sync works now
+
+`scripts/sync-src/sync.ts` auto-detects source enumeration mode at the source root:
+
+- `.git/` present at source → `git ls-files` mode (respects `.gitignore`; matches the prior behavior for tap-agents-as-source)
+- `.git/` absent at source → filesystem-walk mode (full directory traversal; the only mode HQ supports now)
+- `--source-mode <auto|git|filesystem>` flag available for explicit override
+
+With HQ's `.git/` archived, the default invocation `tsx scripts/sync-src/sync.ts --apply --source <HQ> --target <tap-agents>` runs in filesystem-walk mode automatically. The stderr emits `[sync] source enumeration: filesystem (no .git/ at source root)` so the mode choice is visible in every run.
+
+### §10.4 Editing discipline going forward
+
+Authoring at HQ no longer involves `git add` / `git commit`. The workflow is:
+
+1. Edit files under the HQ authoring root directly via the orchestrator's normal subagent dispatch (Architect, Strategist, Org Designer, etc.).
+2. When ready to propagate: run `tsx scripts/sync-src/sync.ts --dry-run --source <HQ-authoring-root> --target <tap-agents-checkout>` to preview.
+3. Verify the dry-run plan matches expectations (file counts, lint pass).
+4. Run with `--apply` instead of `--dry-run` to perform the propagation.
+5. Commit + tag + publish only inside `tap-agents/` (per the producer-side flow in `versioning-protocol.md` and `commands/release.md`).
+
+Steps 1–4 are HQ work; step 5 is `tap-agents/` work. The boundary is clean. There is no "HQ commit step" anymore — that ceremony was retired.
+
+### §10.5 Risk + mitigation
+
+Filesystem-only HQ has no commit-level audit trail at the HQ layer itself. Mitigations:
+
+1. **`tap-agents/` commits provide publish-granularity audit.** Every state that ever shipped is on a `tap-agents/` commit, tagged, and published. The "what changed between vX.Y.Z and vX.Y.Z+1" question is answered by `git log` in `tap-agents/`, not by anything at HQ.
+2. **Time Machine (or equivalent filesystem backup) covers in-flight authoring.** Authoring states between sync-applies are recoverable from filesystem snapshots if a destructive edit goes wrong before the next propagation.
+3. **`sync:dry-run` before `--apply` is mandatory discipline.** Every propagation previews what will change. Surprises surface before they're written. The lint layer (per `scripts/sync-src/lint.ts`) catches structural defects before they cross to the publish target.
+4. **The archived `.git.archived-2026-05-17/` tombstone is the one-command rollback.** If filesystem-only mode produces a problem we didn't anticipate, renaming the tombstone back to `.git/` at the HQ authoring root restores the prior topology without any data loss. Tombstone retention through v1.0.0 final cleanup, minimum.
+
+### §10.6 Cross-references
+
+- `protocols/versioning-protocol.md` — producer-side release flow that still owns the publish-granularity audit trail
+- `scripts/sync-src/sync.ts` — implements auto-detect + `--source-mode` flag described in §10.3
+- `scripts/sync-src/lint.ts` — structural lint layer that guards the propagation step
