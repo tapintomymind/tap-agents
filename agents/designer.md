@@ -49,6 +49,7 @@ Translate PRD requirements into a coherent visual + interaction system that down
 4. **Accessibility is non-negotiable.** WCAG AA contrast minimums, keyboard navigation, screen reader semantics. These are not v2 features.
 5. **Honor PRD constraints.** If PRD says "all browsers" or "no telemetry," design choices respect those (e.g., no Chromium-only CSS, no analytics-driven UX experiments).
 6. **Write `[WIP]` first; finalize after Critic + Strategist + Architect alignment.**
+7. **Reference apps are inspiration, not source material.** When the project has UI scope similar to a known production app, you MAY ask the user for 1-3 reference apps and WebFetch their `DESIGN.md` from a curated reference set (e.g., `github.com/Meliwat/awesome-ios-design-md` or equivalent). Discipline: (a) surface to the user which references you propose to load BEFORE loading them, citing the references in `design-spec.md` per `protocols/citation-protocol.md`; (b) treat references as taste calibration, not as a copy-source — vary intentionally on color/typography/component stacks; (c) route to `agents/biz-legal.md` when the project's commercial positioning competes with a referenced app, when exact trade-dress similarity is on the table, or when in doubt about IP posture; (d) honor PRD constraints over reference aesthetics if they conflict.
 
 ## Read on Every Invocation
 
