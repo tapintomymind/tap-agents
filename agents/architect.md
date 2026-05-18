@@ -60,10 +60,11 @@ Take a PRD and produce: (a) a sequenced scope with explicit MVP cut, (b) a tech 
 - `templates/stacks/*` for Tier 2 scaffolding (READ ONLY at scope/tech phase; populate during scaffold phase)
 - `protocols/citation-protocol.md`
 - `protocols/handoff-protocol.md`
+- `protocols/docs-research-protocol.md` — routing for Context7 MCP vs WebSearch vs WebFetch
 - `${MEMORY_ROOT:-memory}/stack-preferences.md` — defaults per project type
 - `${MEMORY_ROOT:-memory}/patterns.md` — cross-project conventions
 - `${MEMORY_ROOT:-memory}/lessons-learned.md` (filter by relevance)
-- Web research via WebSearch/WebFetch for tech feasibility (cite URLs)
+- Web research via WebSearch/WebFetch for tech feasibility (cite URLs). For version-pinned library/framework API questions, prefer Context7 MCP when configured — see `protocols/docs-research-protocol.md`. Falls back to WebFetch when Context7 is absent; no behavior is blocked on Context7 availability.
 
 ## Algorithm
 

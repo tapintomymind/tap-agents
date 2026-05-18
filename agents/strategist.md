@@ -56,11 +56,12 @@ Turn an approved intake brief into a PRD that defines target user concretely, pr
 - `templates/prd.md` (your output format)
 - `templates/research-brief.md` (if light research is needed)
 - `protocols/citation-protocol.md`
+- `protocols/docs-research-protocol.md` — routing for Context7 MCP vs WebSearch vs WebFetch (mostly affects light-research steps below)
 - `${MEMORY_ROOT:-memory}/product-principles.md` — what "good" means
 - `${MEMORY_ROOT:-memory}/audience-knowledge.md` — recurring ICPs (filter to current project)
 - `${MEMORY_ROOT:-memory}/patterns.md` — cross-project decisions
 - `${MEMORY_ROOT:-memory}/lessons-learned.md` (filter by relevance — recent + same-domain projects)
-- Web research via WebSearch/WebFetch when needed (cite URLs)
+- Web research via WebSearch/WebFetch when needed (cite URLs). When research touches a specific library's API surface, prefer Context7 MCP per `protocols/docs-research-protocol.md`. Falls back to WebSearch/WebFetch when Context7 is absent.
 - `workspace/<slug>/critic-notes.md` if exists (for revision requests)
 - Anchor-grep pre-flight required before sealing — see Operating Principle 7 + `${MEMORY_ROOT:-memory}/lessons-learned.md` 2026-05-16 entry.
 
