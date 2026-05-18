@@ -33,7 +33,7 @@ When Context7 is not configured in the session, skip step 1 entirely and use Web
 
 ## §3. Citation form
 
-Add one tag to `protocols/citation-protocol.md §Tags` for Context7-sourced claims. Until that protocol is updated, use the form below — Critic accepts it under the spirit of the citation discipline:
+The `[context7]` tag is registered in `protocols/citation-protocol.md §Tags`. Form:
 
 | Tag | Meaning | Required attribute |
 |---|---|---|
@@ -62,12 +62,14 @@ In these cases cite both: `[context7 …]` `[research https://…]`.
 
 ## §5. Token discipline
 
-The reason this protocol exists. Rough math from a typical research task:
+The reason this protocol exists. Order-of-magnitude estimates from a typical research task:
 
-- WebSearch + 2-3 WebFetch calls to answer "how does library X work today": ~8-15k tokens of fetched content.
-- One Context7 `query-docs` for the same question: ~1-3k tokens.
+- WebSearch + 2-3 WebFetch calls to answer "how does library X work today": ~8-15k tokens of fetched content `[inference: typical search-result + multi-page fetch sizes; not yet measured in production sessions]`.
+- One Context7 `query-docs` for the same question: ~1-3k tokens `[inference: typical curated-doc-chunk size from Context7 README example responses; pending production-session measurement]`.
 
-Net savings of 5-12k tokens per docs-research call when the question is in Context7's wheelhouse. Multiply across a session of an Architect picking a stack or a Tier 2 implementer building features, and the savings compound. Use Context7 when the routing rule says so; do not stack redundant sources.
+Net savings of 5-12k tokens per docs-research call when the question is in Context7's wheelhouse `[inference]`. Multiply across a session of an Architect picking a stack or a Tier 2 implementer building features, and the savings compound. Use Context7 when the routing rule says so; do not stack redundant sources.
+
+These estimates should be replaced with measured figures once the protocol has run through a handful of production sessions — track in §8 follow-ups.
 
 ---
 
@@ -95,6 +97,6 @@ This preserves `framework-contract-discipline.md`'s portability principle — Ta
 
 ## §8. Open follow-ups
 
-- Promote `[context7]` into `protocols/citation-protocol.md §Tags` table if the tag earns adoption across two or more agents.
+- Replace §5 token-estimate `[inference]` tags with measured figures once the protocol has run through ~5 production sessions across Architect/Strategist dispatches. Target: by the version that lands the second agent's adoption of Context7 routing (see Tier 2 follow-up below).
 - Decide whether Tier 2 implementer templates should call Context7 by default for the chosen stack's primary libraries on first invocation. Hold until protocol earns its keep at Tier 1.
 - Audit whether `db-admin`, `quality-engineer`, and `ops-security` benefit from Context7 routing. Deferred per minimal-scope decision on the activation PR.

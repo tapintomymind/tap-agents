@@ -8,7 +8,7 @@ See `protocols/docs-research-protocol.md` for routing rules and citation form.
 
 ## Why you might want it
 
-Token-efficiency primarily. One `query-docs` call against a Context7 library ID typically returns ~1-3k tokens of curated, version-pinned content for the same question that would consume ~8-15k tokens via WebSearch + multiple WebFetches. Across a session of stack-picking or Tier 2 implementation, savings compound.
+Token-efficiency primarily — see `protocols/docs-research-protocol.md §5` for the order-of-magnitude estimate and the open follow-up to replace it with measured figures.
 
 Quality second: Context7 indexes hundreds of libraries directly from source repositories, so answers are not constrained by an LLM's training cutoff.
 
@@ -26,7 +26,7 @@ Quality second: Context7 indexes hundreds of libraries directly from source repo
 npx ctx7 setup --claude
 ```
 
-This authenticates via OAuth, generates an API key, and registers the Context7 MCP server in your Claude Code config. You do not need to edit anything in this repo.
+This authenticates via OAuth, generates an API key, and registers the Context7 MCP server in your Claude Code config. You do not need to edit anything in this repo. Vendor source-of-truth for the install flow and what gets configured: [github.com/upstash/context7](https://github.com/upstash/context7).
 
 If you prefer manual setup, the MCP server URL is `https://mcp.context7.com/mcp` with header `CONTEXT7_API_KEY: <your-key>`. Add it to your user-level Claude Code MCP config (not this repo's `settings.json` — keep team-wide defaults vendor-neutral).
 
@@ -44,7 +44,7 @@ No special invocation needed. With the MCP configured, Architect/Strategist will
 
 ## Free tier and rate limits
 
-A free API key from context7.com/dashboard provides higher rate limits than unauthenticated requests. For Tier 2 work with parallel implementers, a key is recommended.
+A free API key from [context7.com/dashboard](https://context7.com/dashboard) provides higher rate limits than unauthenticated requests. For Tier 2 work with parallel implementers, a key is recommended. Check the vendor dashboard for current quota and pricing — these are vendor-controlled and not pinned here.
 
 ## Why this lives in `docs/`, not `settings.json`
 
