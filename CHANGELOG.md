@@ -4,6 +4,57 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.24.1] — 2026-05-19 — Layer A override-regex defense-in-depth (always-compute ancestry + trailer-only placement)
+
+**Patch release.** Closes a defect surfaced on v0.24.0's own dogfood publish. The trunk-discipline override mechanism shipped in v0.24.0 carried a regex that searched the entire commit message body for the override token; the v0.24.0 release commit happened to *document* the token form inline in its CHANGELOG body (where the feature was being introduced), and the regex matched the placeholder text — short-circuiting Layer A's hard `git merge-base --is-ancestor` check via the early-exit override path on the very first canary the feature was meant to validate.
+
+The v0.24.0 publish was incidentally ancestrally correct (tag = main HEAD), so no operational harm. But Layer A's first live run did not actually exercise the ancestry check it exists to enforce — the prose match silently bypassed it. Any future release commit similarly documenting the override syntax would bypass Layer A again.
+
+This patch closes the defect with two complementary tightenings, applied symmetrically in CI (`.github/workflows/publish.yml`) and operator hook (`hooks/version-gate.py` invariant 4):
+
+1. **Always compute ancestry; never early-exit on override.** The ancestry check ALWAYS runs. Override presence no longer skips the check; instead it skips the check's *failure*. The two computations (override extraction + ancestry check) run independently, and the joint outcome decides the verdict (silent pass / "override unused" warning / "override allows publish" warning with reason / hard error). Prose false-positives surface as informational warnings, not silent bypasses.
+
+2. **Trailer-only placement enforcement.** Override token recognition is restricted to the commit message's TRAILER BLOCK — the lines after the last blank line in the message, mirroring git's `Co-authored-by:` convention. The line-pattern is whole-line anchored; reason text rejects angle brackets at the regex level + a `_PLACEHOLDER_REASONS` denylist rejects bare placeholder words ("reason", "todo", "...") case-insensitively. Prose mentions in the body are now correctly treated as documentation, not as operator-issued overrides.
+
+Both fixes verified against the actual v0.24.0 release commit message: replayed under the new code, the v0.24.0 self-bypass does NOT occur (the trailer block is the `Co-authored-by:` line; the body prose mentions are excluded). Legitimate trailer-placed overrides continue to work for genuine hotfix scenarios.
+
+### Changed
+
+- **`.github/workflows/publish.yml` — Layer A control-flow restructure** — `Validate tagged commit is an ancestor of origin/main` step rewritten around the always-compute pattern. New trailer-extraction bash uses awk to find the last blank-line index, tail to slice the trailer block, grep with the tightened whole-line-anchored regex `^[[:space:]]*\[trunk-discipline-override:[[:space:]]*[^]<>]+\][[:space:]]*$`, then a case-folded placeholder-reason denylist. The hard ancestry check (`git merge-base --is-ancestor`) always runs; override status is consulted only to decide the verdict when ancestry fails. The duplicate-fork diagnostic and the full remediation error block are preserved verbatim, now only emitted on the genuine hard-error path. New cross-reference to `workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md` in the step comments.
+
+- **`hooks/version-gate.py` — invariant 4 trailer-only restriction** — `TRUNK_OVERRIDE_PATTERN` regex rewritten with whole-line anchoring + `[^\]<>]+` reason character class. New `_has_trailer_override()` helper locates the trailer block (last blank line + everything after; one-line fallback for messages without blank lines) and runs the regex per-line against `.match()`. New `_PLACEHOLDER_REASONS` denylist rejects bare placeholder words case-insensitively. `_extract_trunk_override_reason()` preserved as a back-compat shim delegating to `_has_trailer_override()` — `_check_tag()` call sites unchanged. Module-level docstring and `_check_tag()` inline comment updated to document the trailer-only constraint + cross-reference the v0.24.1 spec.
+
+- **`protocols/versioning-protocol.md §4.2`** — invariant 4 description amended in-place to document the trailer-only placement constraint, the placeholder-reason rejection, and the cross-reference to the v0.24.1 spec. Prior reference to `hooks/sync-discipline-gate.py OVERRIDE_PATTERN` shape-matching dropped — the two patterns diverge here because the sync-discipline-gate token uses a different shape and the trailer-only restriction is specific to the trunk-discipline token.
+
+### Provenance + cross-references
+
+- v0.24.0 incident report: `workspace/_global/v0.24.0-ship-reportback-2026-05-19.md` §7 anomaly 1.
+- v0.24.1 tech-strategy spec: `workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md`.
+- v0.24.1 impl reportback: `workspace/_global/v0.24.1-impl-reportback-2026-05-19.md`.
+
+### SemVer classification: PATCH
+
+Per `protocols/versioning-protocol.md §3.1`:
+
+- **No public API change.** `_extract_trunk_override_reason()` keeps the same `(str) -> str | None` signature; only its decision logic narrows via the trailer-only restriction.
+- **No file added or removed** in any §3.2/§3.3-governed directory. No new agent, command, protocol, or template. No removed agent, command, protocol, or template.
+- **Defect closure.** Fixes a bug where the override mechanism could be silently triggered by documentation prose; restores intended behavior. The override-via-prose-match path was new in v0.24.0 (less than 24 hours of consumer exposure); no downstream consumer had time to land a release that relied on it.
+- **Protocol prose tightening, not amendment.** §4.2 invariant 4 stays the same invariant; the trailer-placement constraint is a sub-clarification of the existing rule, not a new rule.
+- **Internal hook script change preserves the gate's pass/fail semantics for legitimately-placed overrides.** Per §3.1 ("Internal hook script changes that don't change the gate's pass/fail semantics") — the authoritative semantic is the ancestry check, which now runs every time.
+
+### Meta-note for future CHANGELOG authors
+
+CHANGELOG entries discussing the override mechanism should refer to the token *by name* (e.g., "the trunk-discipline override token" or `[trunk-discipline-override:]` *shape* without inline placeholder reason) — embedding the literal placeholder string `[trunk-discipline-override: <placeholder>]` inline in CHANGELOG prose was exactly what triggered the v0.24.0 self-bypass. After v0.24.1, the trailer-only restriction means even an accidental prose mention won't fire Layer A or invariant 4 — but treating this as discipline rather than relying on the gate is forward-compatible. Quote the token in backticks or describe it structurally; do not embed the bracketed form as a paragraph token.
+
+### Files-array audit
+
+All modified files fall under existing `package.json#files` entries — no new top-level entry required:
+
+- `hooks/version-gate.py` — under `hooks/`
+- `protocols/versioning-protocol.md` — under `protocols/`
+- `memory/agent-changelog.md` — under `memory/`
+- `.github/workflows/publish.yml` — NOT in files (workflow ships in repo, not in tarball)
+
 ## [0.24.0] — 2026-05-19 — Trunk-discipline mechanical floor + `emit_event_http()` cloud-mirror helper
 
 **Minor release.** Two themes bundle into one ship. (1) **Trunk-discipline mechanical floor** — codifies the previously-soft rule "trunk must reflect published state" into a CI gate (Layer A in `publish.yml`) and an operator-side ceiling (`/release` Layer B + `hooks/version-gate.py` invariant 4). The publish workflow now refuses to publish unless the tagged commit is an ancestor of `origin/main`, with an `[trunk-discipline-override: <reason>]` escape hatch for genuine hotfixes. (2) **`emit_event_http()` cloud-mirror helper** — adds a new sibling to the existing local `emit_event()` telemetry helper that lets projects scaffolded against this framework ship local agent telemetry to a configurable cloud ingest endpoint. Composes alongside the local helper (does NOT replace it); fails open on every error path so a cloud-side disruption never affects the local agent execution path.
