@@ -27,7 +27,9 @@ Before proposing anything, the orchestrator MUST have read:
 
 ## Workflow
 
-This is a six-step path. Do them in order. Do not skip steps. If any step's analysis is ambiguous, stop and surface to the user — do not guess.
+This is a multi-step path. Do them in order. Do not skip steps. If any step's analysis is ambiguous, stop and surface to the user — do not guess.
+
+**Layer B overview (release branch → PR → merge → tag).** As of v0.24.0, the release commit no longer tags the working branch directly. Instead, it lands on a dedicated `release/v${NEW_VERSION}` branch, opens a PR to `main`, merges via squash, and tags the merged-`main` HEAD. This guarantees by construction that the tagged commit is an ancestor of `main` at publish time — satisfying Layer A's CI ancestry check in `.github/workflows/publish.yml`. See `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` for the spec, and `hooks/version-gate.py` invariant 4 for the operator-side ceiling that mirrors Layer A locally.
 
 ### Step 1 — Establish the baseline
 
@@ -154,41 +156,166 @@ Cross-reference: `CHANGELOG.md` v<new-version> entry.
 
 Skip this step if `### §2` of changelog-protocol explicitly excludes the change (e.g., pure typo fix in a doc). When in doubt, include the narrative.
 
-### Step 6 — Execute the release commit + tag
+### Step 5.5 — Assert release content exists somewhere not-yet-on-main
 
-Once the user has approved Step 3 and the drafts in Steps 4-5, execute atomically:
+Per `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` Critic W1 (2026-05-19), the release-branch flow needs an explicit pre-check that there's actually content to release. If the operator is already on `main` HEAD with no new commits, creating `release/v${NEW_VERSION}` from `origin/main` produces an empty branch and `gh pr create` fails with "no commits between main and release branch."
 
 ```bash
-# Update package.json version
+NEW_VERSION="<new>"   # e.g., 0.24.0 — no leading 'v'
+
+# Working-branch state: what's the source of the release content?
+WORKING_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git fetch origin main
+
+# Case A — operator is on the feature branch that holds the release content.
+# Diverges from main means content exists.
+if [ "${WORKING_BRANCH}" != "main" ]; then
+  AHEAD_COUNT=$(git rev-list "origin/main..${WORKING_BRANCH}" --count 2>/dev/null || echo "0")
+  if [ "${AHEAD_COUNT}" = "0" ]; then
+    cat >&2 <<EOF
+FAIL — Release branch would be empty.
+Working branch \`${WORKING_BRANCH}\` has zero commits ahead of origin/main.
+Did you mean to release the current main HEAD? If so, the release commit needs to
+land somewhere first (use a feature branch or amend a commit on main first).
+The Layer B flow REQUIRES the release commit live on release/v${NEW_VERSION},
+distinct from origin/main, so the PR has a non-empty diff to merge.
+EOF
+    exit 1
+  fi
+  echo "Working branch is ahead of origin/main by ${AHEAD_COUNT} commit(s) — content exists to release."
+else
+  # Case B — operator is on main. There must be local commits ahead of origin/main
+  # (or new uncommitted changes about to be committed) for the flow to work.
+  AHEAD_COUNT=$(git rev-list "origin/main..HEAD" --count 2>/dev/null || echo "0")
+  STAGED_OR_UNSTAGED=$(git status --porcelain | wc -l | tr -d ' ')
+  if [ "${AHEAD_COUNT}" = "0" ] && [ "${STAGED_OR_UNSTAGED}" = "0" ]; then
+    cat >&2 <<EOF
+FAIL — Release branch would be empty.
+You are on main with no local commits ahead of origin/main and no staged/unstaged
+changes. There is nothing to release. Did you mean to commit work to a feature
+branch first? Then re-run /release.
+EOF
+    exit 1
+  fi
+fi
+```
+
+### Step 6 — Create the release commit on a release branch
+
+Once the user has approved Step 3 and the drafts in Steps 4-5, and Step 5.5 confirmed content exists to release, execute the release-branch flow.
+
+```bash
+NEW_VERSION="<new>"   # e.g., 0.24.0 — no leading 'v'
+RELEASE_BRANCH="release/v${NEW_VERSION}"
+
+# Create release branch from origin/main (NOT from the working branch).
+# The release branch starts fresh from main and absorbs only the release artifacts.
+git fetch origin main
+git checkout -b "${RELEASE_BRANCH}" origin/main
+```
+
+**Staging the source bundle.** The release artifacts (package.json bump + CHANGELOG entry + agent-changelog narrative + plugin/marketplace bumps) are written on the release branch. The accompanying source changes that justify the bump (new agents, hooks, scripts, etc.) must land in this same release commit per `protocols/versioning-protocol.md §5` ("a release is **one commit**").
+
+Two patterns for staging the source bundle, depending on where the source already lives:
+
+- **Pattern A — Source already merged to main.** If the source changes are already on `origin/main` (e.g., the feature work was merged to main in a prior step), then `release/${NEW_VERSION}` already has them via the branch base — no cherry-pick needed. Just write the release artifacts (next block).
+
+- **Pattern B — Source on a feature branch.** If the source changes live on a feature branch (`feat/<slice>`), cherry-pick the relevant commit(s) onto the release branch BEFORE writing the release artifacts. Example for a single-commit slice:
+  ```bash
+  # Cherry-pick the slice commit (skip its package.json/CHANGELOG bumps if any —
+  # the release commit re-writes those in the canonical place):
+  git cherry-pick --no-commit feat/<slice>     # apply tree without committing
+  # If the slice's commit pre-included version bumps, restore the on-branch versions:
+  git checkout HEAD -- package.json .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
+  # Then stage only the slice's source files (not the version files):
+  git add hooks/<modified> scripts/<modified> <etc>
+  ```
+  Alternatively, copy source files directly from the feature branch tree:
+  ```bash
+  git checkout feat/<slice> -- hooks/<file> scripts/<file>  # apply source-only files
+  ```
+
+```bash
+# Apply the release artifacts (version bumps + CHANGELOG + agent-changelog narrative).
+# At this point the source bundle (if any) is already staged from Pattern A or B above.
+
+# Update package.json version (manually or via npm version)
 # Update .claude-plugin/plugin.json version (must match package.json)
 # Update .claude-plugin/marketplace.json plugin entry version (must match)
 # Prepend CHANGELOG.md with the new entry
 # Prepend memory/agent-changelog.md with the narrative entry
 
 git add package.json CHANGELOG.md memory/agent-changelog.md \
-        .claude-plugin/plugin.json .claude-plugin/marketplace.json \
-        <any source files in the bundle>
+        .claude-plugin/plugin.json .claude-plugin/marketplace.json
 
-git commit -m "release: v<new> — <one-line summary>
+git commit -m "release: v${NEW_VERSION} — <one-line summary>
 
 <paragraph summary, mirrors CHANGELOG context>
 "
 
-git tag -a "v<new>" -m "Release v<new>"
+# DO NOT TAG YET. Tag happens after merge-to-main in Step 8.
+
+git push -u origin "${RELEASE_BRANCH}"
 ```
 
-The pre-commit hook (`hooks/version-gate.py`) runs invariant checks (atomicity, sequence, severity floor) and exits 2 on failure with an actionable message. If it fails, read the message, fix the diff, retry — do not bypass.
+The pre-commit hook (`hooks/version-gate.py`) runs invariant checks (atomicity, sequence, severity floor, **branch-discipline invariant 4**) and exits 2 on failure with an actionable message. If it fails, read the message, fix the diff, retry — do not bypass.
 
-After commit, push the branch and the tag, then verify each step landed.
+### Step 7 — Open and merge the PR to main
 
 ```bash
-git push origin main
-git push origin v<new>     # SHOULD trigger .github/workflows/publish.yml
+# Open PR
+gh pr create --base main --head "${RELEASE_BRANCH}" \
+  --title "release: v${NEW_VERSION}" \
+  --body "$(cat <<EOF
+Release commit for v${NEW_VERSION}. See CHANGELOG.md entry for the full narrative.
+
+Gate 3 (.github/workflows/version-check.yml) runs on this PR — must pass before merge.
+
+After merge:
+- Tag the merged main commit as v${NEW_VERSION}
+- Push tag → triggers publish.yml
+- publish.yml Layer A ancestry check passes by construction (tag IS on main)
+EOF
+)"
+
+# Wait for Gate 3 checks to pass.
+gh pr checks --watch  # blocks until checks complete
+
+# Merge with --squash so main HEAD IS the release commit (single commit, no merge
+# commit). This makes Step 8's `git log -1 --format=%B | grep -q "release: v..."`
+# check work correctly — the squashed-merge commit on main carries the release
+# commit's own message rather than the GitHub default "Merge pull request #X..."
+# wrapper. Per Critic 2026-05-19 F2 (architect spec amendment).
+gh pr merge --squash --delete-branch
+
+# Pull main locally so the next step tags the right commit.
+git checkout main
+git pull origin main
 ```
 
-A bare `git push origin v<new>` exits 0 even when the push is incomplete (network blip, auth glitch, fast-forward rejection). Without verification, the release goes silently un-published — exactly the failure mode that orphaned v0.15.0. The next three checks close that gap. **Do not declare the release complete until all three pass.**
+### Step 8 — Tag the merged main commit and push the tag
 
-### Step 6a — Verify tag reached origin
+```bash
+# At this point, HEAD of main is the squashed release commit. Verify before tagging:
+HEAD_COMMIT_MSG=$(git log -1 --format=%B)
+if ! echo "${HEAD_COMMIT_MSG}" | grep -q "release: v${NEW_VERSION}"; then
+  echo "FAIL: main HEAD is not the v${NEW_VERSION} release commit." >&2
+  echo "Got: $(git log -1 --oneline)" >&2
+  echo "Investigate before tagging — Layer A would reject this tag anyway." >&2
+  exit 1
+fi
+
+git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
+git push origin "v${NEW_VERSION}"
+```
+
+The `hooks/version-gate.py` invariant 4 check fires on `git tag` — it asserts the tag is being applied on `main` (or that the HEAD commit message contains a `[trunk-discipline-override: <non-empty reason>]` token). Under the Layer B flow, the tag is applied to main by construction, so invariant 4 passes silently.
+
+### Step 9 — Gate 5 verification (formerly Step 6a-6f)
+
+The tag push triggers `.github/workflows/publish.yml`. Layer A's ancestry check fires inside publish.yml — passes by construction because the tag IS on main by Step 8's design. Then the existing Gate 5 verification flow runs as before, renumbered to Step 9a-9f below.
+
+### Step 9a — Verify tag reached origin
 
 Poll `git ls-remote --tags origin` until the new tag appears. Timeout if it doesn't.
 
@@ -212,9 +339,9 @@ for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
 done
 ```
 
-If the loop fails, **stop here.** Do not continue to Steps 6b/6c. Surface the failure to the user with the exact remediation command. The release is incomplete until the tag exists on origin.
+If the loop fails, **stop here.** Do not continue to Steps 9b/9c. Surface the failure to the user with the exact remediation command. The release is incomplete until the tag exists on origin.
 
-### Step 6b — Watch publish.yml to completion
+### Step 9b — Watch publish.yml to completion
 
 The tag push triggers `.github/workflows/publish.yml`. Watch the workflow to completion before declaring success.
 
@@ -251,7 +378,7 @@ gh run watch "${RUN_ID}" --exit-status
 
 `gh run watch --exit-status` returns non-zero if the workflow fails. If the workflow fails, surface the workflow URL (`gh run view ${RUN_ID} --web`) and **stop**. Do not retry the tag — re-tagging a failed publish is the major-incident class per "Failure modes" below. Cut a new version with the fix instead.
 
-### Step 6c — Confirm npm registry has the new version
+### Step 9c — Confirm npm registry has the new version
 
 `npm publish` reports success to `publish.yml` before the registry has fully propagated the package to all CDN edges. Poll `npm view` with backoff:
 
@@ -271,9 +398,9 @@ for attempt in 1 2 3 4 5 6 7 8; do
 done
 ```
 
-### Step 6d — Tarball completeness probe (catches v0.11.0-regression class)
+### Step 9d — Tarball completeness probe (catches v0.11.0-regression class)
 
-Gate 5 §4.5 invariant 2: confirm the published tarball actually contains every directory declared in `package.json#files`. The v0.11.0 incident showed that `npm publish` can report success while the tarball is missing files-array entries (4 directories silently dropped at v0.11.0 — `playbooks/`, `memory/`, `docs/`, `settings.json`). Step 6c only confirms version-presence; this step confirms tarball-completeness.
+Gate 5 §4.5 invariant 2: confirm the published tarball actually contains every directory declared in `package.json#files`. The v0.11.0 incident showed that `npm publish` can report success while the tarball is missing files-array entries (4 directories silently dropped at v0.11.0 — `playbooks/`, `memory/`, `docs/`, `settings.json`). Step 9c only confirms version-presence; this step confirms tarball-completeness.
 
 Empirically validated 2026-05-13 (manual dogfood of `tap-agents/v0.17.0`): `npm view ... dist.tarball` resolved a working URL on attempt 1; the curl-then-tar probe confirmed all four v0.11.0-regression-class directories present.
 
@@ -327,7 +454,7 @@ rm -f "$PROBE_TGZ"
 echo "PASS — tarball contents match package.json#files."
 ```
 
-### Step 6e — Confirm GitHub Release was created
+### Step 9e — Confirm GitHub Release was created
 
 ```bash
 if ! gh release view "${TAG}" --json name,tagName >/dev/null 2>&1; then
@@ -342,7 +469,7 @@ fi
 echo "PASS — GitHub Release ${TAG} exists."
 ```
 
-### Step 6f — Final verification gate (all channels)
+### Step 9f — Final verification gate (all channels)
 
 Print a final summary line confirming all four distribution channels see the new version:
 
@@ -364,12 +491,12 @@ Only after this banner prints is the release considered complete per `protocols/
 
 State to the user, in this order:
 
-1. The release commit SHA + tag name
-2. **Gate 5 verification status** — confirm all five channels (git remote tag, publish.yml run, npm registry, tarball completeness, GitHub Release) returned positive per Step 6a-6e. If any failed, the release is **not complete** — surface the failure and the remediation command; do not proceed.
-3. Whether `publish.yml` was triggered AND completed (the Step 6b run ID + outcome)
-4. The Dependabot expectation for `agent-dashboard` (PR will open within ~24h via `notify-adopters.yml` → consumer-side `adopt-tap-agents.yml`)
+1. The release commit SHA + tag name (the SHA on `main` after squash-merge)
+2. **Gate 5 verification status** — confirm all five channels (git remote tag, publish.yml run, npm registry, tarball completeness, GitHub Release) returned positive per Step 9a-9e. If any failed, the release is **not complete** — surface the failure and the remediation command; do not proceed.
+3. Whether `publish.yml` was triggered AND completed (the Step 9b run ID + outcome). Layer A ancestry check passed by construction (tag was applied on main per Step 8).
+4. The Dependabot expectation for adopting projects (PR will open within ~24h via `notify-adopters.yml` → consumer-side `adopt-tap-agents.yml`).
 5. **Consumer adoption path** — adopters MUST follow `protocols/sync-tapagents-protocol.md`. The auto-adoption workflow already targets the consumer's `sync-tapagents` branch by default; any manual adoption must do the same. NEVER adopt framework versions on `dev` directly — the `sync-tapagents` branch isolates the adoption from rider commits per the v0.20.0 incident on 2026-05-14.
-6. Whether any follow-up release is queued (e.g., a known-deferred change)
+6. Whether any follow-up release is queued (e.g., a known-deferred change).
 
 ## Failure modes (and what to do)
 
@@ -377,8 +504,9 @@ State to the user, in this order:
 - **`git describe` returns nothing** — first release before any tag exists. Use `0.0.0` as `prev` for severity-floor reasoning; emit `0.8.0` as the initial published version per user direction 2026-05-11.
 - **Ambiguous classification** — surface to user. Do not guess. If the gap reflects a protocol weakness, propose an Org Designer amendment to `versioning-protocol.md` as the follow-up.
 - **CI workflow fails after tag push** — surface the failure to the user with the workflow URL. Do not retry the tag — re-tagging after publish is a major incident class (npm packages are immutable once published).
-- **Tag push silently fails (the v0.15.0 class)** — Step 6a polls `git ls-remote --tags origin` precisely to catch this. The local `git push origin v<new>` may exit 0 while origin never receives the tag (network blip, auth glitch, ref-update rejection). Step 6a fails loudly with the remediation command. Do NOT continue to Step 6b/6c without a confirmed tag-on-origin — the workflow won't have fired.
-- **Tarball-incomplete after publish (the v0.11.0 files-array class)** — `npm publish` succeeds but `package.json#files` dropped directories so the tarball is missing content. Step 6c confirms version-presence; Step 6d's tarball probe (cold-pull via `npm view ... dist.tarball` + curl + `tar -tzf`) catches the v0.11.0 class at release time. If Step 6d fails, the remediation is to cut the next version with a corrected `package.json#files` — do NOT republish the broken version (npm immutability). Defense-in-depth via an independent `verify-publish.yml` CI workflow is deferred to v0.19.0 per the 2026-05-12 Gate 5 proposal; for v0.18.0, operator-side Step 6d is the v0.11.0-class catch.
+- **Tag push silently fails (the v0.15.0 class)** — Step 9a polls `git ls-remote --tags origin` precisely to catch this. The local `git push origin v<new>` may exit 0 while origin never receives the tag (network blip, auth glitch, ref-update rejection). Step 9a fails loudly with the remediation command. Do NOT continue to Step 9b/9c without a confirmed tag-on-origin — the workflow won't have fired.
+- **Layer A ancestry check fails (the v0.23.0 trunk-drift class)** — should not occur under the Layer B flow; the tag is applied on main by construction. If it does fire, either (a) the override token was incorrectly used, (b) main was force-pushed between Step 8 and publish.yml execution (extremely rare; doctrine-violation), or (c) Layer A has a bug. Investigate; do NOT re-tag. The Layer A error message includes both linear-merge and duplicate-fork remediation paths.
+- **Tarball-incomplete after publish (the v0.11.0 files-array class)** — `npm publish` succeeds but `package.json#files` dropped directories so the tarball is missing content. Step 9c confirms version-presence; Step 9d's tarball probe (cold-pull via `npm view ... dist.tarball` + curl + `tar -tzf`) catches the v0.11.0 class at release time. If Step 9d fails, the remediation is to cut the next version with a corrected `package.json#files` — do NOT republish the broken version (npm immutability). Defense-in-depth via an independent `verify-publish.yml` CI workflow shipped in v0.19.0; operator-side Step 9d remains the primary release-time catch.
 
 ## See also
 
