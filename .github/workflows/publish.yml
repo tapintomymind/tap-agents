@@ -65,7 +65,10 @@ jobs:
           echo "Tag and package versions aligned at $PKG_VERSION."
 
       - name: Validate tagged commit is an ancestor of origin/main
-        # Layer A of trunk-discipline (workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md).
+        # Layer A of trunk-discipline (workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md;
+        # tightened in v0.24.1 per workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md
+        # after v0.24.0's self-bypass dogfood incident — see §3 for control-flow rationale).
+        #
         # Refuses to publish if the tag was created on a feature branch and main was never
         # back-merged. This is the mechanical floor under the /release Layer B flow + the
         # memory-note discipline (feedback_trunk_must_reflect_published_state.md).
@@ -78,13 +81,23 @@ jobs:
         # non-zero before npm publish) so an orphan-trunk release is impossible by
         # construction.
         #
-        # Override token (commit message): `[trunk-discipline-override: <reason>]`.
-        # The override is intentionally heavyweight — must land in the release commit's
-        # own message (visible in `gh release view` and git log). Reserved for genuine
-        # hotfix scenarios where back-merging to main first is operationally infeasible.
-        # Override regex mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN shape
-        # (W4 of Critic) — leading whitespace tolerated; reason must be non-empty after
-        # strip; closing bracket required.
+        # Control flow (v0.24.1+, always-compute-ancestry):
+        #   1. Extract override reason (trailer-only) → OVERRIDE_REASON (possibly empty)
+        #   2. Run ancestry check → ANCESTRY_PASS (true/false)
+        #   3. Branch on joint outcome:
+        #        PASS + no override         → silent pass
+        #        PASS + override present    → warn "override unused"; pass
+        #        FAIL + override present    → warn "override allows publish: <reason>"; pass
+        #        FAIL + no override         → hard error (existing block with remediation)
+        # Override is no longer an early-exit "skip" — it's a "skip-failure-on-known-reason."
+        # The ancestry check ALWAYS runs. Prose false-positives surface as info warnings.
+        #
+        # Override token: `[trunk-discipline-override: <reason>]`. Recognized ONLY in the
+        # commit message's TRAILER BLOCK (the lines after the last blank line in the
+        # message, mirroring git's Co-authored-by convention). Prose mentions in the body
+        # do not match — they get treated as documentation. Reason must be non-empty after
+        # whitespace strip; placeholder words ("reason", "todo", "...") and angle brackets
+        # are rejected.
         run: |
           set -euo pipefail
 
@@ -105,34 +118,73 @@ jobs:
           MAIN_SHA=$(git rev-parse origin/main)
           echo "origin/main HEAD: ${MAIN_SHA}"
 
-          # Override-token check on the tagged commit's message. Pattern mirrors
-          # hooks/sync-discipline-gate.py OVERRIDE_PATTERN: leading whitespace
-          # tolerated; reason captured between colon and closing bracket; reason
-          # must be non-empty after strip.
+          # --- Step 1: extract trailer-only override (v0.24.1+) -------------------
           COMMIT_MSG=$(git log -1 --format=%B "${TAG_SHA}")
-          OVERRIDE_MATCH=$(echo "${COMMIT_MSG}" | grep -oE '\[trunk-discipline-override:[[:space:]]*[^]]+\]' | head -1 || true)
-          if [ -n "${OVERRIDE_MATCH}" ]; then
-            # Extract the reason text (between the colon and the closing bracket),
-            # strip leading/trailing whitespace, and verify non-empty.
-            OVERRIDE_REASON=$(echo "${OVERRIDE_MATCH}" \
-              | sed -E 's/^\[trunk-discipline-override:[[:space:]]*//; s/\][[:space:]]*$//' \
-              | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-            if [ -n "${OVERRIDE_REASON}" ]; then
-              echo "::warning::Trunk-discipline override present: ${OVERRIDE_REASON}"
-              echo "Proceeding with publish despite ancestry check. Override reason recorded."
-              exit 0
-            fi
-            # Token present but empty reason — fall through to hard check (treat as
-            # absent override; the audit trail demands a meaningful reason).
-            echo "::warning::Override token present but reason is empty after strip; treating as absent."
+
+          # Find the index of the LAST blank line in the message. Trailer block lives
+          # after that line. If there are no blank lines at all, the trailer candidate
+          # is the last line only (covers one-line tag-messages with an override).
+          LAST_BLANK_LINE=$(echo "${COMMIT_MSG}" | awk 'BEGIN{lc=0; lastblank=0} {lc++; if($0=="") lastblank=lc} END{print lastblank}')
+
+          if [ "${LAST_BLANK_LINE}" -gt 0 ]; then
+            TRAILER_BLOCK=$(echo "${COMMIT_MSG}" | tail -n +$((LAST_BLANK_LINE + 1)))
+          else
+            TRAILER_BLOCK=$(echo "${COMMIT_MSG}" | tail -n 1)
           fi
 
-          # Hard ancestry check — must pass to publish.
+          # Match the override token ONLY in the trailer block. Pattern restrictions:
+          #   - Whole-line anchored (^...$): mid-line prose doesn't match.
+          #   - Leading/trailing whitespace tolerated.
+          #   - Reason character class [^]<>] forbids angle brackets in the reason
+          #     so placeholder forms like "<reason>" are rejected at the regex level.
+          #   - Reason must be non-empty after the +.
+          OVERRIDE_MATCH=$(echo "${TRAILER_BLOCK}" | grep -E '^[[:space:]]*\[trunk-discipline-override:[[:space:]]*[^]<>]+\][[:space:]]*$' | head -1 || true)
+
+          OVERRIDE_REASON=""
+          if [ -n "${OVERRIDE_MATCH}" ]; then
+            OVERRIDE_REASON=$(echo "${OVERRIDE_MATCH}" \
+              | sed -E 's/^[[:space:]]*\[trunk-discipline-override:[[:space:]]*//; s/\][[:space:]]*$//' \
+              | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+
+            # Defense-in-depth — reject bare placeholder words even if they slipped past
+            # the regex (the [^]<>] class already blocks "<reason>" but case-folded
+            # "reason"/"TODO"/"..." should also be denied).
+            REASON_LOWER=$(echo "${OVERRIDE_REASON}" | tr '[:upper:]' '[:lower:]')
+            case "${REASON_LOWER}" in
+              reason|todo|...)
+                echo "::warning::Override token in trailer block has placeholder reason '${OVERRIDE_REASON}'; treating as absent."
+                OVERRIDE_REASON=""
+                ;;
+            esac
+          fi
+
+          # --- Step 2: run ancestry check (ALWAYS, regardless of override) ---------
+          ANCESTRY_PASS="false"
           if git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"; then
+            ANCESTRY_PASS="true"
+          fi
+
+          # --- Step 3: branch on joint outcome -------------------------------------
+          if [ "${ANCESTRY_PASS}" = "true" ] && [ -z "${OVERRIDE_REASON}" ]; then
             echo "PASS — tagged commit ${TAG_SHA} is an ancestor of origin/main (${MAIN_SHA})."
             exit 0
           fi
 
+          if [ "${ANCESTRY_PASS}" = "true" ] && [ -n "${OVERRIDE_REASON}" ]; then
+            echo "PASS — tagged commit ${TAG_SHA} is an ancestor of origin/main (${MAIN_SHA})."
+            echo "::warning::Override token present but ancestry passed naturally; override unused: ${OVERRIDE_REASON}"
+            echo "(If this override was intentional, ancestry passed independently — verify the operator's intent matches the recorded reason.)"
+            exit 0
+          fi
+
+          if [ "${ANCESTRY_PASS}" = "false" ] && [ -n "${OVERRIDE_REASON}" ]; then
+            echo "::warning::Ancestry failed but override allows publish: ${OVERRIDE_REASON}"
+            echo "Tagged commit ${TAG_SHA} is NOT an ancestor of origin/main (${MAIN_SHA})."
+            echo "Proceeding with publish under operator-issued override. Reason recorded above + visible in gh release view."
+            exit 0
+          fi
+
+          # ANCESTRY_PASS=false AND no override → hard error.
           # Diagnostic — detect the duplicate-fork pattern where main has tree-identical
           # content under a different SHA. This is the v0.23.0 incident shape: tag
           # anchored to a sibling branch but main HEAD has the same files. Surfaces a
@@ -169,10 +221,16 @@ jobs:
             NOTE: npm packages are immutable — only the tag pointer changes, not the published content.
 
           Or, if this is a genuine hotfix where back-merge-first is operationally infeasible,
-          add [trunk-discipline-override: <reason>] to the release commit message and re-tag.
-          Reason must be non-empty after whitespace strip.
+          add the trunk-discipline override token to the release commit message's TRAILER
+          BLOCK (last paragraph, after a blank line, alongside Co-authored-by:). Reason must
+          be non-empty after whitespace strip and must not be a placeholder ("reason", "todo",
+          "...", or anything with angle brackets). See commands/release.md for the exact
+          token shape.
 
           See: workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md (architect spec)
+               workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md (override-regex
+                                                                          trailer-restriction
+                                                                          tightening)
                commands/release.md Step 6/7/8/9 (Layer B operator-side flow)
                hooks/version-gate.py invariant 4 (operator-side ceiling)
           EOF

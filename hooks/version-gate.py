@@ -17,14 +17,18 @@ Gate 2 of the five-gate enforcement chain. Four invariants:
                       `git tag v<X>.<Y>.<Z>`, the current branch MUST be `main` (the trunk
                       that publish.yml's Layer A ancestry check pulls from), OR the HEAD
                       commit message must carry a non-empty
-                      `[trunk-discipline-override: <reason>]` token. Mirrors
+                      `[trunk-discipline-override: <reason>]` token in its TRAILER BLOCK
+                      (the lines after the last blank line in the commit message, mirroring
+                      git's Co-authored-by trailer convention). Prose mentions of the token
+                      form in the commit BODY do not match — they get treated as
+                      documentation, not as an operator-issued override. Codified in v0.24.0
+                      per workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md;
+                      tightened to trailer-only placement in v0.24.1 per
+                      workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md after the
+                      v0.24.0 self-bypass dogfood incident (publish.yml Layer A matched the
+                      placeholder text in its own CHANGELOG documentation commit). Mirrors
                       tap-agents/.github/workflows/publish.yml Layer A — operator-side
-                      ceiling under the CI mechanical floor. Override regex shape mirrors
-                      hooks/sync-discipline-gate.py OVERRIDE_PATTERN (W4 of Critic
-                      2026-05-19): leading whitespace tolerated; reason captured non-greedy
-                      to closing bracket; reason must be non-empty after strip. Codified
-                      in v0.24.0 per
-                      workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md.
+                      ceiling under the CI mechanical floor.
 
 Hook fires on:
   - Edit/Write where file_path endswith package.json or contains .claude-plugin/
@@ -122,28 +126,85 @@ SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-[\w.-]+)?(?:\+[\w.-]+)?$")
 
 
 # Trunk-discipline override token. Format: [trunk-discipline-override: <reason>].
-# Pattern shape mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN exactly
-# (W4 of Critic 2026-05-19) — leading whitespace tolerated, reason captured
-# non-greedy to closing bracket, reason must be non-empty AFTER strip via a
-# secondary post-check (see _extract_trunk_override_reason below).
+#
+# Token recognition is restricted to the commit message's TRAILER BLOCK — the
+# lines after the LAST blank line in the message, mirroring the convention
+# git tooling uses for `Co-authored-by:` and other trailers. Prose mentions
+# of the token form in the commit body (paragraphs above the trailer block)
+# do NOT match; they get treated as documentation, not as an operator-issued
+# override. See workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md for
+# the tightening rationale + the v0.24.0 incident that motivated it.
+#
+# Regex notes:
+#   - Whole-line anchored via re.match() against each individual trailer line
+#     (anchored at start by match(); $-anchor at end of pattern via `[\s]*$`).
+#   - Leading/trailing whitespace tolerated.
+#   - Character class `[^\]<>]+` denies angle brackets in the reason text so
+#     placeholder forms like `<reason>` are rejected at the regex level.
+#   - A secondary _PLACEHOLDER_REASONS denylist catches bare placeholder words
+#     ("reason", "todo", "...") case-insensitively.
 TRUNK_OVERRIDE_PATTERN = re.compile(
-    r"\[trunk-discipline-override:\s*([^\]\n]+?)\]",
-    re.IGNORECASE,
+    r"^\s*\[trunk-discipline-override:\s*([^\]<>]+?)\]\s*$",
 )
+
+# Reasons that suggest documentation/placeholder text rather than a real
+# operator-issued override justification. Case-insensitive membership check.
+_PLACEHOLDER_REASONS = frozenset({"reason", "todo", "..."})
+
+
+def _has_trailer_override(commit_message: str) -> tuple[bool, str]:
+    """Return (matched, reason) if a trunk-discipline override token is present
+    in the commit message's trailer block, else (False, '').
+
+    Trailer block = the lines after the LAST blank line in the message
+    (Conventional-Commits trailer model). Edge cases:
+      - No blank lines anywhere → fall back to the LAST non-empty line as the
+        only candidate (covers one-line tag-message overrides).
+      - Empty message → (False, '').
+
+    Per workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md §3.2.
+    """
+    if not commit_message:
+        return False, ""
+    lines = commit_message.rstrip().split("\n")
+    if not lines:
+        return False, ""
+
+    # Find the index of the last blank line. Trailers live AFTER that line.
+    blank_indices = [i for i, line in enumerate(lines) if not line.strip()]
+    if blank_indices:
+        last_blank_idx = blank_indices[-1]
+        trailer_block = lines[last_blank_idx + 1:]
+    else:
+        # No blank lines — treat the last line as the only candidate.
+        trailer_block = [lines[-1]]
+
+    for line in trailer_block:
+        stripped = line.strip()
+        m = TRUNK_OVERRIDE_PATTERN.match(stripped)
+        if not m:
+            continue
+        reason = m.group(1).strip()
+        if not reason:
+            continue
+        # Reject obvious placeholder reasons.
+        if reason.lower() in _PLACEHOLDER_REASONS:
+            continue
+        return True, reason
+
+    return False, ""
 
 
 def _extract_trunk_override_reason(commit_message: str) -> str | None:
     """Return non-empty trimmed trunk-discipline override reason, or None.
 
-    Mirrors hooks/sync-discipline-gate.py _extract_override_reason shape per
-    W4 of Critic 2026-05-19 (standardized override regex across Layer A bash
-    + Layer B python).
+    Back-compat shim around _has_trailer_override (v0.24.1+). Existing callers
+    in _check_tag() continue to receive an Optional[str] without code changes.
+    Restored shape from v0.24.0; the trailer-restriction tightening happens
+    inside _has_trailer_override.
     """
-    m = TRUNK_OVERRIDE_PATTERN.search(commit_message)
-    if not m:
-        return None
-    reason = m.group(1).strip()
-    return reason if reason else None
+    matched, reason = _has_trailer_override(commit_message)
+    return reason if matched else None
 
 
 def _parse_semver(v: str) -> tuple[int, int, int] | None:
@@ -424,9 +485,12 @@ def _check_tag(command: str) -> None:
     # Layer A as the operator-side ceiling under the CI mechanical floor.
     #
     # Bypass: HEAD commit's message contains
-    # `[trunk-discipline-override: <non-empty reason>]`. Override regex shape
-    # mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN exactly per W4 of
-    # Critic 2026-05-19.
+    # `[trunk-discipline-override: <non-empty reason>]` in its TRAILER BLOCK
+    # (the section after the last blank line; mirrors git's Co-authored-by
+    # placement). Tightened from "anywhere in message" to "trailer-only" in
+    # v0.24.1 per workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md
+    # after the v0.24.0 self-bypass dogfood incident — prose mentions of the
+    # token form in the body (e.g., CHANGELOG documentation) no longer match.
     current_branch = _run_git("rev-parse", "--abbrev-ref", "HEAD")
     if current_branch and current_branch != "main":
         head_msg = _run_git("log", "-1", "--format=%B")

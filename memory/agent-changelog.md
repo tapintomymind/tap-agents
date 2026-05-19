@@ -8,6 +8,24 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-19 — Framework v0.24.1 — Layer A override-regex defense-in-depth (always-compute ancestry + trailer-only placement)
+
+Closes a defect that v0.24.0's own dogfood publish surfaced. The trunk-discipline override mechanism shipped in v0.24.0 carried a regex that searched the entire commit message body for the override token. The v0.24.0 release commit happened to document the token form inline in its CHANGELOG body (where the feature was being introduced); the regex matched the placeholder text, took the early-exit "override accepted" path, and never executed the hard `git merge-base --is-ancestor` check that Layer A exists to enforce. The publish was incidentally ancestrally correct (tag = main HEAD), so no operational harm, but the canary did not actually exercise the canary's intended check. Any future release similarly documenting the override syntax in its body would have re-triggered the same silent bypass.
+
+This patch ships two complementary tightenings, applied symmetrically in CI (.github/workflows/publish.yml Layer A) and in the operator hook (hooks/version-gate.py invariant 4). First, the ancestry check ALWAYS runs — override presence no longer short-circuits the check, only its failure verdict. Override extraction and ancestry computation run independently; the joint outcome decides between silent pass / "override unused" warning / "override allows publish with reason" warning / hard error. Prose false-positives surface as informational warnings, not silent bypasses. Second, override token recognition is restricted to the commit message's TRAILER BLOCK — the lines after the last blank line, mirroring how Co-authored-by trailers are recognized. The line pattern is whole-line anchored; the reason character class rejects angle brackets at the regex level; a placeholder-reason denylist rejects bare "reason"/"todo"/"..." case-insensitively. Prose mentions in the commit body are now treated as documentation, not as operator-issued overrides.
+
+Both fixes verified against the literal v0.24.0 release commit message: under the new code, the v0.24.0 self-bypass does NOT occur (the trailer block is the Co-authored-by line; the body prose mentions are excluded). Legitimate trailer-placed overrides for genuine hotfix scenarios continue to work unchanged.
+
+The protocol prose at versioning-protocol.md §4.2 invariant 4 is amended in-place to document the trailer-only placement constraint and the placeholder-reason rejection. The override regex no longer mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN shape exactly — the two patterns diverge here because the sync-discipline-gate token uses a different shape and the trailer-only restriction is specific to the trunk-discipline override.
+
+Discipline note for future CHANGELOG authors: refer to the override mechanism by name (the trunk-discipline override token; `[trunk-discipline-override:]` shape without inline placeholder) rather than embedding the literal placeholder string `[trunk-discipline-override: <placeholder>]` inline in CHANGELOG prose. Embedding the literal form was exactly what triggered the v0.24.0 self-bypass. After v0.24.1 the trailer restriction means even an accidental prose mention won't fire — but treating this as discipline is forward-compatible across consumers running older pre-v0.24.1 versions of the CI workflow.
+
+Release-coordinator agent stays in agents/_planned/ — no activation in v0.24.1 per v0.24.0 W5 default. Activation criteria from the stub call for "one post-v0.24.0 release under the new Layer B flow without operator-side ambiguity"; v0.24.1 IS that release, but the remaining criteria (Critic clears stub's full contract + user approves) remain. Activation queued for a later release.
+
+Cross-reference: `CHANGELOG.md` v0.24.1 entry; `workspace/_global/v0.24.0-ship-reportback-2026-05-19.md` §7 anomaly 1 (incident report); `workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md` (architect+impl tech-strategy spec); `workspace/_global/v0.24.1-impl-reportback-2026-05-19.md` (impl reportback).
+
+---
+
 ## 2026-05-19 — Framework v0.24.0 — Trunk-discipline mechanical floor + emit_event_http() cloud-mirror helper
 
 Closes the trunk-drift incident class with a mechanical floor. Two recurrences in six days (v0.15.0 on 2026-05-13 — tag-never-pushed-to-origin; v0.23.0 on 2026-05-19 — tag-pushed-from-feature-branch-and-main-never-back-merged) shared a root cause: the `/release` flow trusted the operator to back-merge to main, with no mechanical verification at the only authoritative pre-publish point. The memory-note discipline (feedback_trunk_must_reflect_published_state.md, codified 2026-05-13) was a soft layer that kept failing.
