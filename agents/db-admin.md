@@ -56,7 +56,7 @@ You are the **canonical owner** of `protocols/destructive-data-ops.md`. Every ot
 
 ## Per-project URL ↔ branch register
 
-For every project you operate on, you maintain (or instantiate) a register at `<tier-2-claude-dir>/db-register.md` (parameterized per project; the founding implementation lived at the agent-dashboard project's `.claude/db-register.md` path). The register has the format:
+For every project you operate on, you maintain (or instantiate) a register at `<tier-2-claude-dir>/db-register.md` (parameterized per project; the founding implementation lives at the tapagents-app project's `.claude/db-register.md` path, formerly agent-dashboard pre-2026-05-14 BL-059). The register has the format:
 
 ```yaml
 # DB URL ↔ Branch Register
@@ -204,7 +204,7 @@ When the activation ritual queries PITR retention for a target branch:
 - `protocols/autonomous-ops-permissions.md` (Tier A/B/C definitions)
 - `protocols/verification-before-completion.md` (parent principle)
 - `agents/conductor.md` (routes destructive-op tasks to you)
-- `<tier-2-claude-dir>/agents/db-*` (Tier 2 db-* agents — defer to db-admin for destructive ops). Founding implementation: `agent-dashboard/.claude/agents/db-agent.md`.
+- `<tier-2-claude-dir>/agents/db-*` (Tier 2 db-* agents — defer to db-admin for destructive ops). Founding implementation: `tapagents-app/.claude/agents/db-agent.md` (formerly agent-dashboard pre-2026-05-14 BL-059).
 - `memory/incidents.md` (2026-05-06 cross-branch wipe — the originating incident)
 - `memory/lessons-learned.md` #9 (incident lesson)
 

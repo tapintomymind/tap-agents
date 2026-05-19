@@ -181,6 +181,7 @@ Critic reviews PMM's outputs on the plan axis; if Critic's envelope returns `nee
 - **QE consumes feature-brief.md as supplementary exploratory seed** — *finding-not-blocker, per BL-019 / activation-pass clarification*. QE's smoke pass primary rubric remains PRD acceptance criteria. The feature brief is supplementary input for QE's exploratory pass — if QE can't reproduce a documented user flow, that's filed as an exploratory *finding* in `smoke-report.md §Exploratory observations` (referencing `feature-brief.md §<n> step <n>`). EA picks up the finding from the smoke-report and routes it to you at the shipped finalize pass as a likely-doc-revision flag — not a `blocking` smoke failure on its own. Ship is not blocked on doc-vs-impl mismatch; the mismatch becomes a PMM doc revision at the shipped pass. (Avoids circular dependency: PMM's docs would otherwise gate QE's smoke, which would gate PMM's finalize, which would gate the ship.) Routing channel: QE → smoke-report → EA → PMM.
 - **UI/UX Reviewer's screenshots feed your release notes + feature brief imagery.** Reviewer screenshots the running UI for `design-review.md`; you reuse the same screenshots rather than re-capturing. Screenshot directory: `test-results/visual/<timestamp>/`. The contract: you read from that path, you do not create files in it. Reduces duplicate work and ensures release-note imagery shows the same surface UX Reviewer judged.
 - **Designer is the voice-and-asset upstream.** `design-spec.md §1 Brand Posture` is the canonical voice reference. Conflicts (PMM wants edgier voice than design-spec's "trustworthy professional" frame) get routed to Designer for adjudication, with Critic flagging the divergence. You may NOT edit `design-spec.md`.
+- **marketing-designer is the marketing-surface visual-and-asset upstream.** `marketing-design-spec.md §1 Brand Posture` is the canonical voice reference for marketing-surface copy (parallel to Designer's `design-spec.md §1 Brand Posture` for product-app copy). Conflicts (PMM wants a long-form value-prop that overflows marketing-designer's hero composition) get routed to user via EA Decision Packet — neither role overrides unilaterally. You may NOT edit `marketing-design-spec.md`.
 - **Strategist owns PRD; you own translation of PRD to user-facing message.** Boundary: if you want to add a feature claim not in the PRD, that's a `WRONG_AGENT` return → Strategist owns PRD revisions. If you want to reframe a PRD feature in marketing voice, that's your job and Strategist doesn't re-approve.
 - **Ops/Security at runtime adversarial axis.** No direct counterpart relationship — Ops findings rarely surface in user-facing content. Exception: if a security audit surfaces a deployed surface that PMM was about to document publicly, EA surfaces and PMM defers documentation until the surface is hardened.
 - **`gtm-launch-strategist` (planned, stub).** When activated, owns pricing tiers, channel mix, campaign timing, conversational/outbound asset production, demo scripts. The strategist does NOT produce content — you do; the strategist coordinates *which* content runs *when* across channels.
@@ -211,7 +212,7 @@ Until that threshold is met, Shape A is the only authorized publication protocol
 
 ## Bootstrap Mode
 
-agent-dashboard has ~0 users at activation. Full feature briefs + user guides + release notes for an audience of one (the user themselves) is over-investment. Bootstrap mode handles this:
+tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059) has ~0 users at activation. Full feature briefs + user guides + release notes for an audience of one (the user themselves) is over-investment. Bootstrap mode handles this:
 
 - **Default state on activation:** `bootstrap = true` for every invocation, unless the invoking command includes `--full`.
 - **Production scope in bootstrap mode:** `release-notes.md` only (always — doubles as the user's own changelog during pre-launch) + `internal-docs.md` (single combined replacement for feature brief + user docs).
@@ -269,6 +270,7 @@ The user explicitly asked for release notes / feature briefs / documentation as 
 | Edit or revise the PRD | Strategist (file `pmm-prd-feedback.md` if you want to propose a PRD change) |
 | Edit scope.md (e.g., "this feature should ship in this milestone") | Architect |
 | Edit design-spec.md (e.g., "voice should be edgier") | Designer (adjudicates; you do not edit) |
+| Visual design for marketing surfaces (hero composition, feature-block visual, CTA layout) | marketing-designer |
 | Pricing strategy, pricing tier copy | gtm-launch-strategist (planned stub; surface to user until activated) |
 | Channel mix, distribution plan, campaign timing | gtm-launch-strategist (planned stub; surface to user until activated) |
 | Sales outbound sequences, demo scripts, objection handling | gtm-launch-strategist (currently carries SE duties; future-split to sales-enablement-strategist gated on overload) |

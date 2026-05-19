@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tapintomymind.com/schemas/tap-agents/runtime-adapter-contract.json",
+  "title": "TapAgents Runtime Adapter Contract",
+  "contractVersion": "m2-runtime-adapters.v1",
+  "description": "Validates package-local runtime-adapters/<adapter>/adapter.json planning metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "runtime",
+    "displayName",
+    "status",
+    "contractVersion",
+    "defaultMode",
+    "modes",
+    "capabilities",
+    "templates"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex"
+      ]
+    },
+    "runtime": {
+      "type": "string",
+      "enum": [
+        "claude-code",
+        "codex"
+      ]
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "$ref": "#/$defs/adapterStatus"
+    },
+    "contractVersion": {
+      "const": "m2-runtime-adapters.v1"
+    },
+    "defaultMode": {
+      "$ref": "#/$defs/adapterMode"
+    },
+    "modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "default",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/adapterMode"
+          },
+          "kind": {
+            "$ref": "#/$defs/adapterMode"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generatesFiles",
+        "pluginBeta",
+        "requiresNetwork",
+        "providerSdk"
+      ],
+      "properties": {
+        "generatesFiles": {
+          "type": "boolean"
+        },
+        "pluginBeta": {
+          "type": "boolean"
+        },
+        "requiresNetwork": {
+          "type": "boolean"
+        },
+        "providerSdk": {
+          "type": "boolean"
+        }
+      }
+    },
+    "templates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "targetPath",
+          "kind",
+          "purpose"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "$ref": "#/$defs/adapterMode"
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "adapterMode": {
+      "type": "string",
+      "enum": [
+        "generated-files",
+        "legacy-manifest",
+        "plugin-beta"
+      ]
+    },
+    "adapterStatus": {
+      "type": "string",
+      "enum": [
+        "stable-existing",
+        "planning-placeholder",
+        "beta-placeholder"
+      ]
+    }
+  }
+}

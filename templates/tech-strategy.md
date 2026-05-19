@@ -118,15 +118,41 @@ Generated from `templates/stacks/<chosen-stack>/`. If the stack has no template,
 
 ---
 
-## 8. Open Questions
+## 8. Architecture-now V-anchors
 
-<Items Architect couldn't resolve at planning time — flagged for Tier 2 or for re-engaging Strategist>
+<!-- Reserved section per `protocols/v2-roadmap-anchoring.md` §5. For every V-item in the V2 roadmap classified `architecture-now` (per the protocol §3 — all three triggers hold: composes with shipped/in-flight interface, non-trivial implementer wrong-path risk, boundary spec under ~40 lines), an anchor entry lives here with the 4 required fields. -->
 
-- <Question>: <context, deferral target>
+(Omit this section entirely if no `architecture-now` V-items exist in the V-roadmap. Cardinal-zero rule per `protocols/v2-roadmap-anchoring.md` §5 + framework rendering conventions. `architecture-deferred` V-items live only in the V2 roadmap section of `scope.md` / addenda — no entry here.)
+
+### V-<N>: <one-line V-item description>
+
+- **Composes with:** <shipped or in-flight interface this V-anchor extends — name the interface(s) explicitly so future Architect/implementer can grep>
+- **Wrong-path risk this prevents:** <one-line description of the tempting wrong-reuse, parallel-build, or "looks adjacent" trap an implementer would otherwise fall into>
+- **Boundary shape:** <interface name + key method signatures + delegation contract — typically ~10-30 lines; hard cap ~40 lines per protocol §3 trigger 3. If your boundary spec exceeds ~40 lines, the V-item is mis-classified — promote to active scope, do not anchor here.>
+- **Open question if any:** <one-line OQ ID per `protocols/decision-class-taxonomy.md` if a non-engineering authority must resolve a sub-decision. Omit the line if no OQ.>
+
+### V-<M>: <one-line V-item description>
+
+- **Composes with:** ...
+- **Wrong-path risk this prevents:** ...
+- **Boundary shape:** ...
+- **Open question if any:** ...
+
+(Repeat per `architecture-now` V-item. Each anchor entry has all four fields. Missing any field is a Critic blocking concern per `protocols/v2-roadmap-anchoring.md` §9 forbidden behaviors.)
 
 ---
 
-## 9. Out of Scope for THIS Document
+## 9. Open Questions
+
+<Items Architect couldn't resolve at planning time — flagged for Tier 2 or for re-engaging Strategist>
+
+Per `protocols/decision-class-taxonomy.md` §4, every OQ here carries a `decision_class` field. EA's Decision Packet rendering contract splits ESCALATED (`commercial | clinical | legal`) OQs from operator-blocking (`operational | strategic`) OQs per taxonomy §5 — author with the split in mind.
+
+- **OQ-<id>** (<decision_class>): <question> — context, deferral target, resolver
+
+---
+
+## 10. Out of Scope for THIS Document
 
 - Specific implementation patterns within the chosen stack (Tier 2)
 - File structure / repo layout (Tier 2)

@@ -17,7 +17,7 @@ Real friction beats imagined need. Building 12 agents on day one means:
 
 Better: ship 7 sharp agents, watch where the seams show, build specialists when evidence demands it.
 
-## Current Stubs (9)
+## Current Stubs (10)
 
 ### Post-shipping roles
 | Stub | Activation trigger |
@@ -35,6 +35,7 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 | `biz-legal.md` | First regulated-domain project, content licensing, or multi-jurisdiction deployment |
 | `technical-writer.md` | First of — (a) PMM's documentation output flagged by Critic as too marketing-voiced for technical readers in 2+ projects; (b) project exposes public API, SDK, or developer-facing integration surface; (c) Tier 2 reportback flags downstream consumers (developers, integrators, partners) need reference-grade docs; (d) explicit user request. Sibling to active `product-marketing-manager` — PMM owns marketing-voiced user-facing content; TW owns reference-voiced developer content. |
 | `test-engineer.md` | (See file for activation trigger.) |
+| `knowledge-curator.md` | First of — (a) first project crosses a phase-transition cadence boundary with >=5 Decision Packets accumulated (today: tapagents-app, formerly agent-dashboard pre-2026-05-14 BL-059, is approaching this with ~6 packets in `workspace/tapagents-app/`); (b) user explicitly invokes `/knowledge-curate <slug>` and expects a curation pass to happen — the invocation IS the trigger; (c) a second active Tier 2 project ships its first artifact (knowledge-base across two projects becomes net-valuable for cross-project comparison). Sibling to active `backlog-curator` (curator-lite shape). Owns per-project narrative-grade context — `workspace/<slug>/knowledge-base.md` (goals + decisions+rationale + stakeholders/constraints/deadlines + glossary + story-so-far + parked-unresolved). Distinct from EA (event-shape vs. narrative-shape seam) and Backlog Curator (mechanical work-item state vs. narrative). Source-of-truth proposal: `workspace/_global/org-designer-proposals/20260513T0026-knowledge-curator.md`. |
 
 ## Activated agents (formerly stubs)
 
@@ -75,6 +76,8 @@ When Org Designer identifies *another* future need (beyond these 5), it writes a
 **Content (1):** Technical Writer — sibling specialization to active `product-marketing-manager`. PMM owns marketing-voiced user-facing content (release notes, feature briefs, user docs); TW owns reference-voiced developer content (API specs, SDK reference, integration guides). Activate when PMM's marketing voice is flagged as wrong-register in 2+ projects, OR when a project exposes a developer-facing surface.
 
 **Test Engineer (1):** See `test-engineer.md` for activation context.
+
+**Knowledge Curator (1):** Sibling-to-Backlog-Curator (curator-lite). Owns user-narrative-grade project context — the file the cold-resume reader (or product UI surface) reads when answering *"why does this project exist and what's been decided that can't be re-litigated?"* The split is two-axis: Backlog Curator owns mechanical work-item state; Knowledge Curator owns narrative-grade synthesis. Activate when the first project hits the phase-transition + Decision-Packet inflection (imminent for tapagents-app, formerly agent-dashboard pre-2026-05-14 BL-059) OR user invokes `/knowledge-curate` OR a second Tier 2 project lands. See `knowledge-curator.md` for full charter, triggers, sink schema, and read/write boundaries.
 
 **Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` — see "Activated agents" table above and `_archive/`.
 

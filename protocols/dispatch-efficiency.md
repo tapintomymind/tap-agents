@@ -136,9 +136,116 @@ If you can't answer all five quickly, the dispatch isn't ready.
 
 ---
 
-## 7. References
+## 7. Constrained Implementation Mode — Dispatch Contract
+
+**When to use.** Narrow-slice implementation work where worker drift would be costly. The mode is OFF by default; enable it explicitly when the brief calls for `Mode: constrained`. Common triggers:
+
+- **UI-shell slices.** Worker is supposed to wire AppShell / route layouts / responsive smoke and stop. Adjacent surfaces (sim engine, DB schema, business logic) are off-limits unless the slice explicitly lists them.
+- **Hotfixes.** One-line bug fix or one-file patch. Worker has no business touching anything else.
+- **"Do only this" requests.** User has said "constrained manner," "boxed," "narrow slice," "fix only this," or equivalent.
+- **Re-dispatch after drift.** A prior worker on this milestone drifted off-contract; Conductor reissues a smaller slice with explicit boundaries.
+- **High-drift surfaces named in `memory/patterns.md`** (e.g., monorepo with cross-package edits one slice over).
+
+Constrained mode is NOT for broad multi-surface milestones (e.g., "ship M-A1: sim engine + DB schema + UI demo"). Those use default dispatch. The cost of constrained-mode ceremony is real (allowlist authoring, preflight echo, heartbeat parsing); spend it where drift risk justifies it.
+
+### 7.1 Constrained dispatch template (canonical reusable block)
+
+Embed the following block — verbatim, all fields populated — at the bottom of any dispatch brief that should run in constrained mode. The worker's preflight must echo back the Mode + Allowed/Denied + First-proof-by lines before its first Edit/Write call.
+
+```markdown
+Mode: constrained
+Slice ID: <milestone>.<subtask> (e.g., M-A2.1 AppShell+BottomNav)
+Outcome: <one visible or testable result — a localhost route renders, a test goes green, a specific diff lands>
+Allowed paths:
+  - <path/glob>           ← <one-line why>
+  - <path/glob>           ← <one-line why>
+Denied paths:
+  - <path/glob>           ← <one-line why off-limits this slice>
+  - <path/glob>           ← <one-line why off-limits this slice>
+First proof by minute <N>: <localhost URL the worker opens / test command that goes green / diff that lands / screenshot path>
+Heartbeat every <N> minutes (default 5):
+  - files touched since last heartbeat
+  - current blocker (or "none")
+  - next file the worker will touch (concrete path, not "next I'll work on routing")
+Stop and report (do NOT proceed) if:
+  - any denied path is about to be touched
+  - a package / dependency / framework / .claude/ file change is needed
+  - first-proof deadline is missed
+  - verification command cannot run (env missing, dev server won't start, test runner crashes)
+  - scope change is needed (slice contract is wrong or incomplete)
+Verification:
+  - commands: <exact bash commands the worker runs before reporting done>
+  - browser routes: <localhost URLs the worker opens, with viewport sizes if responsive>
+  - screenshot evidence: <path(s) where the worker saves proof>
+Reportback fields:
+  - changed_files: <list — must be subset of allowed paths>
+  - denied_paths_checked: <list — explicit "I did not touch these" confirmation>
+  - first_proof_result: <URL opened / test output / screenshot path>
+  - verification_evidence: <command output snippets, browser screenshots, test results>
+  - heartbeats_emitted: <count>
+  - stop_conditions_triggered: <none | list>
+```
+
+### 7.2 Preflight discipline (worker side)
+
+Before the worker's first Edit/Write, it MUST emit a preflight echo as its first assistant turn:
+
+```
+Preflight (constrained mode — Slice ID <id>):
+- I read the slice contract.
+- I will touch only these files: <list, copied from Allowed paths>
+- These denied paths are off-limits: <list, copied from Denied paths>
+- First visible proof will be: <route|test|diff> by minute <N>.
+```
+
+No preflight echo means the worker is not in constrained mode and its first edit may land outside the allowlist. The Tier 2 conductor and the worker prompt itself both enforce this. See `templates/stacks/_baseline/tier2-implementer.md` section "Constrained mode preflight" for the worker-side mechanics; see `templates/stacks/_baseline/tier2-conductor.md` section "Constrained-Mode Routing" for the dispatcher-side mechanics.
+
+### 7.3 Heartbeats and kill switches
+
+Constrained mode prefers fast failure over long drift. Conductor parses each heartbeat and triggers a kill if any of these fire:
+
+- **Denied path touched.** Worker's last reportback or heartbeat names a file outside the allowlist.
+- **First-proof miss.** Wall clock passed the "First proof by minute N" deadline without the worker emitting the named proof artifact.
+- **Two consecutive heartbeats with no next-file mention.** The worker is wandering, not building. Concrete file paths in `next file` are required; "next I'll finish the routing" is not concrete.
+- **Worker requests scope/dependency/framework/architecture change.** Constrained mode does not amend its own contract. Kill the run, surface the change request to the user via EA, reissue a smaller slice if the request is legitimate.
+- **Verification cannot run.** Worker reports the verification command crashes or the dev server won't start. Kill — the slice is unverifiable as-specified; conductor needs to amend.
+
+Kill is not punitive. It is a process control: stop the drifting context, preserve its partial diff (worker should write `kill-handoff.md` in the workspace before exiting), and reissue a smaller, more boxed contract. The kill action itself is Tier B per `protocols/autonomous-ops-permissions.md` — log to `agent-changelog.md` with the kill reason.
+
+### 7.4 Post-completion changed-file self-check
+
+When the worker claims done, it MUST run a changed-file self-check before its final reportback:
+
+```bash
+git status --porcelain    # list every modified/added/deleted path
+```
+
+The worker compares each path against its Allowed paths glob list. **If any changed file is outside the allowlist, the worker refuses completion** and reports back with `stop_conditions_triggered: [out-of-scope-edit-detected]` plus the offending paths. The Tier 2 conductor or human reviewer decides whether to roll back the out-of-scope edits, amend the slice contract, or accept the deviation as a dissent.
+
+This self-check is what closes the loop: the contract is mechanically inspectable before, during, and after the run.
+
+### 7.5 Execution liveness vs drift detection — open investigation item
+
+The heartbeat + kill-switch mechanics in section 7.3 target **drift** (worker is making tool calls, but the wrong ones). They do NOT target **execution stalls** (worker has stopped making tool calls entirely — process is hung, model is looping internally, harness is waiting for input that never comes).
+
+The 2026-05-15 `db-admin` incident in `tapagents-football-gm` was an execution-stall, not a drift incident. The worker was not editing the wrong files; it was not editing at all. The constrained-mode contract as currently designed does not catch this class.
+
+**Liveness gap, deferred.** A heartbeat field like `last_tool_call_at` (worker timestamps each tool call; conductor or an external watchdog kills the run if the worker has produced no tool calls for N minutes) would catch execution stalls. This is not yet specified here because:
+
+1. The watchdog needs an out-of-band timer (Conductor doesn't poll subagents during their run; the harness owns that boundary).
+2. The right home for this may be a harness-level setting (`subagent_max_idle_seconds`) rather than a per-dispatch contract field.
+3. Pattern requires 2-3 more incidents to confirm the right control surface (per-dispatch field vs harness setting vs per-agent ceiling).
+
+**Action.** Future work — investigation item, not blocking this protocol's rollout. When the next execution-stall incident lands, raise here and decide the control surface. Tracked via `memory/lessons-learned.md` (constrained-mode + execution-liveness entry) for cross-project pattern detection.
+
+---
+
+## 8. References
 
 - `agents/conductor.md` — primary dispatcher; cross-references this protocol.
 - `agents/executive-assistant.md` — secondary dispatcher (briefings).
 - `protocols/handoff-protocol.md` — separate concern (Tier 1 → Tier 2 packaging is a one-time large transfer; this protocol is about live subagent dispatch).
-- `memory/patterns.md` — "Dispatch efficiency" + "Model selection by task complexity" entries.
+- `templates/stacks/_baseline/tier2-conductor.md` section "Constrained-Mode Routing" — dispatcher-side enforcement of section 7 contract.
+- `templates/stacks/_baseline/tier2-implementer.md` section "Constrained mode preflight" — worker-side enforcement of section 7 contract.
+- `templates/stacks/nextjs/react-component-agent.md` — first stack-specific frontend worker; canonical constrained-mode consumer for UI-shell slices.
+- `memory/patterns.md` — "Dispatch efficiency" + "Model selection by task complexity" + "Constrained Implementation Mode" entries.

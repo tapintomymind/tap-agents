@@ -57,6 +57,8 @@ Entry format: see `memory/backlog.md §Entry Format`. All fields required. If pr
 
 **Cadence:** Weekly, coinciding with any project retro or `/grow-team` invocation. EA surfaces a backlog count in every briefing (counts from `workspace/_global/backlog.json`) — if P0 or P1 items are open and unassigned, they appear in DECISIONS NEEDED.
 
+**Status vocabulary:** `open | in-progress | awaiting-acceptance | done | wontfix`. See §3a for the `awaiting-acceptance` sub-state semantics.
+
 **Grooming actions:**
 - **Re-prioritize:** if an item's context has changed (new incident, new user directive), update `priority` field.
 - **Archive stale:** Tier 2 P3 items older than 90 days with no update → move to `## Archived` section in the relevant backlog.md. Never delete — audit trail preserved.
@@ -64,6 +66,24 @@ Entry format: see `memory/backlog.md §Entry Format`. All fields required. If pr
 - **Deduplicate:** if two items describe the same work, merge into the higher-priority one and note the merge in the entry's description.
 
 Anti-pattern: never let the backlog become an undeleted dumping ground. If an item is clearly stale and wontfix, mark it `wontfix` with a one-sentence reason rather than leaving it `open`.
+
+---
+
+## 3a. Acceptance-gate sub-state
+
+Items with explicit acceptance criteria (e.g., prod smoke gates, dogfood cycles, Phase 2 validation) sit in `awaiting-acceptance` after impl lands and before user sign-off. This separates "engineer is coding" from "queue is waiting on user" in BACKLOG SUMMARY counts.
+
+**Transition rules:**
+
+| From | To | Trigger |
+|---|---|---|
+| `open` | `in-progress` | Implementer agent dispatched and begins work (existing rule, unchanged) |
+| `in-progress` | `awaiting-acceptance` | Implementation commits land on tier-2 integration branch (dev/QA) AND impl agent signals "ready for acceptance" via reportback OR commit message |
+| `awaiting-acceptance` | `done` | User signs off on the item's explicit acceptance criterion (user-attended only — curator cannot autonomously transition here) |
+| `awaiting-acceptance` | `in-progress` | Acceptance gate fails and rework is needed |
+| `awaiting-acceptance` | `wontfix` | User decides not to validate (rare) |
+
+Note: Items without acceptance criteria transition `in-progress → done` directly (existing pattern for chore/XS items, unchanged). Curator detects: if the item's `acceptance_criteria` field is set OR the impl agent's reportback signals "acceptance gate pending", use `awaiting-acceptance`; else skip.
 
 ---
 
@@ -75,7 +95,8 @@ Anti-pattern: never let the backlog become an undeleted dumping ground. If an it
 2. Find items with `Status: open` that are relevant to the current transition phase and agent.
 3. Include relevant items in the agent's brief as "Related backlog items — address if in scope."
 4. When an item moves to `in-progress`, update the `Status` field in both the `.md` file and `backlog.json`.
-5. When the agent marks the item done, update `Status: done` in both files. Append a one-liner to `memory/agent-changelog.md` if the item was Tier 1.
+5. When impl commits land on the tier-2 integration branch AND the item has an explicit acceptance criterion, transition `Status: awaiting-acceptance` in both files (curator can auto-detect this; see §3a). The item stays in this state until the user signs off on the acceptance criterion — Conductor surfaces it to the user via EA but does not advance autonomously.
+6. When the user signs off on the acceptance criterion (or when no acceptance criterion was attached and the impl agent marks the work done), update `Status: done` in both files. Append a one-liner to `memory/agent-changelog.md` if the item was Tier 1.
 
 **Moving Tier 2 items to active work:**
 When Conductor decides a backlog item should be actively scheduled (not just "address if in scope"), it moves the item's status to `in-progress` and references it in the project's `state.json.current_work` field.
@@ -99,12 +120,15 @@ EA includes a **BACKLOG SUMMARY** section in every Executive Briefing and Sessio
 
 ```
 BACKLOG SUMMARY
-  Tier 1: <N> open (P0: N, P1: N, P2: N, P3: N)
-  Tier 2 (agent-dashboard): <N> open (P0: N, P1: N, P2: N, P3: N)
-  Needs input: [list 1-3 P0/P1 items the team cannot unblock alone]
+  Tier 1: <N> open (P0: N, P1: N, P2: N, P3: N) · awaiting-acceptance: N
+  Tier 2 (tapagents-app): <N> open (P0: N, P1: N, P2: N, P3: N) · awaiting-acceptance: N
+  Needs your input: [list 1-3 items in `awaiting-acceptance`, each citing the acceptance_criteria verbatim]
+  Needs input (blocked): [list 1-3 P0/P1 items the team cannot unblock alone — DNS, external account, etc.]
 ```
 
-EA reads counts from `workspace/_global/backlog.json` (not by parsing markdown). Items in "Needs input" are those where the team's path forward requires a user decision (e.g., "configure custom domain" needs DNS access; "demo video" needs user recording).
+The status vocabulary for counts is `open | in-progress | awaiting-acceptance | done | wontfix`. The `awaiting-acceptance` count is surfaced distinctly from `in-progress` so the user can see at-a-glance which items are queue-blocked-on-user vs. queue-blocked-on-engineering. Cardinal-zero rule applies: omit the `· awaiting-acceptance: N` segment when N == 0, and omit the "Needs your input" line entirely when no items are in that state.
+
+EA reads counts from `workspace/_global/backlog.json` (not by parsing markdown). "Needs your input" items are those in `awaiting-acceptance` where user sign-off is the only remaining unblock. "Needs input (blocked)" items are those where the team's path forward requires a user decision (e.g., "configure custom domain" needs DNS access; "demo video" needs user recording).
 
 ---
 
@@ -124,7 +148,7 @@ EA reads counts from `workspace/_global/backlog.json` (not by parsing markdown).
 - **Duplicate capture:** Same item in both chat and backlog.md. If it's in chat it's lost. Always write to the file.
 - **Skipping the JSON update:** Updating backlog.md without updating backlog.json breaks EA's count-surfacing AND breaks the §2.1 ID allocator (next-ID determined by JSON max collides with un-mirrored Tier 2 IDs). Both files must stay in sync as one atomic unit.
 - **Single-source ID allocation:** Picking the next ID by scanning only `backlog.json` (or only one backlog.md) without checking every active project's `workspace/<slug>/backlog.md`. Codified as collision-prone after the 2026-05-06 BL-017/BL-018 incident; see §2.1 for the canonical multi-file allocator.
-- **Status drift:** Item ships in code (commit lands, prod merge confirmed) but `status` field in JSON/MD never updates. EA briefings then misreport "open" counts. Per §4: when an item moves to `done`, BOTH the markdown file AND `backlog.json` get updated in the same commit as the shipping work or the immediate follow-up — not "I'll get to it later." Auto-seal of `active-sessions.md` (per `protocols/session-coordination-protocol.md` Rule 1) does NOT auto-update backlog status — that remains the closing agent's responsibility.
+- **Status drift:** Item ships in code (commit lands, prod merge confirmed) but `status` field in JSON/MD never updates. EA briefings then misreport "open" counts. Per §4: when impl commits land on the integration branch AND the item carries an acceptance criterion, the status moves to `awaiting-acceptance` (not silently to `done`); when the user signs off (or when no acceptance criterion was attached), then `done`. BOTH the markdown file AND `backlog.json` get updated in the same commit as the shipping work or the immediate follow-up — not "I'll get to it later." Auto-seal of `active-sessions.md` (per `protocols/session-coordination-protocol.md` Rule 1) does NOT auto-update backlog status — that remains the closing agent's responsibility.
 - **Tier confusion:** A framework-wide pattern landing in a project's Tier 2 backlog (or vice versa). Conductor and Org Designer should re-tier during grooming.
 - **Priority inflation:** Everything at P1. P0 means actively blocking a project today. P1 means it will be done in the next working session. If every item is P1, the signal is lost.
 

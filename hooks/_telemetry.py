@@ -226,6 +226,126 @@ def emit_event(
         return
 
 
+def emit_harness_block(
+    *,
+    tool_name: str,
+    tool_input: dict,
+    denial_source: str,
+    denial_message: str,
+    agent_context: str,
+    agent_type: str | None,
+    agent_id: str | None,
+    session_id: str | None,
+) -> None:
+    """Emit a harness/permission-denial event to events.jsonl.
+
+    Wired by `permission-denial-capture.py` (PostToolUse + PostToolUseFailure +
+    PermissionDenied chain) to close the telemetry coverage gap surfaced by the
+    2026-05-12 BL-060 curator-dispatch arc (see
+    `workspace/_global/org-designer-proposals/2026-05-12-curator-vocab-harness.md`
+    §2.5). Harness-layer denials and Claude Code permission-mode denials are NOT
+    framework hook firings — they originate outside the framework's PreToolUse
+    chain. Capturing them gives Org Designer the signal needed to detect
+    harness-classifier misfires and to escalate harness team bug reports with
+    concrete repro data.
+
+    Schema mirrors `emit_event` (same on-disk file, same readers can consume both):
+
+        {
+          "ts": "<iso8601-z>",
+          "session_id": "<from-hook-payload-or-unknown>",
+          "source": "permission-denial-capture",
+          "type": "block",
+          "subtype": "harness-or-permission",
+          "agent_context": "orchestrator"|"subagent",
+          "agent_type": "<name>"|null,
+          "agent_id":   "<id>"|null,
+          "payload": {
+            "tool_name":      "Edit"|"Write"|"Bash"|...,
+            "denial_source":  "framework-hook"|"permissions-deny"|"claude-code-permission"|"unknown",
+            "denial_message": "<first-500-chars-of-stderr-or-error>",
+            "summary":        "<one-line-rollup-for-quick-grep>",
+            "file_path":      "<from-tool_input-if-Edit/Write>"|null,
+            "bash_command":   "<from-tool_input-if-Bash-truncated-to-200>"|null
+          }
+        }
+
+    Args:
+        tool_name: The blocked tool (Edit | Write | Bash | NotebookEdit | ...).
+            Becomes payload.tool_name and informs the path/command extraction.
+        tool_input: The tool_input dict from the PostToolUse / PermissionDenied
+            payload. Used to pull `file_path` (for Edit/Write) or `command`
+            (for Bash) for forensic detail.
+        denial_source: Classification of where the denial originated:
+              "framework-hook"          — our PreToolUse gate or another framework hook fired
+              "permissions-deny"        — settings.json `permissions.deny` rule matched
+              "claude-code-permission"  — Claude Code's permission mode (default | acceptEdits | auto) denied
+              "unknown"                 — pattern matched but origin couldn't be classified
+        denial_message: The literal stderr / error / reason text from the
+            tool_response (truncated to first 500 chars in the helper).
+        agent_context: "orchestrator" or "subagent" — derived by the hook from
+            the payload's `agent_id`/`agent_type` fields (subagent iff set).
+        agent_type: Subagent type name if agent_context == "subagent"; None
+            for orchestrator-thread events.
+        agent_id: Subagent id if available; None otherwise.
+        session_id: From the hook payload's `session_id` field if present;
+            "unknown" otherwise. Used downstream by stop hooks and dashboard.
+
+    Fail-open: every branch in the implementation catches and swallows
+    exceptions. Telemetry is best-effort; the calling hook's pass behavior
+    (PostToolUse never blocks; exit 0 always) must not be affected.
+    """
+    try:
+        # Build payload with forensic extras (file_path for Edit/Write,
+        # bash_command for Bash). Truncate the denial_message to a 500-char
+        # bound — longer than the standard summary cap because the literal
+        # stderr is the load-bearing forensic detail, but still bounded so
+        # one runaway error doesn't bloat events.jsonl.
+        safe_message = denial_message if isinstance(denial_message, str) else str(denial_message or "")
+        if len(safe_message) > 500:
+            safe_message = safe_message[:499] + "…"
+
+        file_path: str | None = None
+        bash_command: str | None = None
+        if isinstance(tool_input, dict):
+            fp = tool_input.get("file_path")
+            if isinstance(fp, str) and fp:
+                file_path = fp
+            cmd = tool_input.get("command")
+            if isinstance(cmd, str) and cmd:
+                # Truncate Bash command to 200 chars for forensic context
+                bash_command = cmd if len(cmd) <= 200 else cmd[:199] + "…"
+
+        # One-line summary — what consumers see in /events.jsonl tail.
+        summary_bits = [f"{tool_name} denied ({denial_source})"]
+        if file_path:
+            summary_bits.append(f"on {file_path}")
+        elif bash_command:
+            summary_bits.append(f"cmd={bash_command[:80]}")
+        summary = " ".join(summary_bits)
+
+        emit_event(
+            source="permission-denial-capture",
+            type="block",
+            subtype="harness-or-permission",
+            agent_context=agent_context,
+            agent_type=agent_type,
+            agent_id=agent_id,
+            payload={
+                "tool_name": tool_name,
+                "denial_source": denial_source,
+                "denial_message": safe_message,
+                "summary": summary,
+                "file_path": file_path,
+                "bash_command": bash_command,
+            },
+            session_id=session_id,
+        )
+    except Exception:
+        # Fail-open: telemetry must never break the hook chain.
+        return
+
+
 def emit_misfire(
     *,
     source: str,

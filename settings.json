@@ -93,6 +93,45 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "_purpose": "Single-hook PostToolUse chain. permission-denial-capture.py: observational, NEVER blocks. Captures tool calls whose response indicates a permission denial (Claude Code permission mode, settings.json deny rules, framework hook blocks) and emits a harness-block telemetry event to events.jsonl. Closes the coverage gap surfaced by 2026-05-12 BL-060 dispatch arc (see workspace/_global/org-designer-proposals/2026-05-12-curator-vocab-harness.md §2.5).",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-denial-capture.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "_purpose": "Single-hook PostToolUseFailure chain. permission-denial-capture.py: same script as PostToolUse, observational only. PRIMARY capture surface for framework-hook firings (PreToolUse exit-2 from orchestrator-dispatch-gate.py / pre-tool-gate.py / version-gate.py routes through PostToolUseFailure with stderr containing 'BLOCKED:' / 'TAPAGENTS_DISPATCH_GATE_FIRED_V1'). Without this event, framework gate firings are NOT captured by telemetry — the PreToolUse hooks emit their OWN block event, but for any non-framework denial (Claude Code permission mode, harness-classifier misfire, settings.json deny rule), this is the only capture point.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-denial-capture.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "_purpose": "Single-hook PermissionDenied chain. permission-denial-capture.py: same script, observational only. Fires when Claude Code auto-mode classifier denies a tool call (separate code path from PostToolUseFailure). Hook input includes `reason` field with classifier's verbatim explanation. Coverage rationale: auto-mode denials are NOT routed through PostToolUseFailure; they go through this dedicated event per Claude Code hook spec (https://code.claude.com/docs/en/hooks.md). Hook does NOT return retry:true — denials stand as the classifier intended; we only capture for telemetry.",
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/permission-denial-capture.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "permissions": {

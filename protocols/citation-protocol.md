@@ -10,6 +10,7 @@
 | `[user]` | Stated by user in conversation | Line reference: `[user @ conversation-log L42]` |
 | `[brief]` | From `intake-brief.md` | Section name: `[brief: Problem Clarity]` |
 | `[research]` | Found via WebSearch / WebFetch | URL: `[research https://example.com/foo]` |
+| `[context7]` | Retrieved via Context7 `query-docs` MCP tool | Library ID + query subject: `[context7 /vercel/next.js — "App Router routing"]`. See `protocols/docs-research-protocol.md` for routing. |
 | `[inference]` | Agent's reasoning from cited inputs | At least one preceding cited input within same section |
 | `[assumption]` | Agent guessed; explicitly flagged for user review | Brief reason: `[assumption: typical industry baseline, no source]` |
 

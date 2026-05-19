@@ -1,44 +1,63 @@
 {
   "_comment": "Master registry — machine-readable cross-project state. Updated by Conductor on every state transition. Companion to workspace/_registry.md (human-readable view).",
   "schema_version": "1.0",
-  "last_updated_at": "2026-05-06T17:15:00Z",
+  "last_updated_at": "2026-05-14T18:00:00Z",
   "projects": {
-    "claude-team-app": {
-      "slug": "claude-team-app",
-      "working_name": "Tap Studio",
-      "current_phase": "planned",
-      "entered_phase_at": "2026-05-05T07:55:00Z",
-      "last_agent": "architect (rev-2)",
-      "last_agent_at": "2026-05-05T07:30:00Z",
+    "tapagents-app": {
+      "slug": "tapagents-app",
+      "working_name": "TapAgents Dashboard",
+      "app_brand": "tapagents",
+      "current_phase": "handed-off",
+      "superseded_by": null,
+      "entered_phase_at": "2026-05-05T13:50:00Z",
+      "last_agent": "conductor (BL-034 feature-closed + cascade-rename-bl059 Phase 1)",
+      "last_agent_at": "2026-05-14T12:14:00Z",
       "priority": "high",
-      "priority_reason": "Eat-own-dog-food project; first real test of team end-to-end",
+      "priority_reason": "Eat-own-dog-food project; first real test of the team end-to-end. handed-off phase since 2026-05-05; ongoing Tier-2 implementation. Slug consolidated from prior claude-team-app (Tier-1) + agent-dashboard (Tier-2) via BL-059 cascade-rename Phase 1 on 2026-05-14.",
       "blocked_on": null,
-      "next_action": "EA Decision Packet: planned → scaffold (confirm target repo path + go)",
+      "next_action": "Ongoing Tier-2 work tracked in workspace/tapagents-app/backlog.md; cascade-rename Steps 4-12 sequenced as separate dispatches.",
       "created_at": "2026-05-04T22:00:00Z",
-      "workspace_path": "workspace/claude-team-app/"
+      "workspace_path": "workspace/tapagents-app/"
     },
     "ip-protection": {
       "slug": "ip-protection",
       "working_name": "TapAgents IP Protection (Architecture-as-Protection via Option D)",
-      "current_phase": "briefed",
-      "phase_status": "pending_user_approval",
-      "entered_phase_at": "2026-05-06T17:15:00Z",
-      "last_agent": "intake (round 4 — paid-subs scoping)",
-      "last_agent_at": "2026-05-06T17:15:00Z",
+      "current_phase": "planned",
+      "phase_status": "active",
+      "entered_phase_at": "2026-05-13T21:00:00Z",
+      "last_agent": "conductor (scoping → planned advance per Decision Packet v3 approval)",
+      "last_agent_at": "2026-05-13T21:00:00Z",
       "priority": "high",
-      "priority_reason": "Architectural decision (Option D — stub agents + remote MCP server) gates monetization of TapAgents and TapHQ. Pricing/biz-finance and GTM activation hinge on this brief landing.",
-      "blocked_on": "user approval of intake-brief.md (DRAFT)",
-      "next_action": "User approves intake-brief.md → Conductor advances to stratego, or Architect dispatched in parallel for MCP-server spike while paid-subs discussion continues with biz-finance once activated.",
+      "priority_reason": "scoping → planned hard checkpoint passed 2026-05-13 with user verbatim 'Approve' on Decision Packet v3. scope.md (rev 5) + tech-strategy.md (rev 5) + ops-security-review-decisions-2026-05-13.md (CLEAR-with-WARN) constitute planned-phase artifact set. All 12 user-facing decisions APPROVED. γ option locked (5-agent v1 roster). 3 parallel Architect activations queued (dashboard MVP, auto-drive Conductor, email & lifecycle infra). QE test-plan.md queued (gating M-A1 W3 ship-signal per tech-strategy §13). Tier 2 implementation awaits user 'go for build' signal.",
+      "blocked_on": null,
+      "next_action": "Three Architect activations in parallel (dashboard MVP scope, auto-drive Conductor scope, email & lifecycle infra scope). QE activates for test-plan.md concurrently. Tier 2 implementation begins on locked artifacts when user signals 'go for build.' Org Designer 3-STUB promotion awaiting separate user approval (NOT bundled with this advance).",
       "created_at": "2026-05-06T16:11:00Z",
       "workspace_path": "workspace/ip-protection/"
+    },
+    "tapagents-football-gm": {
+      "slug": "tapagents-football-gm",
+      "working_name": "TapAgents Football GM (PGM3 / UFootballGM-style team-building sim)",
+      "current_phase": "planned",
+      "phase_status": "active",
+      "entered_phase_at": "2026-05-14T18:00:00Z",
+      "last_agent": "conductor (scoping → planned advance per Decision Packet v2 approval — user verbatim 'Approve')",
+      "last_agent_at": "2026-05-14T18:00:00Z",
+      "priority": "high",
+      "priority_reason": "Dual-purpose: (a) real product — football GM game in PGM3/UFootballGM lineage; (b) framework dogfood in USE-AS-CUSTOMER mode (Q6 hands-off). scoping → planned hard checkpoint passed 2026-05-14 with user verbatim 'Approve' on Decision Packet v2. All 4 artifacts at CLEAR (PRD rev3, scope/tech/design rev1). 12 npm pins clean. Pool B = ZERO. 5 kill criteria locked. Q6 framework-hands-off preserved. Tier 2 implementation awaits user 'go for build' signal.",
+      "blocked_on": null,
+      "next_action": "Tier 2 implementation kickoff on user 'go for build' signal. Parallel lanes: Architect produces implementer briefs per scope.md milestones; QE produces test-plan.md. Both deferred per Q6 hands-off until explicit user signal.",
+      "created_at": "2026-05-13T22:00:00Z",
+      "workspace_path": "workspace/tapagents-football-gm/"
     }
   },
   "stats": {
-    "total_projects": 2,
-    "active": 2,
+    "total_projects": 3,
+    "active": 3,
     "paused": 0,
     "shipped": 0,
     "abandoned": 0,
-    "pivoted": 0
+    "pivoted": 0,
+    "superseded": 0,
+    "_stats_note": "Recomputed during BL-059 cascade-rename Phase 1 on 2026-05-14: claude-team-app slot (was superseded=1) consolidated into tapagents-app (handed-off, counts as active). All 3 projects (tapagents-app, ip-protection, tapagents-football-gm) are active; no supersedes remaining. Previously stats had active=3 + superseded=1 with total=3 — internally inconsistent; corrected during this consolidation."
   }
 }

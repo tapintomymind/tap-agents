@@ -168,7 +168,7 @@ The `approval_text` field references the session by ID — the verbatim phrase i
 
 **Backwards compatibility:** pre-v1.5 transitions all have `bulk_approval_session_id = NULL` (treated as single-packet approvals — correct). No data migration required. `BulkApprovalSession` table is empty until M5.5 ships `[tech-strategy rev-3 §3 Risk 10]`.
 
-**Calm-brand rationale:** Pattern B records what actually happened — one typed approval covering N decisions. Pattern A (N copies of the same string) is mechanically inaccurate about the UX event. The verbatim-approval gate is TapHQ's most distinctive primitive; its audit trail must match its UX `[tech-strategy rev-3 §3 Risk 10, calm-brand argument]` `[prd rev-4 §3 brand posture]`.
+**Calm-brand rationale:** Pattern B records what actually happened — one typed approval covering N decisions. Pattern A (N copies of the same string) is mechanically inaccurate about the UX event. The verbatim-approval gate is tapagents's most distinctive primitive (formerly TapHQ pre-2026-05-12 brand consolidation); its audit trail must match its UX `[tech-strategy rev-3 §3 Risk 10, calm-brand argument]` `[prd rev-4 §3 brand posture]`.
 
 **Partial-failure handling:** `BulkApprovalSession` rows where `status = 'partial_failure'` are an actionable error state — the UI must surface which packet commits failed and offer per-packet retry. Retry uses the existing idempotency key infrastructure per `[prd rev-4 §11 Risk 8]`.
 
@@ -182,7 +182,7 @@ The "while you were away" briefing (A4) reads from the per-user server-stored `l
 
 **Field semantics:**
 - `User.last_reviewed_at` (timestamptz, nullable, server-stored) — set when the user takes an intentional review action: opens the decisions inbox OR approves or declines a packet (single or bulk). This is the canonical "since" timestamp used by the briefing.
-- `last_opened_at` cookie (per-device, HTTP-only, SameSite=Lax) — set on every dashboard render. Used as a fallback only: if `last_reviewed_at` is NULL (fresh user who has never taken an inbox action), the briefing falls back to the per-device cookie. If both are NULL, the briefing renders "Welcome to TapHQ" `[tech-strategy rev-3 §3 Risk 11]`.
+- `last_opened_at` cookie (per-device, HTTP-only, SameSite=Lax) — set on every dashboard render. Used as a fallback only: if `last_reviewed_at` is NULL (fresh user who has never taken an inbox action), the briefing falls back to the per-device cookie. If both are NULL, the briefing renders "Welcome to tapagents" (was "Welcome to TapHQ" pre-2026-05-12 brand consolidation) `[tech-strategy rev-3 §3 Risk 11]`.
 
 **The `last_opened_at` cookie is for analytics only** and does NOT drive briefing content in any state where `last_reviewed_at` is non-NULL `[tech-strategy rev-3 §3 Risk 11]`.
 

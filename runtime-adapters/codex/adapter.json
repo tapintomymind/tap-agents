@@ -1,0 +1,60 @@
+{
+  "$schema": "../shared/adapter-contract.json",
+  "id": "codex",
+  "runtime": "codex",
+  "displayName": "Codex",
+  "status": "planning-placeholder",
+  "contractVersion": "m2-runtime-adapters.v1",
+  "defaultMode": "generated-files",
+  "modes": [
+    {
+      "id": "generated-files",
+      "kind": "generated-files",
+      "default": true,
+      "description": "Stable planning path for generated AGENTS.md, config, agent, and skill files."
+    },
+    {
+      "id": "plugin-beta",
+      "kind": "plugin-beta",
+      "default": false,
+      "description": "Tracked beta path for future plugin packaging. Not selected by default."
+    }
+  ],
+  "capabilities": {
+    "generatesFiles": true,
+    "pluginBeta": true,
+    "requiresNetwork": false,
+    "providerSdk": false
+  },
+  "templates": [
+    {
+      "path": "templates/AGENTS.md.tpl",
+      "targetPath": "AGENTS.md",
+      "kind": "generated-files",
+      "purpose": "Codex-facing repository instructions generated from TapAgents metadata."
+    },
+    {
+      "path": "templates/config.toml.tpl",
+      "targetPath": ".codex/config.toml",
+      "kind": "generated-files",
+      "purpose": "Codex runtime configuration placeholder."
+    },
+    {
+      "path": "templates/agent.toml.tpl",
+      "targetPath": ".codex/agents/tapagents-{{agentId}}.toml",
+      "kind": "generated-files",
+      "purpose": "Per-agent metadata placeholder for a future renderer."
+    },
+    {
+      "path": "templates/skill.SKILL.md.tpl",
+      "targetPath": ".agents/skills/tapagents-{{skillId}}/SKILL.md",
+      "kind": "generated-files",
+      "purpose": "Skill entrypoint placeholder for command-style TapAgents workflows."
+    }
+  ],
+  "notes": [
+    "Codex support in this slice is generated-files-only planning metadata.",
+    "Plugin beta metadata is separated from the stable default path.",
+    "This adapter does not claim live plugin parity."
+  ]
+}

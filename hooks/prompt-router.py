@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tier 2 UserPromptSubmit hook — agent-dashboard.
+Tier 2 UserPromptSubmit hook — tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059).
 
 Lightweight intent classifier. On every user prompt, detects three
 patterns and emits a routing nudge as additional context:

@@ -10,7 +10,7 @@
 
 Hooks know things about the session that the orchestrator can't easily see — every dispatch-gate block, every prompt-router classification, every hook misfire. Without a structured trail, those signals stay invisible: the only way to know the orchestrator hit the dispatch wall five times today is to read every hook's stderr in order.
 
-The telemetry layer is the structured trail. Hooks emit JSON-line events to a shared per-workspace file. Other surfaces (Stop hooks, EA briefings, dashboards, the upstream `agent-dashboard` product) read the file. The schema is intentionally minimal and frozen — additive-only changes — so consumers written today still parse events written tomorrow.
+The telemetry layer is the structured trail. Hooks emit JSON-line events to a shared per-workspace file. Other surfaces (Stop hooks, EA briefings, dashboards, the upstream `tapagents-app` product, formerly `agent-dashboard` pre-2026-05-14 BL-059) read the file. The schema is intentionally minimal and frozen — additive-only changes — so consumers written today still parse events written tomorrow.
 
 This is the **shape** layer. State (which milestone we're on, which agent is blocked, etc.) lives in `state.json`. Telemetry captures the events that move state forward, not state itself.
 
@@ -89,6 +89,57 @@ Categories that may land next; NOT live in v0.11.0:
 
 When the next-slice author lands these, this section becomes the canonical list of source-type-subtype triples in use.
 
+### §2.5 Reserved next-slice: `docs-research-call` (SPEC ONLY — added 2026-05-18)
+
+**Status.** Schema reserved here; hook implementation is a separate dispatch and not live in any current release. Consumers MAY parse `docs-research-call` events defensively per §5 once they begin appearing; producers MUST NOT emit them until the implementation dispatch lands.
+
+**Purpose.** Feeds the measurement follow-up in `protocols/docs-research-protocol.md §5` — replaces the `[inference]` order-of-magnitude token estimates with measured medians once N≥5 calls have been logged. Critic's docs-research review uses §5 token rationale checks once measured figures land.
+
+**Triple.** `source` / `type` / `subtype`:
+
+- `source: "docs-research"` — agent-emitter for any tool call in scope of `protocols/docs-research-protocol.md §2` routing
+- `type: "call"` — single successful research call
+- `subtype: "context7" | "websearch" | "webfetch"` — which transport answered
+
+**Event shape (within the §2 schema):**
+
+```json
+{
+  "ts": "2026-05-19T14:22:00Z",
+  "session_id": "<from-hook-payload-or-unknown>",
+  "source": "docs-research",
+  "type": "call",
+  "subtype": "context7",
+  "agent_context": "subagent",
+  "agent_type": "architect",
+  "agent_id": "<from-payload>",
+  "payload": {
+    "summary": "context7 query-docs: Next.js App Router middleware runtime",
+    "query_subject": "Next.js App Router middleware runtime",
+    "library_id": "/vercel/next.js",
+    "tokens_response_estimated": 1842,
+    "project_slug": "tapagents-football-gm"
+  }
+}
+```
+
+**Reserved `payload.*` keys for this event type:**
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `payload.query_subject` | string | yes | Short string describing the question asked (e.g., "Next.js App Router middleware runtime"). Truncate to ≤ 200 chars per §2.2. |
+| `payload.library_id` | string \| null | yes | Context7 library ID (e.g., `/vercel/next.js`) when `subtype == "context7"`; `null` for `websearch` / `webfetch`. |
+| `payload.tokens_response_estimated` | number | yes | Approximate token count of returned content. Basis depends on transport: Context7 reports chunk sizes directly; WebSearch/WebFetch use a `len(content) / 4` heuristic until a tokenizer-backed estimate lands. Field is the same name across all subtypes so rollup math is one expression. |
+| `payload.project_slug` | string \| null | yes | Workspace slug when dispatched in project context; `null` at framework-level dispatches (e.g., Architect working on Tier 1 itself). |
+
+The standard `payload.summary` reserved key (per §2.2) is set to a short human-readable string combining transport + query_subject so dashboard rows are scannable without parsing extras.
+
+**Emission rule.** The calling agent (Architect, Strategist, future Tier 2 implementers) emits one `docs-research-call` event per successful research call in scope of `protocols/docs-research-protocol.md §2` routing — i.e., one event per Context7 `query-docs` / WebSearch / WebFetch invocation made under the protocol. Failed calls (network errors, MCP unavailable) are NOT emitted; the protocol's "log the gap once per session" rule (§6) handles those.
+
+**Consumer.** `scripts/telemetry-rollup.py` will gain a `docs-research-rollup` mode in a follow-up dispatch — aggregates measured tokens-per-call by `subtype` and computes the median for `protocols/docs-research-protocol.md §5` substitution. The 5-call threshold for §5 substitution (per `protocols/docs-research-protocol.md §8`) is the gate; before N≥5, the rollup mode emits a "insufficient sample" verdict and Critic does NOT yet flag §5's `[inference]` estimates as stale.
+
+**Provenance.** This spec exists to ground `protocols/docs-research-protocol.md §5` and §8 in a measurement source rather than perpetual `[inference]`. See `memory/runtime_tapagents_telemetry_events.md` for the existing events.jsonl conventions this event slots into. Schema is additive-only per §6 — adding `docs-research` as a new `source` value is a MINOR per §6 once the hook implementation ships.
+
 ## §3 Storage
 
 ### §3.1 File location
@@ -163,7 +214,7 @@ Contract:
 
 ## §5 Consumer contract
 
-Consumers (Stop hooks, EA briefings, the upstream `agent-dashboard` Vercel build) read `events.jsonl` defensively:
+Consumers (Stop hooks, EA briefings, the upstream `tapagents-app` Vercel build) read `events.jsonl` defensively:
 
 1. **Unknown fields ignored.** If a future event has a new top-level key, parse the known fields and skip the rest.
 2. **Unknown values tolerated.** Pattern-match on `type` and `subtype` — never assume the full vocabulary is the v0.10.0 list.
