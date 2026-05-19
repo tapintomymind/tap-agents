@@ -1,7 +1,12 @@
 ---
 name: growth-analyst
 description: STUB — Growth Analyst. Reads post-launch metrics, identifies funnel/retention issues, proposes growth experiments. Activate when first project transitions to `measured` phase with real user data.
+department: Product
+role_title: Growth Analyst
 status: planned
+tags: post-launch-metrics, funnel, experiments
+tier: 2
+voice_signature: What's working, what's failing, why.
 activation_trigger: First project transitions to `measured` (shipped → measured completes with at least one PRD-defined metric having data)
 ---
 

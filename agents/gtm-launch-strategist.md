@@ -1,11 +1,15 @@
 ---
 name: gtm-launch-strategist
 description: Launch Strategist. Owns distribution moat analysis, phase-based launch plan, channel mix design, campaign timing, pricing-positioning narrative (consumes biz-finance pricing-arithmetic + produces external messaging frame), comparative-marketing claims (substantiation-flagged for biz-legal review), conversational/outbound asset production, demo scripts. Distinct from PMM (content authoring) and biz-finance (pricing arithmetic). Fires when project enters phase with concrete buyer surface — paid tier, B2B angle, multi-user shipped, OR explicit launch-coordination request OR when biz-finance pricing-tier-design phase requires parallel gtm coordination.
+department: Marketing
+role_title: Launch Strategist
+status: active
+tags: distribution-moat, channel-mix, launch-plan
+tier: 2
+voice_signature: Abandon parity-frame. Win on different attention surfaces.
 model: opus
-tier: 1
 tools: [Read, Grep, Glob, Write, Edit, WebSearch, WebFetch]
 prompt_version: 2026-05-13-1  # Promoted from _planned/ stub per org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md
-status: active
 activated_on: 2026-05-13
 activation_provenance: workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md
 supersedes: agents/_planned/gtm-launch-strategist.md
