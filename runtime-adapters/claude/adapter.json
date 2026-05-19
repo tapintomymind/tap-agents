@@ -1,0 +1,35 @@
+{
+  "$schema": "../shared/adapter-contract.json",
+  "id": "claude",
+  "runtime": "claude-code",
+  "displayName": "Claude Code",
+  "status": "stable-existing",
+  "contractVersion": "m2-runtime-adapters.v1",
+  "defaultMode": "legacy-manifest",
+  "modes": [
+    {
+      "id": "legacy-manifest",
+      "kind": "legacy-manifest",
+      "default": true,
+      "description": "Compatibility metadata for the existing Claude Code plugin manifest path."
+    }
+  ],
+  "capabilities": {
+    "generatesFiles": true,
+    "pluginBeta": false,
+    "requiresNetwork": false,
+    "providerSdk": false
+  },
+  "templates": [
+    {
+      "path": "templates/legacy-manifest.json.tpl",
+      "targetPath": ".claude-plugin/plugin.json",
+      "kind": "legacy-manifest",
+      "purpose": "Declarative placeholder for future renderer parity with the existing package manifest."
+    }
+  ],
+  "notes": [
+    "This adapter preserves the existing Claude package surface.",
+    "The template is metadata input only and is not rendered by the current build."
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "id": "tap-agents-runtime-telemetry-fields",
+  "contractVersion": "m2-runtime-adapters.v1",
+  "fields": [
+    {
+      "name": "runtime.adapter_id",
+      "type": "string",
+      "description": "Runtime adapter identifier used for generated-files planning."
+    },
+    {
+      "name": "runtime.mode",
+      "type": "string",
+      "description": "Selected adapter mode, such as generated-files or legacy-manifest."
+    },
+    {
+      "name": "runtime.plugin_beta_enabled",
+      "type": "boolean",
+      "description": "Whether an opt-in plugin beta path was selected by the renderer."
+    },
+    {
+      "name": "runtime.generated_file_count",
+      "type": "number",
+      "description": "Count of files planned or emitted for the selected runtime."
+    },
+    {
+      "name": "runtime.adapter_contract_version",
+      "type": "string",
+      "description": "Adapter contract version that informed generated-files planning."
+    }
+  ]
+}

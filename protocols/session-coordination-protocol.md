@@ -74,13 +74,13 @@ status: in-progress
 last_updated: <ISO datetime>
 ```
 
-**Path-format contract (load-bearing):** `files_in_flight` entries MUST be full repo-relative paths from the framework workspace root (the directory containing `.claude/`). Examples: `agent-dashboard/src/lib/foo.ts`, `.claude/protocols/x.md`, `.claude/workspace/_global/y.md`. **Basenames alone (e.g., `foo.ts`) are NOT permitted** — the auto-seal matcher requires path-precision to avoid false-positives across monorepos or sibling projects (e.g., a basename `foo.ts` would historically match `unrelated-project/foo.ts` and seal the wrong session). The `agent-dashboard/scripts/promote-to-prod.sh` auto-seal helper enforces this contract: claims without at least one `/` character are skipped + surfaced as a warning at promote time, leaving the entry's status untouched. Operator must fix the manifest entry to a fully-qualified path before re-promoting if that session's work shipped.
+**Path-format contract (load-bearing):** `files_in_flight` entries MUST be full repo-relative paths from the framework workspace root (the directory containing `.claude/`). Examples: `tapagents-app/src/lib/foo.ts`, `.claude/protocols/x.md`, `.claude/workspace/_global/y.md`. **Basenames alone (e.g., `foo.ts`) are NOT permitted** — the auto-seal matcher requires path-precision to avoid false-positives across monorepos or sibling projects (e.g., a basename `foo.ts` would historically match `unrelated-project/foo.ts` and seal the wrong session). The `tapagents-app/scripts/promote-to-prod.sh` auto-seal helper (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`) enforces this contract: claims without at least one `/` character are skipped + surfaced as a warning at promote time, leaving the entry's status untouched. Operator must fix the manifest entry to a fully-qualified path before re-promoting if that session's work shipped.
 
 **Session-id format:** `<YYYY-MM-DDTHH-MM>-<short-scope>` (use hyphens, not colons, in the time portion to keep filename-safe). Example: `2026-05-06T14-30-v15-phase0`.
 
 **Update** the `last_updated` field whenever your work transitions (file landed, scope shifted, or after each ~20-30 min of in-flight work).
 
-**On session end:** change `status` to `sealed` and add `completion_note: <one-line>`. Do NOT delete the entry. Sealed entries remain as historical record. Quarterly cleanup prunes sealed entries older than 30 days. **If your session's work merges via a project promotion script (e.g., `agent-dashboard/scripts/promote-to-prod.sh`), the script auto-seals — you only seal manually for non-promote paths (read-only sessions, decision packets, agent-contract-only edits).**
+**On session end:** change `status` to `sealed` and add `completion_note: <one-line>`. Do NOT delete the entry. Sealed entries remain as historical record. Quarterly cleanup prunes sealed entries older than 30 days. **If your session's work merges via a project promotion script (e.g., `tapagents-app/scripts/promote-to-prod.sh`), the script auto-seals — you only seal manually for non-promote paths (read-only sessions, decision packets, agent-contract-only edits).**
 
 **Auto-seal mechanism (current enforcement, A):** project promotion scripts seal in-progress entries whose `files_in_flight:` list overlaps the merge's file set. Auto-sealed entries carry these extra fields for forensic transparency:
 
@@ -92,7 +92,7 @@ last_updated: <ISO datetime>
 
 If a `completion_note:` is already present (manual seal landed first), the script appends only the `auto_*` metadata — it does NOT overwrite human-set notes. If the manifest is malformed or unreadable, the script warns + skips — auto-seal is a metadata convenience, never a promotion gate.
 
-Reference implementation: `agent-dashboard/scripts/promote-to-prod.sh` (`auto_seal_active_sessions()` helper, fired at start of Gate 5 and inside `fail_with_audit` for partial-state). Other-stack promotion scripts SHOULD implement the same shape; the manifest format is framework-portable so scripts in any stack can match.
+Reference implementation: `tapagents-app/scripts/promote-to-prod.sh` (`auto_seal_active_sessions()` helper, fired at start of Gate 5 and inside `fail_with_audit` for partial-state). Other-stack promotion scripts SHOULD implement the same shape; the manifest format is framework-portable so scripts in any stack can match.
 
 **EA drift-detection (current enforcement, B):** Executive Assistant runs a stale-session sweep on every `/status` and `/briefing`. For each `status: in-progress` entry whose `last_updated` is >2h old, EA cross-references the entry's `files_in_flight:` against `git log` since `last_updated`. Entries whose claimed files have landed on the integration branch surface as drift candidates with the suggested fix. EA is read-only on the manifest — it surfaces, never seals. This is the safety net for cases where auto-seal didn't fire (manual merges, hotfixes, projects without a promotion script). See `agents/executive-assistant.md` "Session-Tracking Drift Sweep" for the full algorithm + surface format.
 
@@ -136,7 +136,7 @@ While work is in flight, write your CHANGELOG entry to `<session-id>.md` in the 
 
 When two plans/specs/contracts cover the same surface, the resolution lives in **one decision packet**, not in inline edits to both plans.
 
-**Where:** `.claude/workspace/<scope>/decision-packet-<topic>.md` (the agent-dashboard scope, the global scope, the relevant project scope).
+**Where:** `.claude/workspace/<scope>/decision-packet-<topic>.md` (the tapagents-app scope, the global scope, the relevant project scope).
 
 **The packet:**
 
@@ -241,7 +241,7 @@ If conflict-resolution flow fails (sessions genuinely cannot agree, or human jud
 
 This protocol is largely **advisory at the filesystem layer** — sessions follow it because they have read this file and the user has stated it is binding. The following enforcement IS active and runs automatically:
 
-- **Auto-seal on promotion (Rule 1, A).** Project promotion scripts seal in-progress `active-sessions.md` entries whose `files_in_flight:` overlaps the merged file set. Reference implementation: `agent-dashboard/scripts/promote-to-prod.sh`. Closes the most common drift-source: work that ships but whose session entry is left open.
+- **Auto-seal on promotion (Rule 1, A).** Project promotion scripts seal in-progress `active-sessions.md` entries whose `files_in_flight:` overlaps the merged file set. Reference implementation: `tapagents-app/scripts/promote-to-prod.sh`. Closes the most common drift-source: work that ships but whose session entry is left open.
 - **EA stale-session sweep (Rule 1, B).** Executive Assistant flags stale-but-shipped entries on every `/status` and `/briefing`. Catches cases auto-seal can't see — manual merges, hotfixes, work shipped via paths that don't run the promotion script. Read-only; surfaces only.
 
 ## Current enforcement (hooks) — landed v0.15.0

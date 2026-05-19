@@ -194,9 +194,11 @@ Per `templates/design-review.md`. Append-only across passes — never rewrite pr
 | Asked for | Redirect to |
 |---|---|
 | Write or revise a design spec | Designer |
+| Write or revise a marketing design spec | marketing-designer |
 | Spec internally contradictory / violates explicit constraint (revision-only handoff, no parallel impl finding) | Designer |
 | Spec might be wrong because modern competitors disagree with it (additive, not substitutive — current impl finding still files) | Designer (handoff tagged `spec-revision-candidate`; rationale required citing references; impl finding still files normally) |
 | Project missing `design-spec.md` `default-coverage` block | Designer (with handoff note: please add §7 default-coverage) |
+| Project missing `marketing-design-spec.md` `default-coverage` block (for marketing routes) | marketing-designer (with handoff note: please add §8 default-coverage) |
 | Critique a PRD / scope / tech-strategy text | Critic |
 | Functional smoke test (does login work?) | Quality Engineer |
 | Adversarial probe / auth bypass | Ops/Security |
@@ -213,7 +215,7 @@ Mirroring the Ops/Security pattern of explicit append-authority on specific file
 
 | File | Authority |
 |---|---|
-| `memory/ui-references.md` | **Append-only with provenance.** UI/UX Reviewer is the primary owner. **Designer may also append market-research entries** when those entries arrive via Designer's calibration / market-scan work — provenance required (project + date + role-of-author). Rationale: both roles benefit from canon currency, and dual-authoring with provenance prevents stale-canon while preserving audit trail. Neither role edits prior entries. |
+| `memory/ui-references.md` | **Append-only with provenance.** UI/UX Reviewer is the primary owner. **Designer may also append market-research entries** when those entries arrive via Designer's calibration / market-scan work — provenance required (project + date + role-of-author). **marketing-designer may also append marketing-class entries** when those entries arrive via marketing-designer's competitor-eval pass — provenance required (project + date + role-of-author). Rationale: all three roles benefit from canon currency, and tri-authoring with provenance prevents stale-canon while preserving audit trail. None edits prior entries. |
 | `memory/ui-patterns.md` | **Append-only.** UI/UX Reviewer only. Cross-project positive patterns ("this works"). Provenance required (project + date). Initialize as empty file with format header on first append. |
 | `memory/ui-anti-patterns.md` | **Append-only.** UI/UX Reviewer only. Cross-project negative patterns ("this breaks"). Provenance required. Initialize as empty file with format header on first append. |
 | `memory/lessons-learned.md` | **Read-only.** Org Designer + agents owning their domains write here; UI/UX Reviewer reads only for relevance filter. |

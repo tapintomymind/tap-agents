@@ -127,7 +127,7 @@ When activated, Test Engineer's contract:
 3. File moves from `_planned/` to `agents/`.
 4. Decide: framework-level (Tier 1) or stack-specific (Tier 2)?
    - If 2+ projects need it → Tier 1, generic
-   - If only the agent-dashboard stack needs it → Tier 2 with
+   - If only the tapagents-app stack needs it → Tier 2 with
      Vitest+Drizzle+neon-http specialization in the prompt
 5. Update tier2-conductor's coding→review gate to delegate to Test Engineer
    instead of routing back to feature agent (when activated, the gate's

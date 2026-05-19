@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tapintomymind.com/schemas/tap-agents/manifest-v2.schema.json",
+  "title": "TapAgents Runtime-Aware Manifest V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "manifestVersion",
+    "package",
+    "runtime",
+    "generatedFiles"
+  ],
+  "properties": {
+    "schema": {
+      "const": "tapagents.manifest"
+    },
+    "manifestVersion": {
+      "const": "2.0"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapterId",
+        "mode",
+        "adapterContractVersion",
+        "compatibility"
+      ],
+      "properties": {
+        "adapterId": {
+          "$ref": "#/$defs/adapterId"
+        },
+        "mode": {
+          "$ref": "#/$defs/adapterMode"
+        },
+        "pluginBetaEnabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "adapterContractVersion": {
+          "const": "m2-runtime-adapters.v1"
+        },
+        "adapterStatus": {
+          "$ref": "#/$defs/adapterStatus"
+        },
+        "compatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "codexParity",
+            "pluginMode",
+            "providerPlaceholder",
+            "stableEligible"
+          ],
+          "properties": {
+            "codexParity": {
+              "type": "string",
+              "enum": [
+                "not-applicable",
+                "planning-placeholder",
+                "generated-files-first",
+                "plugin-beta-not-default"
+              ]
+            },
+            "pluginMode": {
+              "type": "string",
+              "enum": [
+                "legacy-manifest",
+                "not-available",
+                "beta-opt-in"
+              ]
+            },
+            "providerPlaceholder": {
+              "type": "boolean"
+            },
+            "stableEligible": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "generatedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceTemplate",
+          "targetPath",
+          "kind"
+        ],
+        "properties": {
+          "sourceTemplate": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "$ref": "#/$defs/adapterMode"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "agentCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "catalogVersion",
+        "sourcePackage",
+        "agents"
+      ],
+      "properties": {
+        "catalogVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourcePackage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "agentId",
+              "sourcePath",
+              "status"
+            ],
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourcePath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runtimeSupport": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/runtimeSupportState"
+                },
+                "properties": {
+                  "claude": {
+                    "$ref": "#/$defs/runtimeSupportState"
+                  },
+                  "codex": {
+                    "$ref": "#/$defs/runtimeSupportState"
+                  }
+                }
+              },
+              "defaultRecommendation": {
+                "$ref": "#/$defs/defaultRecommendation"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "agentSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectionVersion",
+        "selectedAgentIds",
+        "requiredAgentIds",
+        "recommendedAgentIds",
+        "excludedAgentIds",
+        "unsupportedAgentIds"
+      ],
+      "properties": {
+        "selectionVersion": {
+          "type": "integer"
+        },
+        "selectedAgentIds": {
+          "$ref": "#/$defs/agentIdArray"
+        },
+        "requiredAgentIds": {
+          "$ref": "#/$defs/agentIdArray"
+        },
+        "recommendedAgentIds": {
+          "$ref": "#/$defs/agentIdArray"
+        },
+        "excludedAgentIds": {
+          "$ref": "#/$defs/agentIdArray"
+        },
+        "unsupportedAgentIds": {
+          "$ref": "#/$defs/agentIdArray"
+        },
+        "selectionDigest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "selectionSource": {
+          "type": "string"
+        },
+        "selectedAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean",
+          "null"
+        ]
+      },
+      "properties": {
+        "runtime.adapter_id": {
+          "type": "string"
+        },
+        "runtime.mode": {
+          "$ref": "#/$defs/adapterMode"
+        },
+        "runtime.plugin_beta_enabled": {
+          "type": "boolean"
+        },
+        "runtime.generated_file_count": {
+          "type": "number"
+        },
+        "runtime.adapter_contract_version": {
+          "const": "m2-runtime-adapters.v1"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "adapterId": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex"
+      ]
+    },
+    "adapterMode": {
+      "type": "string",
+      "enum": [
+        "generated-files",
+        "legacy-manifest",
+        "plugin-beta"
+      ]
+    },
+    "adapterStatus": {
+      "type": "string",
+      "enum": [
+        "stable-existing",
+        "planning-placeholder",
+        "beta-placeholder"
+      ]
+    },
+    "agentIdArray": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runtimeSupportState": {
+      "type": "string",
+      "enum": [
+        "supported",
+        "candidate",
+        "placeholder",
+        "unsupported"
+      ]
+    },
+    "defaultRecommendation": {
+      "type": "string",
+      "enum": [
+        "required",
+        "recommended",
+        "optional",
+        "excluded"
+      ]
+    }
+  }
+}

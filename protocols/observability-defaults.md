@@ -117,7 +117,7 @@ Every project ships with these enabled before its first deploy. Layers 1, 2, and
 | **Third-party** (Sentry, Highlight, Rollbar, Bugsnag) | When you want a polished triage UI, alerting, deduplication, release-tracking out of the box |
 | **DB-backed** (in-app `bug_reports` / `error_logs` table) | When data residency matters (regulated industries, on-prem deploys), or when you want errors as first-class data the rest of the app can act on |
 
-The agent-dashboard reference uses the DB-backed pattern (the `bug_reports` table) because errors there need to be: queryable by ops, exposable to admin users, promotable to incidents, and never leave the project's data perimeter.
+The tapagents-app reference (formerly agent-dashboard, renamed 2026-05-14 BL-059) uses the DB-backed pattern (the `bug_reports` table) because errors there need to be: queryable by ops, exposable to admin users, promotable to incidents, and never leave the project's data perimeter.
 
 **Discipline rules:**
 1. **Error records MUST include the request-ID.** Without it, you can't pivot to the matching trace or the matching log lines.
@@ -186,17 +186,17 @@ When a finding fires:
 
 ## Appendix — Per-stack instantiations
 
-### A.1 Node.js / TypeScript on Vercel (current agent-dashboard reference)
+### A.1 Node.js / TypeScript on Vercel (current tapagents-app reference)
 
 | Layer | Tool | Wiring |
 |---|---|---|
-| 1. Request-ID propagation | Custom middleware | [src/middleware.ts](agent-dashboard/src/middleware.ts) — UUID v4 mint + regex validation + header echo |
-| 2. Structured logger | Custom (no library — Vercel logs auto-parse JSON from console.log/error) | [src/lib/observability/logger.ts](agent-dashboard/src/lib/observability/logger.ts) |
-| 3. Distributed tracing | `@vercel/otel` + `@opentelemetry/api` | [src/instrumentation.ts](agent-dashboard/src/instrumentation.ts) — auto-loaded by Next.js 15+ |
-| 4. Error tracking | DB-backed via `bug_reports` table + `withErrorCapture` wrapper | [src/lib/error-capture.ts](agent-dashboard/src/lib/error-capture.ts) |
-| 5. RUM | `@vercel/analytics` + `@vercel/speed-insights` | [src/app/layout.tsx](agent-dashboard/src/app/layout.tsx) — `<Analytics />` + `<SpeedInsights />` |
+| 1. Request-ID propagation | Custom middleware | [src/middleware.ts](tapagents-app/src/middleware.ts) — UUID v4 mint + regex validation + header echo |
+| 2. Structured logger | Custom (no library — Vercel logs auto-parse JSON from console.log/error) | [src/lib/observability/logger.ts](tapagents-app/src/lib/observability/logger.ts) |
+| 3. Distributed tracing | `@vercel/otel` + `@opentelemetry/api` | [src/instrumentation.ts](tapagents-app/src/instrumentation.ts) — auto-loaded by Next.js 15+ |
+| 4. Error tracking | DB-backed via `bug_reports` table + `withErrorCapture` wrapper | [src/lib/error-capture.ts](tapagents-app/src/lib/error-capture.ts) |
+| 5. RUM | `@vercel/analytics` + `@vercel/speed-insights` | [src/app/layout.tsx](tapagents-app/src/app/layout.tsx) — `<Analytics />` + `<SpeedInsights />` |
 
-**Reference implementation:** [agent-dashboard](agent-dashboard) (2026-05-07 onwards) — the empirical case study for this row.
+**Reference implementation:** [tapagents-app](tapagents-app) (2026-05-07 onwards; project formerly slugged agent-dashboard, renamed 2026-05-14 BL-059) — the empirical case study for this row.
 
 ### A.2 Node.js / TypeScript on AWS / GCP / non-Vercel hosting
 

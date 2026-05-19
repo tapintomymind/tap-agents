@@ -85,7 +85,7 @@ Every project the agent company builds lands the rows below. The implementation 
 
 These bind to a specific stack's idioms. They live in project memory + as case studies under principle-layer entries in `memory/test-patterns.md` / `memory/runtime-gotchas.md`. **They're load-bearing for the projects that hit them, but they don't become part of the framework template.**
 
-Examples (from agent-dashboard's empirical record):
+Examples (from tapagents-app's empirical record, formerly agent-dashboard pre-2026-05-14 BL-059):
 - Drizzle's `db.batch` vs `db.transaction` runtime semantics on neon-http
 - Drizzle's table-name accessor (`getTableName(table)` vs `table._.name`)
 - Vitest's `Promise.all` racing a sync `shift()` queue (the principle is universal; the empirical case is Vitest-specific)
@@ -140,7 +140,7 @@ Each column below maps the principle-layer rows to concrete tools/libraries/code
 
 | Stack | Mock at this boundary | Library pattern |
 |---|---|---|
-| Node/TS + Drizzle (any driver) | `db.select() / .insert() / .update() / .delete() / .batch() / .transaction()` chain | record into structured state; mirror atomic primitives. See [agent-dashboard fake-db.ts](agent-dashboard/tests/unit/_helpers/fake-db.ts). |
+| Node/TS + Drizzle (any driver) | `db.select() / .insert() / .update() / .delete() / .batch() / .transaction()` chain | record into structured state; mirror atomic primitives. See [tapagents-app fake-db.ts](tapagents-app/tests/unit/_helpers/fake-db.ts) (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`). |
 | Node/TS + Prisma | `prisma.<model>.<method>` | per-model mock object with method-spies |
 | Node/TS + Kysely | `db.selectFrom() / .insertInto()` chain | same shape as Drizzle |
 | Python + SQLAlchemy | `session.query(Model)` / `session.execute()` | `MagicMock` chains |
@@ -153,7 +153,7 @@ Each column below maps the principle-layer rows to concrete tools/libraries/code
 
 | Stack / auth shape | Bypass instantiation |
 |---|---|
-| Node/TS + OAuth + session cookie | `getSession()` returns dummy session when `TEST_AUTH_BYPASS=1 && NODE_ENV !== 'production'`. (current agent-dashboard reference) |
+| Node/TS + OAuth + session cookie | `getSession()` returns dummy session when `TEST_AUTH_BYPASS=1 && NODE_ENV !== 'production'`. (current tapagents-app reference, formerly agent-dashboard pre-2026-05-14 BL-059) |
 | Node/TS + JWT-only | Verify resolver short-circuits a test-signed JWT with reserved `iss=test-bypass` claim |
 | Node/TS + API key | Test resolver accepts a `Bearer test-bypass-key` token in non-prod |
 | Python + Django | `request.user` returns a `TestUser` instance via middleware that checks `settings.TEST_AUTH_BYPASS and not settings.IS_PROD` |

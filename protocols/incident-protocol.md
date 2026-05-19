@@ -1,6 +1,6 @@
 # Incident Protocol
 
-Defines the bug-to-incident learning loop — how a runtime error captured in agent-dashboard (Tier 2) becomes institutional memory in the Tier 1 framework.
+Defines the bug-to-incident learning loop — how a runtime error captured in tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059) (Tier 2) becomes institutional memory in the Tier 1 framework.
 
 > **One-line rule:** Bugs flow down (Tier 1 controls the learning record). Tier 2 captures; Tier 1 learns. Auto-write from Tier 2 to Tier 1 never happens — promotion is manual paste.
 
@@ -18,7 +18,7 @@ No manual step required. Errors appear in the table immediately.
 
 ### 1.1 Sanitization Contract (load-bearing)
 
-Per `agent-dashboard/src/lib/error-capture.ts §"SANITIZATION CONTRACT"`. Treat this as a security boundary, not a hint.
+Per `tapagents-app/src/lib/error-capture.ts §"SANITIZATION CONTRACT"` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`). Treat this as a security boundary, not a hint.
 
 | Surface | Rule |
 |---|---|

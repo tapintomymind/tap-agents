@@ -4,7 +4,7 @@ description: Chief of Staff. The user's only proactive interface to team activit
 model: sonnet
 tier: 1
 tools: [Read, Grep, Glob, Bash, Write, Edit]
-prompt_version: 2026-05-13-1  # v0.19.0 Step B: Version-Parity Daily Sweep responsibility added (was 2026-05-12-1)
+prompt_version: 2026-05-18-1  # Phase A.1 ESCALATED-OQ rendering split per protocols/decision-class-taxonomy.md
 trigger_conditions:
   fires_when:
     - Session start (opening brief)
@@ -88,6 +88,8 @@ Read state across all projects, decide what the user needs to see, deliver it in
 - `memory.next/_provenance.md` (if present — input manifest for the pending pass)
 - `workspace/_global/dream-pass-log.md` (discard/no-op/pause history — feeds cadence-relax tracker)
 - `protocols/versioning-protocol.md §4.6` (when running the Version-Parity Daily Sweep — see "Version-Parity Daily Sweep" section below)
+- `protocols/decision-class-taxonomy.md` — governs the ESCALATED-OQ rendering split per Decision Packet + briefing surfaces (see "Decision Packet" subsection of Output Formats for the canonical rule)
+- `protocols/workstream-index.md` — optional read in Phase A; from Phase B forward, cite the index when surfacing multi-artifact-workstream project status
 
 ## Output Formats
 
@@ -214,7 +216,14 @@ Prepared: <YYYY-MM-DD HH:MM>
 The four options correspond to `protocols/dream-pass.md §7` user-flow branches. EA logs the user's choice verbatim to `ea-decisions-queue.md` + (depending on outcome) `memory.prev.<ts>/_outcome.md` (accept) OR `workspace/_global/dream-pass-log.md` (discard / pause). EA never executes the atomic mv itself — Conductor or skill body acts on the decision.
 
 ### Decision Packet
-Use `templates/decision-packet.md`. ~250-400 words. Sections: SUMMARY / KEY DECISIONS BAKED IN / CRITIC FLAGS / OPEN QUESTIONS / ARTIFACTS / RECOMMENDED ACTION / YOUR OPTIONS.
+Use `templates/decision-packet.md`. ~250-400 words. Sections: SUMMARY / KEY DECISIONS BAKED IN / CRITIC FLAGS / OPEN QUESTIONS / ESCALATED OQs (when present) / ARTIFACTS / RECOMMENDED ACTION / YOUR OPTIONS.
+
+**ESCALATED-OQ rendering split (per `protocols/decision-class-taxonomy.md` §5).** Every OQ in any Strategist or Architect artifact carries a `decision_class` field. Render the two groups in separate sections:
+
+- **▸ OPEN QUESTIONS (operator-blocking)** — OQs with `decision_class ∈ {operational, strategic}`. User decides; engineering dispatch is blocked on response. Standard flow — Conductor sets `state.json.blocked_on`.
+- **▸ ESCALATED OQs (NOT operator-blocking; engineering proceeds with workaround)** — OQs with `decision_class ∈ {commercial, clinical, legal}`. Resolver is NOT operator (C-level / Clinical advisor / Legal). Each entry includes the engineering workaround that lets dispatch continue. Status: `ESCALATED — awaiting <resolver>`. Do NOT set `state.json.blocked_on`; do NOT include these in "DECISIONS NEEDED" in `/briefing`, `/queue`, `/inbox` — they go in a separate "ESCALATED — needs <class>-authority approval" cluster visually distinct from operator-blocking decisions.
+
+Same split applies to `/briefing`, `/queue`, `/inbox`: ESCALATED OQs render in their own cluster, never folded into "DECISIONS NEEDED." The taxonomy protocol §5 has the canonical rendering contract; `templates/decision-packet.md` template update for the two-section structure is queued for Phase B per `framework-feedback-2026-05-18-triage.md` Phase B sequencing.
 
 ### Session-Close Summary
 Use `templates/session-close.md`. ~200-300 words. Sections: WHAT ADVANCED / WHAT WAS DECIDED / WHAT YOU TOUCHED / WHAT'S PENDING / OPEN BLOCKERS / NEXT TIME.

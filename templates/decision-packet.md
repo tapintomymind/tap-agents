@@ -25,8 +25,16 @@ Prepared: <YYYY-MM-DD HH:MM>
   ⚠ warning: "<concern>" → <addressed | deferred | not addressed>
   ⓘ fyi: "<concern>" → noted
 
-▸ OPEN QUESTIONS (<count>)
-  - <Open item, e.g., "Hosting decision deferred to scaffold step (not blocking)">
+▸ OPEN QUESTIONS (operator-blocking, <count>)
+  OQ-<id> (operational | strategic): <one-line question>  → recommendation: <one-line>
+  OQ-<id> (operational | strategic): <one-line question>  → recommendation: <one-line>
+
+▸ ESCALATED OQs (NOT operator-blocking; engineering proceeds with workaround, <count>)
+  OQ-<id> (commercial | clinical | legal): <one-line question>
+    Resolver: <C-level | Clinical advisor | Legal>
+    Workaround for engineering: <one-line — what dispatch does today>
+    Status: ESCALATED — awaiting <resolver>
+  (omit entire section if no ESCALATED OQs — cardinal-zero rule per protocols/decision-class-taxonomy.md §5)
 
 ▸ ARTIFACTS
   - <path/to/artifact-1.md> — <status>
@@ -76,6 +84,34 @@ Critic flags emphasis: PRD acceptance criteria coverage, deviations from scope, 
 - Word budget enforced — overflow means tighten artifact, not pad packet
 - Never include raw artifacts in packet — link references only
 - Never include speculation or "what if" branches — present what is, not what might be
+
+## Rules — OPEN QUESTIONS vs ESCALATED OQs section split `[protocols/decision-class-taxonomy.md §5]`
+
+**Purpose:** every OQ in any Strategist or Architect artifact carries a `decision_class` field (`operational | strategic | commercial | clinical | legal`) per `protocols/decision-class-taxonomy.md` §4. The packet renders OQs into TWO sections, never one:
+
+- **`▸ OPEN QUESTIONS (operator-blocking)`** — OQs with `decision_class ∈ {operational, strategic}`. User decides; engineering dispatch is blocked on response. Conductor sets `state.json.blocked_on` per the existing flow.
+- **`▸ ESCALATED OQs (NOT operator-blocking; engineering proceeds with workaround)`** — OQs with `decision_class ∈ {commercial, clinical, legal}`. Resolver is NOT operator (C-level, Clinical advisor, Legal). Each entry MUST name the engineering workaround that lets dispatch continue without the resolver's input. Status line reads `ESCALATED — awaiting <resolver>`. Conductor does NOT set `state.json.blocked_on` for ESCALATED OQs.
+
+**Line format for OPEN QUESTIONS (operator-blocking):**
+```
+OQ-<id> (operational | strategic): <one-line question>  → recommendation: <one-line>
+```
+
+**Line format for ESCALATED OQs:**
+```
+OQ-<id> (commercial | clinical | legal): <one-line question>
+  Resolver: <C-level | Clinical advisor | Legal>
+  Workaround for engineering: <one-line — what dispatch does today>
+  Status: ESCALATED — awaiting <resolver>
+```
+
+**Cardinal-zero rule:** if no ESCALATED OQs exist for this packet, omit the entire `▸ ESCALATED OQs` section. Do NOT render a "0 ESCALATED" line; omission is the convention per `agents/executive-assistant.md` rendering rules. The operator-blocking `▸ OPEN QUESTIONS` section is rendered even when count is 0 (the section is structurally required; the count line uses `(operator-blocking, 0)`).
+
+**Forbidden:** rendering ESCALATED OQs in the same section as operator-blocking OQs. The split exists because the engineering-flow consequence is different — operator-blocking OQs gate `state.json.blocked_on`, ESCALATED OQs do not. EA's `/briefing`, `/queue`, `/inbox` surfaces apply the same split per `protocols/decision-class-taxonomy.md` §5.
+
+**Forbidden:** ESCALATED OQ without a `Workaround for engineering:` line. If the engineering work genuinely cannot proceed without the commercial/clinical/legal answer, the slice is mis-scoped — split off the dependent surface and proceed with the independent portion. ESCALATED status without a workaround is a Critic blocking concern per the protocol §12 forbidden behaviors.
+
+---
 
 ## Rules — POST-APPROVAL CHANGES section `[prd rev-4 §11 Risk 9]` `[scope rev-3 §2 M5.3.a]`
 
