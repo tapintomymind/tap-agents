@@ -2,16 +2,23 @@
  * version-parity-audit.ts
  *
  * §4.6 cross-channel parity audit. EA runs this daily; surfaces any divergence
- * between local tags / remote tags / npm versions / GitHub Releases that
- * operator-side polling (Gate 5 / `/release` Step 6a-6f) AND the post-publish
+ * between local tags / remote tags / npm versions / GitHub Releases / main-ancestry
+ * that operator-side polling (Gate 5 / `/release` Step 9a-9f) AND the post-publish
  * CI workflow (`.github/workflows/verify-publish.yml`) missed.
  *
- * Channels audited (all four must agree for parity):
+ * Channels audited (all five must agree for parity):
  *
  *   1. Local tags           — `git -C <repo> tag -l 'v*'`
  *   2. Remote tags          — `git -C <repo> ls-remote --tags origin 'v*'`
  *   3. npm versions         — `npm view @tapintomymind/tap-agents versions --json`
  *   4. GitHub Releases      — `gh release list --repo tapintomymind/tap-agents --limit 50 --json tagName`
+ *   5. Main ancestry        — `git -C <repo> merge-base --is-ancestor v<v> origin/main`
+ *                             for every version v in npm. Catches post-publish
+ *                             ancestry breaks (force-push class) — Layer A's
+ *                             CI gate fires only at publish-time; this is the
+ *                             portfolio-wide periodic catch. Added v0.24.0 per
+ *                             workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md
+ *                             §3.5.
  *
  * Known orphans (documented in CHANGELOG; tolerated with annotation):
  *
@@ -51,7 +58,7 @@
  *   # Override repo path:
  *   tsx scripts/version-parity-audit.ts --repo-path /path/to/tap-agents
  *
- *   # JSON output (for EA parsing, agent-dashboard ingestion, etc.):
+ *   # JSON output (for EA parsing, tapagents-app ingestion, etc.):
  *   tsx scripts/version-parity-audit.ts --json
  *
  * Style: mirrors `scripts/test-changelog-format.ts` (tsx + node:assert/strict;
@@ -93,7 +100,10 @@ const GH_REPO = "tapintomymind/tap-agents";
  */
 const KNOWN_ORPHANS: Record<
   string,
-  { missing_from: Array<"local" | "remote" | "npm" | "releases">; reason: string }
+  {
+    missing_from: Array<"local" | "remote" | "npm" | "releases" | "main-ancestry">;
+    reason: string;
+  }
 > = {
   "0.15.0": {
     // Tag exists local-only in tap-agents/ (never pushed to origin). publish.yml
@@ -101,6 +111,9 @@ const KNOWN_ORPHANS: Record<
     // Releases consequently never received the version. The CHANGELOG note in
     // v0.18.0 documents this as "treated as permanent absent contrary signal":
     // republishing would publish-date-AFTER v0.16.0+ and add confusion.
+    // Note: 0.15.0 is also missing from main-ancestry by definition (npm slot
+    // is empty), but the fifth channel doesn't check absent-from-npm versions —
+    // see §"Main-ancestry channel" below.
     missing_from: ["remote", "npm", "releases"],
     reason:
       "Local-only tag in tap-agents/; never pushed to origin (the orphan-tag class). publish.yml never fired; npm + GH Releases never received. Permanent absence per v0.17.0 + v0.18.0 CHANGELOG — republishing would publish-date-AFTER v0.16.0+ and add confusion.",
@@ -113,6 +126,13 @@ const KNOWN_ORPHANS: Record<
     reason:
       "Tag on local + remote; publish.yml ran but failed at npm publish step (pre-Trusted-Publishing-OIDC migration). OIDC fix shipped in v0.9.0. Documented in v0.18.0 Gate 5 proposal Cost/risk section as one of the 5 incident classes.",
   },
+  // pre-trunk-discipline-era releases (v0.8.x through v0.23.0) may have
+  // historically been tagged off non-main branches and never back-merged.
+  // Layer A + the audit's fifth channel start being authoritative as of v0.24.0;
+  // earlier versions are annotated when their `main-ancestry` channel shows
+  // missing — they're pre-trunk-discipline-era artifacts, not active divergences.
+  // The annotation is dynamic (added at runtime if the only missing channel is
+  // main-ancestry AND the version is < 0.24.0); see annotation logic below.
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,11 +191,12 @@ Options:
   --json              Emit machine-readable JSON output (default: human-readable)
   -h, --help          Show this help
 
-Channels audited (all four must agree for parity):
+Channels audited (all five must agree for parity):
   1. Local tags       (git tag -l 'v*' in <repo-path>)
   2. Remote tags      (git ls-remote --tags origin 'v*' in <repo-path>)
   3. npm versions     (npm view ${PKG_NAME} versions --json)
   4. GitHub Releases  (gh release list --repo ${GH_REPO} --limit 50)
+  5. Main ancestry    (git merge-base --is-ancestor v<v> origin/main for every npm version)
 
 Exit codes:
   0   Parity confirmed (zero unknown divergences; known-orphans annotated)
@@ -300,6 +321,83 @@ function readGhReleases(): string[] {
   }
 }
 
+/**
+ * Read main-ancestry for every npm-published version. Returns the SET of
+ * versions whose tag is an ancestor of `origin/main`. A version present in
+ * npm but absent from this set is a trunk-drift divergence (the v0.23.0
+ * incident class) — codified as Layer A in publish.yml from v0.24.0
+ * onward; this channel is the portfolio-wide periodic catch for cases
+ * where ancestry breaks post-publish (force-push class).
+ *
+ * Implementation: for each npm version v, run
+ *   git -C <repo> merge-base --is-ancestor v<v> origin/main
+ * and include v in the result if the command exits 0.
+ *
+ * Performance: per Critic 2026-05-19 F4, ~24 git ops add ~1-1.5s total
+ * latency — negligible. No pagination needed.
+ *
+ * Edge cases:
+ * - A version in npm but NOT in local tags (e.g., pre-trunk-discipline-era
+ *   archaeology) returns false for the ancestor check (tag ref missing
+ *   locally). We skip such versions and surface a warning rather than
+ *   misclassify.
+ * - A version in local tags but NOT in npm is not checked here (the
+ *   fifth channel only audits npm-published versions, per architect §3.5).
+ */
+function readMainAncestry(repoPath: string, npmVersions: string[]): string[] {
+  const ancestral: string[] = [];
+  // Ensure origin/main is fresh.
+  try {
+    execSync(`git -C "${repoPath}" fetch origin main`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (err) {
+    // Non-fatal — proceed against whatever origin/main is. The audit prefers
+    // not to fail-loud here because some environments cap fetch frequency.
+    // Surface as a soft warning in human output rather than aborting.
+    console.error(
+      `[soft-warn] readMainAncestry: \`git fetch origin main\` failed (${
+        err instanceof Error ? err.message : String(err)
+      }); proceeding against stale origin/main.`,
+    );
+  }
+
+  for (const version of npmVersions) {
+    const tagRef = `v${version}`;
+    // Verify the tag exists locally (else merge-base --is-ancestor would
+    // fail for "unknown revision" reasons, not for ancestry reasons).
+    try {
+      execSync(`git -C "${repoPath}" rev-parse "${tagRef}^{commit}"`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } catch {
+      // Tag not present locally. We can't determine ancestry from this
+      // checkout. Skip — the local channel will already flag this as a
+      // divergence under its own pattern (present-in-npm-missing-from-local
+      // is the "non-canonical-checkout publish" remediation hint).
+      continue;
+    }
+
+    try {
+      execSync(
+        `git -C "${repoPath}" merge-base --is-ancestor "${tagRef}" origin/main`,
+        {
+          encoding: "utf-8",
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+      // Exit 0 → ancestor.
+      ancestral.push(version);
+    } catch {
+      // Exit non-zero → not an ancestor. Leave out of ancestral set.
+      // Surfaces as `missing from [main-ancestry]` in divergence output.
+    }
+  }
+  return ancestral;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SemVer ordering
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,8 +423,14 @@ function compareSemVer(a: string, b: string): number {
 // Divergence analysis
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Channel = "local" | "remote" | "npm" | "releases";
-const ALL_CHANNELS: Channel[] = ["local", "remote", "npm", "releases"];
+type Channel = "local" | "remote" | "npm" | "releases" | "main-ancestry";
+const ALL_CHANNELS: Channel[] = [
+  "local",
+  "remote",
+  "npm",
+  "releases",
+  "main-ancestry",
+];
 
 interface ChannelPresence {
   version: string;
@@ -334,6 +438,7 @@ interface ChannelPresence {
   remote: boolean;
   npm: boolean;
   releases: boolean;
+  "main-ancestry": boolean;
 }
 
 interface Divergence {
@@ -345,33 +450,67 @@ interface Divergence {
 }
 
 /**
+ * The first version that ships under the Layer A + Layer B trunk-discipline
+ * mechanical floor. Pre-this versions (v0.8.x through v0.23.0) shipped without
+ * Layer A's ancestry guard; their tags may have been on non-main branches.
+ * The audit's fifth channel surfaces such absences but annotates them as
+ * pre-trunk-discipline-era artifacts when the only missing channel is
+ * `main-ancestry` AND the version is < TRUNK_DISCIPLINE_FROM. Active
+ * post-v0.24.0 violations surface as unknown divergences.
+ */
+const TRUNK_DISCIPLINE_FROM = "0.24.0";
+
+/**
  * Build the channel-presence table for the union of all versions across all
- * four channels.
+ * five channels.
+ *
+ * Main-ancestry semantics: only set true for versions present in npm AND
+ * confirmed ancestor of origin/main. For non-npm versions, main-ancestry is
+ * trivially true (the channel only meaningfully applies to published tags).
+ * This keeps the divergence logic from spuriously flagging
+ * "absent-from-npm-and-from-main-ancestry" pairings.
  */
 function buildPresenceTable(
   local: string[],
   remote: string[],
   npm: string[],
   releases: string[],
+  mainAncestry: string[],
 ): ChannelPresence[] {
-  const allVersions = new Set<string>([...local, ...remote, ...npm, ...releases]);
+  const allVersions = new Set<string>([
+    ...local,
+    ...remote,
+    ...npm,
+    ...releases,
+    ...mainAncestry,
+  ]);
   const sorted = Array.from(allVersions).sort(compareSemVer);
   const localSet = new Set(local);
   const remoteSet = new Set(remote);
   const npmSet = new Set(npm);
   const releasesSet = new Set(releases);
+  const ancestrySet = new Set(mainAncestry);
   return sorted.map((version) => ({
     version,
     local: localSet.has(version),
     remote: remoteSet.has(version),
     npm: npmSet.has(version),
     releases: releasesSet.has(version),
+    // Main-ancestry only applies to npm-published versions. For non-npm
+    // versions (orphan tags, archaeology), treat as trivially "ok" to avoid
+    // double-counting them as missing-from-main-ancestry when they're
+    // already flagged as missing-from-npm. The channel semantically asks:
+    // "for every npm-published version, is its tag on main?" — versions
+    // outside npm are out of scope of that question.
+    "main-ancestry": ancestrySet.has(version) || !npmSet.has(version),
   }));
 }
 
 /**
  * Identify divergent versions (present in 1+ channels, missing from 1+ others).
- * Annotate each with known-orphan status if matching `KNOWN_ORPHANS`.
+ * Annotate each with known-orphan status if matching `KNOWN_ORPHANS`, OR with
+ * the dynamic pre-trunk-discipline-era annotation if the only missing channel
+ * is `main-ancestry` AND the version is < TRUNK_DISCIPLINE_FROM.
  */
 function findDivergences(presence: ChannelPresence[]): Divergence[] {
   const divergences: Divergence[] = [];
@@ -384,19 +523,44 @@ function findDivergences(presence: ChannelPresence[]): Divergence[] {
       continue;
     }
     const orphan = KNOWN_ORPHANS[entry.version];
-    const is_known_orphan =
-      orphan !== undefined &&
-      // The actual missing channels must match (or be a subset of) the
-      // documented missing channels for the orphan annotation to apply.
-      // If a known-orphan version unexpectedly becomes missing from a NEW
-      // channel, that's a real divergence — surface as unknown.
-      missing_from.every((c) => orphan.missing_from.includes(c));
+    let is_known_orphan = false;
+    let known_orphan_reason: string | null = null;
+
+    if (orphan !== undefined) {
+      // Static annotation. The actual missing channels must match (or be a
+      // subset of) the documented missing channels for the orphan annotation
+      // to apply. If a known-orphan version unexpectedly becomes missing
+      // from a NEW channel, that's a real divergence — surface as unknown.
+      is_known_orphan = missing_from.every((c) =>
+        orphan.missing_from.includes(c),
+      );
+      if (is_known_orphan) {
+        known_orphan_reason = orphan.reason;
+      }
+    }
+
+    if (!is_known_orphan) {
+      // Dynamic annotation for pre-trunk-discipline-era versions: if the only
+      // missing channel is `main-ancestry` AND the version is < TRUNK_DISCIPLINE_FROM,
+      // annotate as a pre-trunk-discipline-era artifact rather than failing
+      // the audit. These versions shipped before Layer A; their tag/main
+      // ancestry is historical state, not an active divergence requiring action.
+      const onlyMissingMainAncestry =
+        missing_from.length === 1 && missing_from[0] === "main-ancestry";
+      const isPreTrunkDiscipline =
+        compareSemVer(entry.version, TRUNK_DISCIPLINE_FROM) < 0;
+      if (onlyMissingMainAncestry && isPreTrunkDiscipline) {
+        is_known_orphan = true;
+        known_orphan_reason = `Pre-trunk-discipline-era artifact (v${entry.version} shipped before Layer A ancestry guard landed in v${TRUNK_DISCIPLINE_FROM}). Tag is on origin + npm + releases but not an ancestor of current origin/main — historical state, not an active divergence. Layer A enforces ancestry on all releases from v${TRUNK_DISCIPLINE_FROM} forward.`;
+      }
+    }
+
     divergences.push({
       version: entry.version,
       missing_from,
       present_in,
       is_known_orphan,
-      known_orphan_reason: is_known_orphan ? orphan!.reason : null,
+      known_orphan_reason,
     });
   }
   return divergences;
@@ -416,6 +580,7 @@ function renderHuman(
   remote: string[],
   npm: string[],
   releases: string[],
+  mainAncestry: string[],
   divergences: Divergence[],
   unknownCount: number,
   knownCount: number,
@@ -433,6 +598,7 @@ function renderHuman(
   const sortedRemote = [...remote].sort(compareSemVer);
   const sortedNpm = [...npm].sort(compareSemVer);
   const sortedReleases = [...releases].sort(compareSemVer);
+  const sortedAncestry = [...mainAncestry].sort(compareSemVer);
 
   const compactList = (versions: string[]): string => {
     if (versions.length === 0) return "(none)";
@@ -455,6 +621,11 @@ function renderHuman(
     `GH Releases:   ${compactList(
       sortedReleases,
     )}  (count: ${sortedReleases.length})`,
+  );
+  console.log(
+    `Main-ancestry: ${compactList(
+      sortedAncestry,
+    )}  (count: ${sortedAncestry.length} of ${sortedNpm.length} npm versions)`,
   );
   console.log("");
 
@@ -512,6 +683,22 @@ function renderHuman(
 function remediationHint(div: Divergence): string {
   const m = new Set(div.missing_from);
   const p = new Set(div.present_in);
+
+  // Main-ancestry-specific hints come first because they're the v0.24.0
+  // addition and the v0.23.0 incident-class detector.
+  if (
+    m.has("main-ancestry") &&
+    p.has("npm") &&
+    p.has("local") &&
+    p.has("remote") &&
+    p.has("releases")
+  ) {
+    return `Tag is on origin + npm + GH Release but NOT an ancestor of origin/main (the v0.23.0 trunk-drift class). Either main was force-pushed after publish and rewrote history, OR the tag was created on a parallel branch and main was never back-merged. Remediate: investigate force-push history with \`git reflog show origin/main\`; if a legitimate merge is missing, back-merge the source branch into main. If the tag was on a duplicate-fork sibling commit, see commands/release.md Layer A error message for the tag-move recovery path.`;
+  }
+  if (m.has("main-ancestry") && !p.has("npm")) {
+    return `Main-ancestry channel reports missing for v${div.version}, but the version is not in npm — the fifth channel only meaningfully applies to npm-published versions and should not have fired here. This is likely an audit-script bug; investigate.`;
+  }
+
   if (m.has("remote") && p.has("local")) {
     return `Tag exists locally but not on origin (the v0.15.0 class). Remediate: git push origin v${div.version}`;
   }
@@ -536,6 +723,7 @@ function renderJson(
   remote: string[],
   npm: string[],
   releases: string[],
+  mainAncestry: string[],
   divergences: Divergence[],
   unknownCount: number,
   knownCount: number,
@@ -549,12 +737,14 @@ function renderJson(
       remote_tags: [...remote].sort(compareSemVer),
       npm_versions: [...npm].sort(compareSemVer),
       gh_releases: [...releases].sort(compareSemVer),
+      main_ancestry: [...mainAncestry].sort(compareSemVer),
     },
     counts: {
       local: local.length,
       remote: remote.length,
       npm: npm.length,
       releases: releases.length,
+      main_ancestry: mainAncestry.length,
     },
     divergences,
     summary: {
@@ -578,12 +768,15 @@ function main(): void {
   let remote: string[];
   let npm: string[];
   let releases: string[];
+  let mainAncestry: string[];
 
   try {
     local = readLocalTags(args.repoPath);
     remote = readRemoteTags(args.repoPath);
     npm = readNpmVersions();
     releases = readGhReleases();
+    // Fifth channel — must read after npm because it iterates npm versions.
+    mainAncestry = readMainAncestry(args.repoPath, npm);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (args.json) {
@@ -611,7 +804,7 @@ function main(): void {
     process.exit(2);
   }
 
-  const presence = buildPresenceTable(local, remote, npm, releases);
+  const presence = buildPresenceTable(local, remote, npm, releases, mainAncestry);
   const divergences = findDivergences(presence);
   const knownCount = divergences.filter((d) => d.is_known_orphan).length;
   const unknownCount = divergences.filter((d) => !d.is_known_orphan).length;
@@ -623,6 +816,7 @@ function main(): void {
       remote,
       npm,
       releases,
+      mainAncestry,
       divergences,
       unknownCount,
       knownCount,
@@ -634,6 +828,7 @@ function main(): void {
       remote,
       npm,
       releases,
+      mainAncestry,
       divergences,
       unknownCount,
       knownCount,

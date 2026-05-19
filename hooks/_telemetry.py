@@ -226,126 +226,6 @@ def emit_event(
         return
 
 
-def emit_harness_block(
-    *,
-    tool_name: str,
-    tool_input: dict,
-    denial_source: str,
-    denial_message: str,
-    agent_context: str,
-    agent_type: str | None,
-    agent_id: str | None,
-    session_id: str | None,
-) -> None:
-    """Emit a harness/permission-denial event to events.jsonl.
-
-    Wired by `permission-denial-capture.py` (PostToolUse + PostToolUseFailure +
-    PermissionDenied chain) to close the telemetry coverage gap surfaced by the
-    2026-05-12 BL-060 curator-dispatch arc (see
-    `workspace/_global/org-designer-proposals/2026-05-12-curator-vocab-harness.md`
-    §2.5). Harness-layer denials and Claude Code permission-mode denials are NOT
-    framework hook firings — they originate outside the framework's PreToolUse
-    chain. Capturing them gives Org Designer the signal needed to detect
-    harness-classifier misfires and to escalate harness team bug reports with
-    concrete repro data.
-
-    Schema mirrors `emit_event` (same on-disk file, same readers can consume both):
-
-        {
-          "ts": "<iso8601-z>",
-          "session_id": "<from-hook-payload-or-unknown>",
-          "source": "permission-denial-capture",
-          "type": "block",
-          "subtype": "harness-or-permission",
-          "agent_context": "orchestrator"|"subagent",
-          "agent_type": "<name>"|null,
-          "agent_id":   "<id>"|null,
-          "payload": {
-            "tool_name":      "Edit"|"Write"|"Bash"|...,
-            "denial_source":  "framework-hook"|"permissions-deny"|"claude-code-permission"|"unknown",
-            "denial_message": "<first-500-chars-of-stderr-or-error>",
-            "summary":        "<one-line-rollup-for-quick-grep>",
-            "file_path":      "<from-tool_input-if-Edit/Write>"|null,
-            "bash_command":   "<from-tool_input-if-Bash-truncated-to-200>"|null
-          }
-        }
-
-    Args:
-        tool_name: The blocked tool (Edit | Write | Bash | NotebookEdit | ...).
-            Becomes payload.tool_name and informs the path/command extraction.
-        tool_input: The tool_input dict from the PostToolUse / PermissionDenied
-            payload. Used to pull `file_path` (for Edit/Write) or `command`
-            (for Bash) for forensic detail.
-        denial_source: Classification of where the denial originated:
-              "framework-hook"          — our PreToolUse gate or another framework hook fired
-              "permissions-deny"        — settings.json `permissions.deny` rule matched
-              "claude-code-permission"  — Claude Code's permission mode (default | acceptEdits | auto) denied
-              "unknown"                 — pattern matched but origin couldn't be classified
-        denial_message: The literal stderr / error / reason text from the
-            tool_response (truncated to first 500 chars in the helper).
-        agent_context: "orchestrator" or "subagent" — derived by the hook from
-            the payload's `agent_id`/`agent_type` fields (subagent iff set).
-        agent_type: Subagent type name if agent_context == "subagent"; None
-            for orchestrator-thread events.
-        agent_id: Subagent id if available; None otherwise.
-        session_id: From the hook payload's `session_id` field if present;
-            "unknown" otherwise. Used downstream by stop hooks and dashboard.
-
-    Fail-open: every branch in the implementation catches and swallows
-    exceptions. Telemetry is best-effort; the calling hook's pass behavior
-    (PostToolUse never blocks; exit 0 always) must not be affected.
-    """
-    try:
-        # Build payload with forensic extras (file_path for Edit/Write,
-        # bash_command for Bash). Truncate the denial_message to a 500-char
-        # bound — longer than the standard summary cap because the literal
-        # stderr is the load-bearing forensic detail, but still bounded so
-        # one runaway error doesn't bloat events.jsonl.
-        safe_message = denial_message if isinstance(denial_message, str) else str(denial_message or "")
-        if len(safe_message) > 500:
-            safe_message = safe_message[:499] + "…"
-
-        file_path: str | None = None
-        bash_command: str | None = None
-        if isinstance(tool_input, dict):
-            fp = tool_input.get("file_path")
-            if isinstance(fp, str) and fp:
-                file_path = fp
-            cmd = tool_input.get("command")
-            if isinstance(cmd, str) and cmd:
-                # Truncate Bash command to 200 chars for forensic context
-                bash_command = cmd if len(cmd) <= 200 else cmd[:199] + "…"
-
-        # One-line summary — what consumers see in /events.jsonl tail.
-        summary_bits = [f"{tool_name} denied ({denial_source})"]
-        if file_path:
-            summary_bits.append(f"on {file_path}")
-        elif bash_command:
-            summary_bits.append(f"cmd={bash_command[:80]}")
-        summary = " ".join(summary_bits)
-
-        emit_event(
-            source="permission-denial-capture",
-            type="block",
-            subtype="harness-or-permission",
-            agent_context=agent_context,
-            agent_type=agent_type,
-            agent_id=agent_id,
-            payload={
-                "tool_name": tool_name,
-                "denial_source": denial_source,
-                "denial_message": safe_message,
-                "summary": summary,
-                "file_path": file_path,
-                "bash_command": bash_command,
-            },
-            session_id=session_id,
-        )
-    except Exception:
-        # Fail-open: telemetry must never break the hook chain.
-        return
-
-
 def emit_misfire(
     *,
     source: str,
@@ -425,4 +305,279 @@ def emit_misfire(
         # Fail-open: even the misfire writer must not raise. If the misfire
         # writer itself misfires, that signal is permanently lost — accepted
         # tradeoff vs. recursion / second-order error storms.
+        return
+
+
+# ---------------------------------------------------------------------------
+# emit_event_http — cloud-mirror sibling helper to emit_event()
+# ---------------------------------------------------------------------------
+#
+# Added in v0.24.0. Composes alongside emit_event() (does NOT replace).
+# When TAPAGENTS_LIVE_TOKEN is set in the environment, the helper batches
+# events in-process and POSTs them to a configurable ingest URL. Fails open
+# on every error path — never raises, never blocks the calling hook.
+
+import atexit
+import threading
+import urllib.error
+import urllib.request
+
+# In-process batching state. Module-level so a single process accumulates
+# across many hook invocations; threadsafe via _BATCH_LOCK.
+_BATCH: list[dict] = []
+_BATCH_LOCK = threading.Lock()
+_BATCH_TIMER: threading.Timer | None = None
+
+# Flush thresholds — flush whichever fires first.
+_BATCH_SIZE_THRESHOLD = 20         # events
+_BATCH_TIME_THRESHOLD_SECONDS = 5  # seconds since first event in current batch
+
+# Default ingest URL. Operators override via TAPAGENTS_LIVE_INGEST_URL env var
+# for self-hosted or preview-environment targeting.
+_DEFAULT_INGEST_URL = "https://tapagents.ai/api/account/tapagents-live/ingest"
+
+# One-time-per-process warn flags so a missing env var or recurring HTTP
+# failure does not spam stderr on every call.
+_WARNED_MISSING_TOKEN = False
+_WARNED_MISSING_URL = False
+_ATEXIT_REGISTERED = False
+
+
+def _http_post_json(url: str, body: dict, *, token: str, timeout: float = 5.0) -> None:
+    """Best-effort JSON POST. Raises on any HTTP error; caller must catch.
+
+    Pure stdlib (urllib). Keeps the helper dependency-free so it works inside
+    every framework consumer regardless of their installed packages.
+    """
+    data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "tap-agents/emit_event_http",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        # Drain response body so the connection can be released cleanly.
+        # We do NOT inspect or surface the body — fail-open contract.
+        resp.read()
+
+
+def _flush_batch_locked() -> None:
+    """Flush the current batch via one HTTP POST. Caller holds _BATCH_LOCK.
+
+    Reads env vars at flush time (not import time) so operators can set them
+    after the process starts. On missing env vars or HTTP failure, the batch
+    is silently dropped — fail-open per the existing emit_event() contract.
+    Local emit_event() writes are the source of truth; this is a cloud mirror.
+    """
+    global _BATCH, _BATCH_TIMER, _WARNED_MISSING_TOKEN, _WARNED_MISSING_URL
+
+    # Cancel any pending timer — we are flushing now.
+    if _BATCH_TIMER is not None:
+        _BATCH_TIMER.cancel()
+        _BATCH_TIMER = None
+
+    if not _BATCH:
+        return
+
+    pending = _BATCH
+    _BATCH = []
+
+    token = os.environ.get("TAPAGENTS_LIVE_TOKEN")
+    if not token:
+        if not _WARNED_MISSING_TOKEN:
+            _WARNED_MISSING_TOKEN = True
+            # Stderr-only, one time per process. Never raises.
+            try:
+                import sys
+                print(
+                    "[tap-agents-live-emit] TAPAGENTS_LIVE_TOKEN not set; "
+                    "cloud mirror disabled (local emit_event continues normally).",
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
+        return
+
+    url = os.environ.get("TAPAGENTS_LIVE_INGEST_URL", _DEFAULT_INGEST_URL)
+    if not url:
+        if not _WARNED_MISSING_URL:
+            _WARNED_MISSING_URL = True
+            try:
+                import sys
+                print(
+                    "[tap-agents-live-emit] TAPAGENTS_LIVE_INGEST_URL empty; "
+                    "cloud mirror disabled.",
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
+        return
+
+    body = {"events": pending}
+    try:
+        _http_post_json(url, body, token=token)
+    except Exception:
+        # Fail-open. The batch is permanently lost (no retry) by design —
+        # local emit_event() already wrote the rows to events.jsonl, so the
+        # local copy is the source of truth and a dropped cloud mirror does
+        # not lose data, just one cloud-side replica.
+        return
+
+
+def _schedule_time_flush_locked() -> None:
+    """If no flush timer is running, start one. Caller holds _BATCH_LOCK."""
+    global _BATCH_TIMER
+    if _BATCH_TIMER is not None:
+        return
+
+    def _timer_callback() -> None:
+        try:
+            with _BATCH_LOCK:
+                _flush_batch_locked()
+        except Exception:
+            return
+
+    t = threading.Timer(_BATCH_TIME_THRESHOLD_SECONDS, _timer_callback)
+    t.daemon = True  # do not block process exit
+    try:
+        t.start()
+        _BATCH_TIMER = t
+    except Exception:
+        # If Timer creation/start fails (rare; resource limits), skip — the
+        # next emit_event_http call will retry, and atexit will drain at end.
+        return
+
+
+def _atexit_flush() -> None:
+    """Drain any pending batch on process exit. Registered once per process."""
+    try:
+        with _BATCH_LOCK:
+            _flush_batch_locked()
+    except Exception:
+        return
+
+
+def flush_pending() -> None:
+    """Explicit drain of any pending batch. Public — usable by test harnesses
+    and graceful-shutdown paths that want a synchronous flush.
+
+    Fail-open: any exception is swallowed.
+    """
+    try:
+        with _BATCH_LOCK:
+            _flush_batch_locked()
+    except Exception:
+        return
+
+
+def emit_event_http(
+    *,
+    source: str,
+    event_type: str,
+    event_subtype: str | None = None,
+    session_id: str | None = None,
+    project_slug: str | None = None,
+    agent_context: str | None = None,
+    agent_type: str | None = None,
+    agent_id: str | None = None,
+    payload: dict | None = None,
+    ts: str | None = None,
+) -> None:
+    """Fire-and-forget cloud-mirror of one telemetry event.
+
+    Sibling to ``emit_event()``. Adds the event to an in-process batch;
+    when the batch reaches 20 events or 5 seconds elapse since the first
+    event in the batch, the batch is POSTed once to
+    ``TAPAGENTS_LIVE_INGEST_URL`` with ``Authorization: Bearer
+    $TAPAGENTS_LIVE_TOKEN``. On process exit an atexit hook drains any
+    remaining batch.
+
+    Fails OPEN on every error path:
+      - missing env var → no-op (warn once to stderr per process)
+      - network error / 4xx / 5xx / timeout → batch silently dropped
+      - any internal exception → swallowed
+
+    The local ``emit_event()`` call is the source of truth for telemetry;
+    ``emit_event_http()`` is a best-effort cloud mirror. Hooks that need
+    both should call both — local first, then HTTP — so a cloud-side
+    failure never affects the local audit trail.
+
+    Args (mirror ``emit_event()`` keyword surface, with two additions):
+        source: Hook / emitter name (e.g. ``"orchestrator-dispatch-gate"``).
+        event_type: High-level event class. Same vocabulary as
+            ``emit_event(type=...)``: ``block | pass | fire | classify |
+            rollup | nudge_ignored``.
+        event_subtype: Qualifier within ``event_type``. Optional.
+        session_id: From the hook payload's ``session_id`` field if present.
+            "unknown" if absent. Used by the cloud aggregator to thread events
+            into a single Tap Agents Live session view.
+        project_slug: Project slug if the emitting hook is Tier 2 inside a
+            workspace; ``None`` for Tier 1 / framework-level emits. Optional;
+            additive surface beyond ``emit_event()``.
+        agent_context: "orchestrator" or "subagent" — derived by the calling
+            hook from the PreToolUse ``agent_id``/``agent_type`` payload fields.
+        agent_type: Subagent type name if ``agent_context == "subagent"``.
+        agent_id: Subagent id if available.
+        payload: Free-shape dict. The ``summary`` field, if present, is
+            truncated to ``SUMMARY_MAX_CHARS`` (200) for parity with
+            ``emit_event()``.
+        ts: ISO 8601 UTC timestamp with trailing Z. Defaults to now() if
+            absent — same formatting as ``emit_event()`` events.
+
+    Env vars (read at flush time, NOT import time):
+        TAPAGENTS_LIVE_TOKEN: Per-machine bearer token (required; absent →
+            no-op).
+        TAPAGENTS_LIVE_INGEST_URL: Override the default ingest URL. Defaults
+            to ``https://tapagents.ai/api/account/tapagents-live/ingest``.
+
+    Returns: ``None``. Never raises.
+    """
+    global _ATEXIT_REGISTERED
+    try:
+        safe_payload = dict(payload) if isinstance(payload, dict) else {}
+        if "summary" in safe_payload:
+            safe_payload["summary"] = _truncate(safe_payload["summary"])
+
+        event: dict = {
+            "ts": ts or _now_iso(),
+            "session_id": session_id or "unknown",
+            "source": source,
+            "event_type": event_type,
+        }
+        if event_subtype is not None:
+            event["event_subtype"] = event_subtype
+        if project_slug is not None:
+            event["project_slug"] = project_slug
+        if agent_context is not None:
+            event["agent_context"] = agent_context
+        if agent_type is not None:
+            event["agent_type"] = agent_type
+        if agent_id is not None:
+            event["agent_id"] = agent_id
+        if safe_payload:
+            event["payload"] = safe_payload
+
+        with _BATCH_LOCK:
+            if not _ATEXIT_REGISTERED:
+                # Register the drain hook lazily on first use so importing
+                # the module is side-effect-free for consumers who never
+                # call emit_event_http().
+                try:
+                    atexit.register(_atexit_flush)
+                    _ATEXIT_REGISTERED = True
+                except Exception:
+                    pass
+
+            _BATCH.append(event)
+            if len(_BATCH) >= _BATCH_SIZE_THRESHOLD:
+                _flush_batch_locked()
+            else:
+                _schedule_time_flush_locked()
+    except Exception:
+        # Fail-open: telemetry must never break the hook chain.
         return

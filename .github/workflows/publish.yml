@@ -64,6 +64,120 @@ jobs:
           fi
           echo "Tag and package versions aligned at $PKG_VERSION."
 
+      - name: Validate tagged commit is an ancestor of origin/main
+        # Layer A of trunk-discipline (workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md).
+        # Refuses to publish if the tag was created on a feature branch and main was never
+        # back-merged. This is the mechanical floor under the /release Layer B flow + the
+        # memory-note discipline (feedback_trunk_must_reflect_published_state.md).
+        #
+        # The check dereferences the tag to its commit SHA via `git rev-parse
+        # "${GITHUB_REF_NAME}^{commit}"` (invariant to lightweight vs annotated tag
+        # shape — W2 of Critic 2026-05-19), then `git fetch origin main` (no --depth;
+        # the checkout above used fetch-depth: 0 so origin/main is already fully
+        # fetched — W3 of Critic) + `git merge-base --is-ancestor`. Fails LOUD (exits
+        # non-zero before npm publish) so an orphan-trunk release is impossible by
+        # construction.
+        #
+        # Override token (commit message): `[trunk-discipline-override: <reason>]`.
+        # The override is intentionally heavyweight — must land in the release commit's
+        # own message (visible in `gh release view` and git log). Reserved for genuine
+        # hotfix scenarios where back-merging to main first is operationally infeasible.
+        # Override regex mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN shape
+        # (W4 of Critic) — leading whitespace tolerated; reason must be non-empty after
+        # strip; closing bracket required.
+        run: |
+          set -euo pipefail
+
+          # Dereference the tag to its target commit SHA. Works for both annotated
+          # (`git tag -a`) and lightweight tags. Bare ${GITHUB_SHA} is mostly correct
+          # under push:tags events but has sharp edges for lightweight tags; this
+          # form is invariant to tag shape.
+          TAG_SHA=$(git rev-parse "${GITHUB_REF_NAME}^{commit}")
+          TAG_NAME="${GITHUB_REF_NAME}"
+          echo "Tagged commit: ${TAG_SHA} (${TAG_NAME})"
+
+          # Fetch origin/main fresh. The checkout step above used fetch-depth: 0 so the
+          # repo is already unshallow; do NOT pass --depth here (re-shallowing an
+          # unshallow checkout is silently ignored on most git versions and warns on
+          # recent ones — W3).
+          git fetch origin main
+
+          MAIN_SHA=$(git rev-parse origin/main)
+          echo "origin/main HEAD: ${MAIN_SHA}"
+
+          # Override-token check on the tagged commit's message. Pattern mirrors
+          # hooks/sync-discipline-gate.py OVERRIDE_PATTERN: leading whitespace
+          # tolerated; reason captured between colon and closing bracket; reason
+          # must be non-empty after strip.
+          COMMIT_MSG=$(git log -1 --format=%B "${TAG_SHA}")
+          OVERRIDE_MATCH=$(echo "${COMMIT_MSG}" | grep -oE '\[trunk-discipline-override:[[:space:]]*[^]]+\]' | head -1 || true)
+          if [ -n "${OVERRIDE_MATCH}" ]; then
+            # Extract the reason text (between the colon and the closing bracket),
+            # strip leading/trailing whitespace, and verify non-empty.
+            OVERRIDE_REASON=$(echo "${OVERRIDE_MATCH}" \
+              | sed -E 's/^\[trunk-discipline-override:[[:space:]]*//; s/\][[:space:]]*$//' \
+              | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+            if [ -n "${OVERRIDE_REASON}" ]; then
+              echo "::warning::Trunk-discipline override present: ${OVERRIDE_REASON}"
+              echo "Proceeding with publish despite ancestry check. Override reason recorded."
+              exit 0
+            fi
+            # Token present but empty reason — fall through to hard check (treat as
+            # absent override; the audit trail demands a meaningful reason).
+            echo "::warning::Override token present but reason is empty after strip; treating as absent."
+          fi
+
+          # Hard ancestry check — must pass to publish.
+          if git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"; then
+            echo "PASS — tagged commit ${TAG_SHA} is an ancestor of origin/main (${MAIN_SHA})."
+            exit 0
+          fi
+
+          # Diagnostic — detect the duplicate-fork pattern where main has tree-identical
+          # content under a different SHA. This is the v0.23.0 incident shape: tag
+          # anchored to a sibling branch but main HEAD has the same files. Surfaces a
+          # distinct hint so the operator picks the right remediation path.
+          if git diff --quiet "${TAG_SHA}" "${MAIN_SHA}"; then
+            echo "::warning::Duplicate-fork pattern detected — main HEAD has tree-identical content to the tagged commit, but they are different SHAs. See Duplicate-fork remediation below."
+          fi
+
+          cat >&2 <<EOF
+          ::error::Trunk-discipline violation — refusing to publish ${TAG_NAME}.
+
+          The tagged commit ${TAG_SHA} is NOT an ancestor of origin/main (${MAIN_SHA}).
+          This means the release commit lives on a feature branch and main has never been
+          back-merged. Publishing now would leave main silently behind the published state —
+          the exact failure mode of v0.15.0 (2026-05-13) and v0.23.0 (2026-05-19).
+
+          Remediation (Linear case — branch never merged):
+            1. git checkout main && git pull origin main
+            2. git merge --no-ff <release-branch>
+            3. git push origin main
+            4. Re-run this workflow (tag is now an ancestor of main).
+
+          Remediation (Duplicate-fork case — main has content but tag points elsewhere):
+            Symptom: \`git diff ${TAG_SHA} ${MAIN_SHA}\` shows no file differences.
+            If main contains tree-identical content under a different SHA:
+            1. Identify the main-side mirror commit:
+                 git log --all --format='%H %s' | grep "<release commit subject>"
+            2. Force-move the tag to the main-side SHA:
+                 git tag -f ${TAG_NAME} <main-side-SHA>
+            3. Update origin:
+                 git push origin :${TAG_NAME} && git push origin ${TAG_NAME}
+            4. Re-run this workflow.
+            NOTE: tag-move is destructive to audit history. Prefer the linear case when possible.
+            NOTE: npm packages are immutable — only the tag pointer changes, not the published content.
+
+          Or, if this is a genuine hotfix where back-merge-first is operationally infeasible,
+          add [trunk-discipline-override: <reason>] to the release commit message and re-tag.
+          Reason must be non-empty after whitespace strip.
+
+          See: workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md (architect spec)
+               commands/release.md Step 6/7/8/9 (Layer B operator-side flow)
+               hooks/version-gate.py invariant 4 (operator-side ceiling)
+          EOF
+          exit 1
+
       - name: Publish to npm
         # Trusted Publishing (OIDC): npm CLI detects the GitHub Actions OIDC
         # context via the `id-token: write` permission set at the job level

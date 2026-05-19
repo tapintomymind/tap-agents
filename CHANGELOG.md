@@ -4,6 +4,86 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.24.0] — 2026-05-19 — Trunk-discipline mechanical floor + `emit_event_http()` cloud-mirror helper
+
+**Minor release.** Two themes bundle into one ship. (1) **Trunk-discipline mechanical floor** — codifies the previously-soft rule "trunk must reflect published state" into a CI gate (Layer A in `publish.yml`) and an operator-side ceiling (`/release` Layer B + `hooks/version-gate.py` invariant 4). The publish workflow now refuses to publish unless the tagged commit is an ancestor of `origin/main`, with an `[trunk-discipline-override: <reason>]` escape hatch for genuine hotfixes. (2) **`emit_event_http()` cloud-mirror helper** — adds a new sibling to the existing local `emit_event()` telemetry helper that lets projects scaffolded against this framework ship local agent telemetry to a configurable cloud ingest endpoint. Composes alongside the local helper (does NOT replace it); fails open on every error path so a cloud-side disruption never affects the local agent execution path.
+
+Both themes are additive and backwards-compatible; no agent removed, no command removed, no protocol removed, no existing function signature changed.
+
+### Added
+
+#### Trunk-discipline mechanical floor
+
+- **`.github/workflows/publish.yml` — Layer A ancestry guard** — new step `Validate tagged commit is an ancestor of origin/main` slots between the existing `Validate tag matches package.json version` step and the `Publish to npm` step. Resolves the tagged commit SHA via `git rev-parse "${GITHUB_REF_NAME}^{commit}"` (invariant to lightweight vs annotated tags), fetches `origin/main` (without `--depth`; the checkout step uses `fetch-depth: 0` so the repo is already unshallow), then runs `git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"`. Failure short-circuits the workflow non-zero **before** `npm publish` runs — orphan-trunk releases become impossible by construction. Includes a diagnostic that detects the **duplicate-fork pattern** (main HEAD has tree-identical content under a different SHA, the v0.23.0 incident shape) and prints a distinct remediation hint covering both the linear-merge and tag-move recovery paths. Override token `[trunk-discipline-override: <reason>]` in the release commit message bypasses the check with a logged warning; reason must be non-empty after whitespace strip. (Workflow file is NOT in `package.json#files` — operator-side change only; consumers see no behavioral change.)
+
+#### emit_event_http() cloud-mirror helper
+
+- **`hooks/_telemetry.py` — `emit_event_http()` sibling helper** (+255 lines). New all-keyword Python function that mirrors the `emit_event()` argument surface (with two additive optional fields: `event_type`/`event_subtype` in place of `type`/`subtype`, plus `project_slug` and `ts`) and emits events to a configurable HTTP endpoint instead of (in addition to) the local `events.jsonl`. Behaviors:
+
+  - **Configurable via two environment variables** (read at flush time, not import time, so operators can set them after process start):
+    - `TAPAGENTS_LIVE_TOKEN` — per-machine bearer token. Required; if absent, every call is a silent no-op (one stderr warning per process, never per call).
+    - `TAPAGENTS_LIVE_INGEST_URL` — endpoint URL. Optional; defaults to `https://tapagents.ai/api/account/tapagents-live/ingest`.
+
+  - **In-process batching** (threadsafe via `threading.Lock`):
+    - Accumulates events in a module-level list.
+    - Flushes on whichever fires first: every 20 events OR every 5 seconds since the first event in the current batch.
+    - On process exit, an `atexit` hook drains any remaining batch (registered lazily on first use so importing the module remains side-effect-free for consumers who never call the new helper).
+
+  - **`flush_pending()` companion** — public synchronous-drain API for test harnesses and graceful-shutdown paths that need explicit drain semantics rather than waiting for the timer or size threshold.
+
+  - **Fail-open on every code path** — network error, 4xx, 5xx, timeout, missing env var, internal exception: all swallowed silently. The local `emit_event()` write path is never affected by HTTP failures; the local file remains the source of truth and the HTTP path is a best-effort cloud mirror.
+
+  - **Pure stdlib** — uses `urllib.request` with a 5-second default timeout. Zero new runtime dependencies; works in every framework consumer regardless of their installed packages.
+
+- **`scripts/test-emit-event-http.py`** — stdlib `unittest` coverage (`urllib.request.urlopen` monkey-patched) for size-threshold flush, time-threshold flush, explicit `flush_pending()`, auth header propagation, default URL fallback, missing-env-var no-op (with single-warn semantics), HTTP-5xx fail-open, network-unreachable fail-open, and local-`emit_event()`-still-fires when the HTTP mirror fails. Mirrors the runner pattern of `scripts/test-permission-denial-telemetry.py`: no devDeps added, runs via `python3 scripts/test-emit-event-http.py`.
+
+### Migration notes
+
+**No breaking changes.**
+
+- **Trunk-discipline** is enforced at publish-time, not consumer-time. Adopters scaffolding the framework into their projects see no consumer-visible change — the workflow file ships in the `tap-agents/` repo but NOT in the npm tarball (`.github/` is not in `package.json#files`). The corresponding operator-side `/release` flow + `hooks/version-gate.py` invariant 4 + parity-audit fifth channel ship via the HQ-side framework (consumer-visible in the HQ `.claude/` tree but not in the npm tarball's `commands/release.md` exec path — operator-only).
+
+- **`emit_event_http()`** is purely additive. Existing `emit_event()` callers continue to work unchanged. Consumers who do not set `TAPAGENTS_LIVE_TOKEN` see no behavior change at all; the new helper, if called, becomes a silent no-op.
+
+To opt into the cloud mirror:
+
+1. Obtain a per-machine bearer token from the cloud surface the consumer chooses to target (the framework does not bundle a token-issuance UI; that lives in the consumer-side surface).
+2. Set `TAPAGENTS_LIVE_TOKEN=<token>` and optionally `TAPAGENTS_LIVE_INGEST_URL=<override>` in the shell environment the hooks run under.
+3. Hooks that wish to mirror local emits to the cloud call `emit_event_http()` after their existing `emit_event()` call. Local-first ordering ensures the cloud mirror failing never affects the on-disk audit trail.
+
+To use the trunk-discipline override token:
+
+1. Land the release commit on a non-main branch carrying message `release: v<version> — ... [trunk-discipline-override: <reason>]`. Reason must be non-empty after whitespace strip (an empty bracket like `[]` or `[ ]` falls through to the hard ancestry check).
+2. Tag the commit and push. Layer A logs `::warning::Trunk-discipline override present: <reason>` and proceeds with publish; the reason is recorded in the workflow log AND visible in `gh release view` because the release body includes the commit message via `softprops/action-gh-release@v2`.
+
+### SemVer classification: MINOR
+
+Per `protocols/versioning-protocol.md §3.2`:
+
+- **`hooks/_telemetry.py` `emit_event_http()` + `flush_pending()` additions** → MINOR: new public functions added to an active framework module; additive to existing behavior, no prior function removed or narrowed.
+- **`commands/release.md` Layer B rewrite + `hooks/version-gate.py` invariant 4 + `scripts/version-parity-audit.ts` fifth channel** → MINOR: additive branch-discipline contract; existing /release flow continues to work via `[trunk-discipline-override:]` token for hotfix scenarios. The version-gate hook adds an invariant (additional check), not a narrowed contract. The parity-audit adds a channel (additional check). No prior caller of `/release` relied on tagging from a non-main branch (the case was unmodelled, not supported).
+- **`.github/workflows/publish.yml` Layer A insertion** → operator-only; not tarball-shipped; alone this would be PATCH. Bundled with Layer B, the bundle floor is MINOR.
+
+MAJOR rejected: no function removed, no module removed, no signature changed, no existing `/release` caller's contract narrowed. The override token preserves prior workflows for genuine hotfix scenarios.
+
+### Files-array audit
+
+All modified files fall under existing `package.json#files` entries — no new top-level entry required:
+
+- `hooks/_telemetry.py` — under `hooks/`
+- `scripts/test-emit-event-http.py` — under `scripts/`
+- `.github/workflows/publish.yml` — NOT in files (workflow ships in repo, not in tarball; precedent: `publish.yml` and `notify-adopters.yml`)
+- HQ-side files (`commands/release.md`, `hooks/version-gate.py`, `scripts/version-parity-audit.ts`, `protocols/versioning-protocol.md`, `agents/_planned/release-coordinator.md`, `memory/agent-changelog.md`) — sync from HQ `.claude/` to `tap-agents/` via `scripts/sync-src/sync.ts`; each lives under an existing files-array entry on the consumer side.
+
+### Provenance + cross-references
+
+- Trunk-discipline tech-strategy: `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` (architect spec; sealed pending Critic + user approval).
+- Critic review (CLEAR-WITH-REVISIONS, 5 warnings + 4 FYIs all folded in): `workspace/_global/critic-trunk-discipline-2026-05-19.md`.
+- Release-coordinator agent stubbed at `agents/_planned/release-coordinator.md` per org-designer proposal `workspace/_global/release-coordinator-proposal-2026-05-19.md` with staged activation post-v0.24.0 (W5 of Critic).
+- Memory note `feedback_trunk_must_reflect_published_state.md` (originally caught 2026-05-13 during auto-adoption Phase 2b base verification) now annotated as **codified as Layer A + B in tap-agents v0.24.0** — historical reference, with mechanical floor authoritative.
+- Recurrence record: v0.15.0 (2026-05-13) — tag-never-pushed-to-origin; v0.23.0 (2026-05-19) — tag-pushed-from-feature-branch-and-main-never-back-merged. Both incident classes covered by Layer A's ancestry check.
+
+
 ## [0.23.0] — 2026-05-19 — Framework expansion: Context7 + four new protocols + two new Tier 1 agents + multi-host architecture
 
 **Minor release.** A multi-theme framework expansion. Adopters scaffolding this framework into their projects gain two new active Tier 1 agents (Marketing Designer + Industry Researcher), four new protocols (decision-class taxonomy, V2 roadmap anchoring, PRD addendum pattern, workstream index), a Context7 capability accelerant with `[context7]` citation tag, the canonical Constrained Implementation Mode dispatch contract, a new runtime-adapters metadata subsystem for multi-host targeting, permission-denial telemetry capture, the Critic 4-axis review architecture (depth assessment + decision class + V-anchor + addendum-vs-revision), and a first stack-specific Next.js template. Eight existing active-tier agents pick up prompt-version bumps to wire the four new protocols into their algorithms. No agent removed, no command removed, no protocol removed.

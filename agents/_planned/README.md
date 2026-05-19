@@ -17,7 +17,7 @@ Real friction beats imagined need. Building 12 agents on day one means:
 
 Better: ship 7 sharp agents, watch where the seams show, build specialists when evidence demands it.
 
-## Current Stubs (10)
+## Current Stubs (11)
 
 ### Post-shipping roles
 | Stub | Activation trigger |
@@ -25,6 +25,11 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 | `gtm-launch-strategist.md` | Project reaches `shipped` AND has identifiable buyer surface — paid tier exists, OR B2B angle is concrete, OR multi-user surface ships, OR user explicitly requests launch coordination. Renamed + narrowed from prior `gtm-strategist.md` on 2026-05-11 (positioning + content production moved to active `product-marketing-manager`; pricing, channels, campaign coordination, conversational/outbound assets, demo scripts stay here). |
 | `growth-analyst.md` | First project has measurable users (shipped → measured) |
 | `feedback-synthesizer.md` | First project receives user feedback (reviews, support tickets, usage signals) |
+
+### Framework operations
+| Stub | Activation trigger |
+|---|---|
+| `release-coordinator.md` | Activates v0.25.0+ per `workspace/_global/release-coordinator-proposal-2026-05-19.md` (Option Y staged, post-v0.24.0). Owns `/release` execution arc, parallel-session coordination at the release boundary, trunk-state attestation post-publish, KNOWN_ORPHANS map appends, and Gate 5 failure response. Operates within the mechanical floor that v0.24.0 codified (Layer A in `publish.yml`, Layer B in `commands/release.md`, invariant 4 in `hooks/version-gate.py`, fifth channel in `version-parity-audit.ts`). Activates when v0.24.0 has shipped clean AND at least one post-v0.24.0 release has happened under the new Layer B flow without operator-side ambiguity AND Critic clears the stub's full contract AND user approves. Per Critic W5 (2026-05-19), user re-validation gates the timing. |
 
 ### Depth-on-demand specialists
 | Stub | Activation trigger |
@@ -65,7 +70,7 @@ These roles were activated and moved to the live roster. The original stub files
 
 When Org Designer identifies *another* future need (beyond these 5), it writes a new stub here following the same format. Stubs themselves don't require user approval — only activations do.
 
-## Why These 9 Specifically
+## Why These 11 Specifically
 
 **Post-shipping (3):** GTM Launch Strategist, Growth, Feedback — can't usefully exist before something ships. `gtm-launch-strategist` renamed and narrowed from prior `gtm-strategist` on 2026-05-11: positioning + content production (release notes, feature briefs, user-facing docs) moved to active `product-marketing-manager`; pricing, channel mix, campaign timing, conversational/outbound assets, demo scripts stay in this stub.
 
@@ -78,6 +83,8 @@ When Org Designer identifies *another* future need (beyond these 5), it writes a
 **Test Engineer (1):** See `test-engineer.md` for activation context.
 
 **Knowledge Curator (1):** Sibling-to-Backlog-Curator (curator-lite). Owns user-narrative-grade project context — the file the cold-resume reader (or product UI surface) reads when answering *"why does this project exist and what's been decided that can't be re-litigated?"* The split is two-axis: Backlog Curator owns mechanical work-item state; Knowledge Curator owns narrative-grade synthesis. Activate when the first project hits the phase-transition + Decision-Packet inflection (imminent for tapagents-app, formerly agent-dashboard pre-2026-05-14 BL-059) OR user invokes `/knowledge-curate` OR a second Tier 2 project lands. See `knowledge-curator.md` for full charter, triggers, sink schema, and read/write boundaries.
+
+**Release Coordinator (1):** Framework operations role. Owns the `/release` execution arc and the judgment-layer decisions that surround the v0.24.0 mechanical floor (Layer A in `publish.yml`, Layer B in `commands/release.md`, invariant 4 in `hooks/version-gate.py`, fifth channel in `version-parity-audit.ts`). Lives at the seam where parallel framework sessions, override-token justification, Gate 5 failure-mode routing, and KNOWN_ORPHANS map governance need single-owner adjudication. Stubbed-not-active in v0.24.0 per architect sequencing rationale — the mechanical floor doesn't need the agent; the agent does need the floor. Activation in v0.25.0+ pending user re-validation per Critic W5 (2026-05-19).
 
 **Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` — see "Activated agents" table above and `_archive/`.
 

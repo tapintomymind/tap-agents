@@ -2,7 +2,7 @@
 """
 PreToolUse hook — enforces protocols/versioning-protocol.md at the mechanical layer.
 
-Gate 2 of the four-gate enforcement chain. Three invariants:
+Gate 2 of the five-gate enforcement chain. Four invariants:
 
   1. Atomicity   — package.json "version" change must coincide with a CHANGELOG.md
                    entry whose heading matches the new version, in the same staged diff.
@@ -13,6 +13,18 @@ Gate 2 of the four-gate enforcement chain. Three invariants:
                       If it only adds files in those directories (no removals/renames),
                       MINOR is the floor.
                       The hook enforces the floor only; over-classification is always allowed.
+  4. Branch-discipline (tag-time) — fires inside _check_tag(). When the operator runs
+                      `git tag v<X>.<Y>.<Z>`, the current branch MUST be `main` (the trunk
+                      that publish.yml's Layer A ancestry check pulls from), OR the HEAD
+                      commit message must carry a non-empty
+                      `[trunk-discipline-override: <reason>]` token. Mirrors
+                      tap-agents/.github/workflows/publish.yml Layer A — operator-side
+                      ceiling under the CI mechanical floor. Override regex shape mirrors
+                      hooks/sync-discipline-gate.py OVERRIDE_PATTERN (W4 of Critic
+                      2026-05-19): leading whitespace tolerated; reason captured non-greedy
+                      to closing bracket; reason must be non-empty after strip. Codified
+                      in v0.24.0 per
+                      workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md.
 
 Hook fires on:
   - Edit/Write where file_path endswith package.json or contains .claude-plugin/
@@ -107,6 +119,31 @@ def _last_tag_version() -> str | None:
 
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-[\w.-]+)?(?:\+[\w.-]+)?$")
+
+
+# Trunk-discipline override token. Format: [trunk-discipline-override: <reason>].
+# Pattern shape mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN exactly
+# (W4 of Critic 2026-05-19) — leading whitespace tolerated, reason captured
+# non-greedy to closing bracket, reason must be non-empty AFTER strip via a
+# secondary post-check (see _extract_trunk_override_reason below).
+TRUNK_OVERRIDE_PATTERN = re.compile(
+    r"\[trunk-discipline-override:\s*([^\]\n]+?)\]",
+    re.IGNORECASE,
+)
+
+
+def _extract_trunk_override_reason(commit_message: str) -> str | None:
+    """Return non-empty trimmed trunk-discipline override reason, or None.
+
+    Mirrors hooks/sync-discipline-gate.py _extract_override_reason shape per
+    W4 of Critic 2026-05-19 (standardized override regex across Layer A bash
+    + Layer B python).
+    """
+    m = TRUNK_OVERRIDE_PATTERN.search(commit_message)
+    if not m:
+        return None
+    reason = m.group(1).strip()
+    return reason if reason else None
 
 
 def _parse_semver(v: str) -> tuple[int, int, int] | None:
@@ -250,6 +287,8 @@ def _block_subtype(message: str) -> str:
         return "severity-floor"
     if "tag/package version mismatch" in m or "marketplace version drift" in m or "must be prefixed with 'v'" in m:
         return "matchup"
+    if "branch-discipline" in m or "invariant 4" in m:
+        return "branch-discipline"
     # All atomicity invariants: package.json without CHANGELOG, no staged heading,
     # missing 'version' field. Default bucket — the protocol enumerates four
     # subtypes so unmatched messages fall under atomicity rather than "unknown".
@@ -348,7 +387,16 @@ def _check_commit() -> None:
 
 
 def _check_tag(command: str) -> None:
-    """Validate `git tag` commands target a SemVer-shaped tag matching package.json."""
+    """Validate `git tag` commands target a SemVer-shaped tag matching package.json.
+
+    Four invariants run here:
+      - tag has 'v' prefix
+      - tag/package version match
+      - (existing checks above)
+      - invariant 4 (NEW v0.24.0): tag is being applied on main, OR HEAD commit
+        message contains a non-empty `[trunk-discipline-override: <reason>]`
+        token. Mirrors publish.yml Layer A; this is the operator-side ceiling.
+    """
     # Common shapes: `git tag v0.8.0` or `git tag -a v0.8.0 -m '...'`
     m = re.search(r"\bgit\s+tag\b(?:\s+-[a-zA-Z]+)*\s+(v?\d+\.\d+\.\d+(?:[-+][\w.-]+)?)", command)
     if not m:
@@ -368,6 +416,49 @@ def _check_tag(command: str) -> None:
             f"package.json is `{pkg_version}`. The tag MUST be applied to the release commit "
             f"whose package.json holds the matching version."
         )
+
+    # Invariant 4 — branch-discipline (trunk-must-reflect-published-state).
+    # Per protocols/versioning-protocol.md §5 (amended v0.24.0) + commands/release.md
+    # Layer B Step 8, tags must be applied to the merged-main commit, not to a
+    # feature or release branch. Mirrors tap-agents/.github/workflows/publish.yml
+    # Layer A as the operator-side ceiling under the CI mechanical floor.
+    #
+    # Bypass: HEAD commit's message contains
+    # `[trunk-discipline-override: <non-empty reason>]`. Override regex shape
+    # mirrors hooks/sync-discipline-gate.py OVERRIDE_PATTERN exactly per W4 of
+    # Critic 2026-05-19.
+    current_branch = _run_git("rev-parse", "--abbrev-ref", "HEAD")
+    if current_branch and current_branch != "main":
+        head_msg = _run_git("log", "-1", "--format=%B")
+        override_reason = _extract_trunk_override_reason(head_msg) if head_msg else None
+        if not override_reason:
+            _block(
+                f"Branch-discipline violation (invariant 4): tag `{tag}` is being "
+                f"created on branch `{current_branch}`, not `main`.\n"
+                f"\n"
+                f"Per protocols/versioning-protocol.md §5 (amended v0.24.0) + "
+                f"commands/release.md Layer B Step 8, tags must be applied to the "
+                f"merged-main commit, not to a feature or release branch. The "
+                f"publish.yml Layer A ancestry check would refuse to publish from "
+                f"a non-main-ancestor tag anyway; this hook is the operator-side "
+                f"ceiling that catches the failure before tag-push.\n"
+                f"\n"
+                f"Remediation (Layer B flow):\n"
+                f"  1. Open a PR from your release branch to main\n"
+                f"  2. `gh pr merge --squash --delete-branch`\n"
+                f"  3. `git checkout main && git pull origin main`\n"
+                f"  4. Retry `git tag -a {tag} -m \"Release {tag}\"`\n"
+                f"\n"
+                f"If this is a genuine hotfix where back-merge-first is "
+                f"operationally infeasible, add\n"
+                f"  [trunk-discipline-override: <non-empty reason>]\n"
+                f"to the release commit's message (amend if needed) before retrying. "
+                f"The override is logged to events.jsonl and visible in `gh release "
+                f"view` once published.\n"
+                f"\n"
+                f"See: workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md"
+            )
+
     sys.exit(0)
 
 

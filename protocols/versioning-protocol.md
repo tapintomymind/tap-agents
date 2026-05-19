@@ -100,11 +100,12 @@ Direct edits to `package.json` `"version"` outside this flow are blocked at Gate
 
 ### §4.2 Gate 2 — Mechanical hook (`hooks/version-gate.py`)
 
-A PreToolUse hook fires on `Edit`/`Write` operations targeting `package.json` and on `Bash(git commit:*)` and `Bash(git tag:*)`. It enforces three invariants:
+A PreToolUse hook fires on `Edit`/`Write` operations targeting `package.json` and on `Bash(git commit:*)` and `Bash(git tag:*)`. It enforces four invariants:
 
 1. **Atomicity** — a `package.json` `"version"` change in the staged diff must coincide with a `CHANGELOG.md` change in the same commit that introduces a heading matching the new version.
 2. **Sequence** — the new version must be a legal SemVer successor to the version at the last tag (no skipping major, no going backwards).
 3. **Severity-floor heuristic** — if the staged diff includes a removed/renamed file in `agents/`, `commands/`, `protocols/`, or `templates/`, the bump must be MAJOR. If it includes only new files in those directories with no removals or renames, MINOR is the floor. The hook does not enforce the ceiling (a release author can always choose to over-classify); it enforces the floor.
+4. **Branch-discipline (added v0.24.0)** — fires inside the `_check_tag()` path on `Bash(git tag:*)`. The tag must be applied on `main`, OR the HEAD commit message must contain a `[trunk-discipline-override: <non-empty reason>]` token. Mirrors `tap-agents/.github/workflows/publish.yml` Layer A as the operator-side ceiling under the CI mechanical floor. Override regex shape matches `hooks/sync-discipline-gate.py` `OVERRIDE_PATTERN` exactly (leading whitespace tolerated; reason non-empty after strip). See `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` for the spec.
 
 Hook failure exits 2 with an actionable message. The release author can either fix the diff or invoke `/release` from scratch.
 
@@ -181,14 +182,15 @@ Gate 5 verifies three invariants on every release after `publish.yml` reports su
 
 Gates 1-5 catch failures at release time. Some failure classes accumulate silently between releases — an orphaned tag that was never pushed, a CHANGELOG entry that never landed in `memory/agent-changelog.md`, a npm version that diverges from the GitHub Releases list. The EA daily briefing includes a **cross-channel version parity audit** as the catch-net for everything the per-release gates missed.
 
-The audit is implemented as `.claude/scripts/version-parity-audit.ts` (tsx-based, mirrors `scripts/test-changelog-format.ts` style — no vitest devDep). It compares four channels:
+The audit is implemented as `.claude/scripts/version-parity-audit.ts` (tsx-based, mirrors `scripts/test-changelog-format.ts` style — no vitest devDep). It compares five channels:
 
 1. **Local tags** — `git -C <repo> tag -l 'v*'` (default `<repo>` is `../tap-agents/` resolved relative to the script's own location via `import.meta.url`; cwd-independent).
 2. **Remote tags** — `git -C <repo> ls-remote --tags origin 'v*'` (origin is the public `tap-agents` GitHub repo; filters out the `^{}` dereferenced peel-pointers).
 3. **npm versions** — `npm view @tapintomymind/tap-agents versions --json`.
 4. **GitHub Releases** — `gh release list --repo tapintomymind/tap-agents --limit 50 --json tagName` (the same Releases that `publish.yml` creates via `softprops/action-gh-release@v2`).
+5. **Main ancestry** (added v0.24.0) — for every version `v` in the npm channel, `git -C <repo> merge-base --is-ancestor v<v> origin/main` is run. Versions whose tag is NOT an ancestor of `origin/main` surface as `missing from [main-ancestry]`. This is the portfolio-wide periodic catch for post-publish trunk-drift (force-push class) — Layer A in `publish.yml` enforces the floor at publish-time; this channel catches divergence that materializes afterward. See `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md §3.5` for the spec. Pre-v0.24.0 versions that surface only on this channel are annotated as pre-trunk-discipline-era artifacts (not active divergences).
 
-Expected invariant: **for every version v that appears in any one channel, v appears in all four channels.**
+Expected invariant: **for every version v that appears in any one channel, v appears in all five channels** (with the pre-trunk-discipline-era annotation for the main-ancestry channel as documented above).
 
 **Known-orphan handling.** Some versions are documented as permanently missing from one-or-more channels with explicit reasoning. The audit carries a `KNOWN_ORPHANS` map that annotates these as `[ANNOT]` (with the documented reason) rather than `[WARN]`. The annotation is **subset-bounded** — if a known-orphan version unexpectedly becomes missing from a NEW channel beyond what's documented, that new channel-loss surfaces as an unknown divergence and the audit fails. This prevents the annotation from masking new divergences for already-known orphans.
 
@@ -228,7 +230,9 @@ A release is **one commit** that contains exactly:
 2. The matching `CHANGELOG.md` entry (newest at top, per Common Changelog format)
 3. The matching `memory/agent-changelog.md` narrative entry (newest at top, per `changelog-protocol.md`)
 4. Any source changes that justify the bump (agents, commands, protocols, templates, hooks, scripts, configs)
-5. The git tag `v<version>` applied to this commit
+5. The git tag `v<version>` applied to this commit **on the `main` branch** (per the v0.24.0 trunk-discipline amendment — see below)
+
+**Tag-on-main requirement (codified v0.24.0).** As of v0.24.0, the release commit lands on a dedicated `release/v<version>` branch, then is merged to `main` via a squashed PR; the tag is applied to the resulting `main` HEAD. This guarantees the tagged commit is an ancestor of `origin/main` at publish time, satisfying the `publish.yml` Layer A ancestry check by construction. The full Layer B flow is documented in `commands/release.md` Steps 5.5 / 6 / 7 / 8 / 9; `hooks/version-gate.py` invariant 4 is the operator-side ceiling that mirrors Layer A locally. Override token `[trunk-discipline-override: <non-empty reason>]` in the release commit message preserves the prior workflow for genuine hotfix scenarios. See `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` for the architect spec and v0.15.0 / v0.23.0 incident provenance.
 
 The commit message follows Conventional Commits:
 
@@ -238,7 +242,7 @@ release: v0.8.0 — <one-line summary>
 <paragraph summary, same as the CHANGELOG entry's title>
 ```
 
-The tag triggers the `publish.yml` workflow which builds + `npm publish`es to the registry. Gate 5 (§4.5) then verifies the published artifact reached the registry intact and that all three distribution channels (npm + GitHub Releases + git remote tags) agree on the version. The release is not considered complete until Gate 5 passes.
+The tag triggers the `publish.yml` workflow which builds + `npm publish`es to the registry. Gate 5 (§4.5) then verifies the published artifact reached the registry intact and that all four+1 distribution channels (local tags + remote tags + npm + GitHub Releases + main-ancestry) agree on the version. The release is not considered complete until Gate 5 passes.
 
 ## §6 Marketplace and npm channel synchronization
 
