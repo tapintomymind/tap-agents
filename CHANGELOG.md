@@ -4,6 +4,139 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.23.0] — 2026-05-19 — Framework expansion: Context7 + four new protocols + two new Tier 1 agents + multi-host architecture
+
+**Minor release.** A multi-theme framework expansion. Adopters scaffolding this framework into their projects gain two new active Tier 1 agents (Marketing Designer + Industry Researcher), four new protocols (decision-class taxonomy, V2 roadmap anchoring, PRD addendum pattern, workstream index), a Context7 capability accelerant with `[context7]` citation tag, the canonical Constrained Implementation Mode dispatch contract, a new runtime-adapters metadata subsystem for multi-host targeting, permission-denial telemetry capture, the Critic 4-axis review architecture (depth assessment + decision class + V-anchor + addendum-vs-revision), and a first stack-specific Next.js template. Eight existing active-tier agents pick up prompt-version bumps to wire the four new protocols into their algorithms. No agent removed, no command removed, no protocol removed.
+
+### Added
+
+- **`docs/context7-setup.md`** + **`protocols/docs-research-protocol.md`** + **`[context7]` citation tag** — Context7 MCP capability accelerant for Strategist + Architect. The protocol codifies a single-call docs lookup contract for inline library/framework reference queries with graceful degradation when the MCP server is unavailable. Citation protocol gains a `[context7]` row in §Tags so docs-research-sourced claims are auditably distinct from `[research <URL>]` claims sourced via WebSearch / WebFetch. Spec for `docs-research-call` telemetry event reserved in `protocols/telemetry-events.md §2.5` — SPEC ONLY in this release; hook implementation deferred.
+
+- **`docs/external-ecosystem-typology.md`** — Reference taxonomy that maps the framework's relationship to adjacent agent-shaped tooling (Claude Code's own subagents, third-party agent libraries, IDE-bound shells). Cited by Org Designer and Architect for routing decisions when ambiguity arises about whether a capability belongs inside the framework or as an external integration.
+
+- **`protocols/decision-class-taxonomy.md`** — Five-class enum (`operational | strategic | commercial | clinical | legal`) for classifying every Open Question by who has authority to resolve. Operator-blocking classes (`operational | strategic`) gate engineering dispatch; ESCALATED classes (`commercial | clinical | legal`) do NOT gate dispatch — they escalate out of operator authority while engineering proceeds with a named workaround. Strategist and Architect classify each OQ in scope, PRD, and tech-strategy artifacts; EA renders the two surfaces in separate Decision Packet sections (with a cardinal-zero rule that omits empty ESCALATED sections).
+
+- **`protocols/v2-roadmap-anchoring.md`** — Classification rule Architect applies to every V-item in a V2 roadmap. `architecture-now` (when all three triggers hold: composes with shipped interface + non-trivial wrong-path risk + boundary spec under ~40 lines) anchors a four-field entry in a reserved `tech-strategy.md §"Architecture-now V-anchors"` section at roadmap-creation time. `architecture-deferred` (any one trigger fires) defers the boundary write with a one-line reason. Critic Phase B `V-anchor` axis verifies the classification + anchor presence.
+
+- **`protocols/prd-addendum-pattern.md`** + **`templates/prd-addendum.md`** — Binary classification for PRD revisions: in-place rewrite (rev N → rev N+1) when any of three triggers fires (semantics shift / new major story-or-risk / canonical-indefinite-answer) vs. parallel-artifact addendum citing the PRD when any of three triggers fires (parallel frame / different cadence / time-stamped moment). Default-when-uncertain is revision. Strategist's revision-pass algorithm classifies first; Critic's `addendum_vs_revision` axis reviews the choice. Template provides the addendum's citation-index + body-sections + trigger-reference shape.
+
+- **`protocols/workstream-index.md`** — Per-project reading-order map at `workspace/<slug>/workstream-index.md` listing canonical artifacts + reading order for cold-resume. Conductor maintains the index on phase transitions per a new "Workstream Index Rebuild" algorithm section. Backlog Curator carries a `WORKSTREAM-INDEX-DRIFT-CANDIDATE` flag in Phase B.2 review.
+
+- **`agents/marketing-designer.md`** + **`commands/marketing-design.md`** — Marketing Designer is a new active Tier 1 agent (sibling to product-flavored Designer). Owns visual + IA + conversion design for public marketing surfaces: hero composition, feature blocks, CTA hierarchy, scroll narrative, footer/meta, and competitor-as-conversion-machine evaluation. Three trigger lanes: briefed/scoping phase for projects with marketing surfaces, `/marketing-design <slug> [<page>]` direct invocation, post-launch conversion-rate iteration. Cross-referenced from Designer, PMM, and UI/UX Reviewer redirect tables.
+
+- **`agents/industry-researcher.md`** + **`commands/industry-research.md`** — Industry Researcher is a new active Tier 1 agent. Owns deep competitive analysis, market sizing, trend monitoring, regulatory landscape, per-competitor moat decomposition, and source-quality grading. Supplements — never replaces — Strategist's first-pass competitive scan. Three-lane activation: Critic-signal portfolio recurrence, operator-driven single-project, project-class default. `/industry-research <slug> [--deep-dive=<competitor>]` direct invocation.
+
+- **`commands/pmm.md`** — New `/pmm <slug> [--full]` slash command for direct invocation of the existing Product Marketing Manager agent. Ships PMM into command-direct mode for the first time.
+
+- **`runtime-adapters/`** — New declarative-only metadata subsystem for multi-host runtime targeting. `shared/adapter-contract.json` is the JSON Schema for `adapter.json` files (`m2-runtime-adapters.v1`). `shared/manifest-v2.schema.json` is the schema for future generated manifest shape (`tapagents.manifest` v2.0). `shared/telemetry-fields.json` adds runtime-aware telemetry fields (`runtime.adapter_id`, `runtime.mode`, `runtime.plugin_beta_enabled`, `runtime.generated_file_count`). `claude/adapter.json` ships the Claude adapter with `legacy-manifest` mode (status `stable-existing`). `codex/adapter.json` ships the Codex adapter with `generated-files` default mode + `plugin-beta` non-default mode (status `planning-placeholder`). Per-host templates accompany each adapter (`legacy-manifest.json.tpl` for Claude; `AGENTS.md.tpl` + `agent.toml.tpl` + `config.toml.tpl` + `skill.SKILL.md.tpl` for Codex). Provider SDK imports, network calls, secrets, and inline bearer tokens are forbidden in adapter files by audit guard.
+
+- **`scripts/render-runtime-adapter.ts`** + **`scripts/test-runtime-adapters.ts`** + **`scripts/sync-src/sync-codex.ts`** — Three new operator scripts. `render-runtime-adapter.ts` reads `runtime-adapters/<host>/adapter.json`, validates against `adapter-contract.json` schema, and emits files per the selected mode (`legacy-manifest` for Claude; `generated-files` for Codex). `test-runtime-adapters.ts` is the audit-discipline guard — refuses any provider SDK import, REST endpoint, credential-like field, or inline bearer token in adapter files. `sync-codex.ts` is the interim Claude → Codex agent + skill regeneration path planned for absorption into `render-runtime-adapter.ts` post-architecture-flip.
+
+- **`hooks/permission-denial-capture.py`** + **`scripts/test-permission-denial-telemetry.py`** — Observational PostToolUse + PostToolUseFailure + PermissionDenied hook chain. Captures tool calls whose response indicates a permission denial (Claude Code permission mode, settings.json deny rules, framework hook blocks) and emits a `harness-or-permission` block event to `events.jsonl`. **Purely observational — exit 0 always; never blocks.** Primary capture surface for framework-hook firings (PreToolUse exit-2 from `orchestrator-dispatch-gate.py` / `pre-tool-gate.py` / `version-gate.py`). Test script provides focused coverage for telemetry privacy + classification.
+
+- **`templates/competitor-deep-dive.md`** + **`templates/competitor-eval.md`** + **`templates/marketing-design-spec.md`** + **`templates/knowledge-base.md`** — Four new authoring-surface templates. `competitor-deep-dive.md` is per-competitor (snapshot / feature matrix / moat decomposition / source-quality grading) and used by industry-researcher. `competitor-eval.md` is competitor-as-conversion-machine evaluation (open-core business-model analogs prioritized over visual-polish-only references) used by marketing-designer. `marketing-design-spec.md` is the marketing design-spec template (brand posture / hero composition / feature blocks / CTA hierarchy / scroll narrative / footer + meta) used by marketing-designer. `knowledge-base.md` is the user-narrative-grade project context template (goals / decisions+rationale / stakeholders / glossary / story-so-far) used by `agents/_planned/knowledge-curator.md`.
+
+- **`templates/stacks/nextjs/`** — First stack-specific template subtree. `README.md` declares the partial-stack baseline-fallback contract. `react-component-agent.md` is the first stack-specific frontend worker — the canonical Constrained-Mode Implementation consumer for UI-shell slices. Denies sim engine, DB schema, migrations, and framework files unless slice explicitly allows. Future Architects scaffolding Next.js Tier 2 sets now overlay this template's roles before falling through to baseline.
+
+- **`agents/_planned/knowledge-curator.md`** — New planned-stub agent. Sibling-to-Backlog-Curator (curator-lite). Owns user-narrative-grade project context — `workspace/<slug>/knowledge-base.md`. Activation triggers: first project crosses phase-transition with ≥5 Decision Packets / user invokes `/knowledge-curate <slug>` / second active Tier 2 project lands. **Not yet activated** — stub only.
+
+- **`protocols/dispatch-efficiency.md §7` — Constrained Implementation Mode (canonical dispatch contract)** — Full dispatch-contract spec: when-to-use (narrow slices, high-drift surfaces, post-drift re-dispatch), the canonical reusable template (`Mode: constrained` + `Slice ID:` + `Outcome:` + `Allowed paths:` + `Denied paths:` + `First proof by minute N:` + `Heartbeat every N minutes:` + `Stop and report if:` + `Verification:` + `Reportback fields:`), preflight echo requirement, drift-detection contract, and re-dispatch shape. Architect emits constrained-mode fields per the new "Implementation-brief constrained-mode requirement" section in `agents/architect.md`. Tier 2 conductor enforces the routing + preflight-echo contract; Tier 2 implementer emits the preflight echo before the first Edit/Write.
+
+- **`protocols/backlog-protocol.md §3a — Acceptance-gate sub-state`** — New `awaiting-acceptance` status added to the backlog-item vocabulary. Transitions: `in-progress → awaiting-acceptance` on impl-landed-pre-user-signoff; `awaiting-acceptance → done` on user signoff; `awaiting-acceptance → in-progress` on user-rejected. Counts in BACKLOG SUMMARY split "engineer is coding" from "queue is waiting on user signoff."
+
+### Changed
+
+- **`agents/architect.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-2`. Adds: (a) docs-research-protocol routing reference + Context7 graceful-degradation pointer; (b) new V2-roadmap-anchoring algorithm step (classifies every V-item; anchors `architecture-now` entries in tech-strategy); (c) new decision-class-taxonomy algorithm step (classifies every OQ); (d) full "Implementation-brief constrained-mode requirement" section + capability constraint clause on Bash usage.
+
+- **`agents/strategist.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-4`. Adds: (a) docs-research-protocol routing reference; (b) Operating Principle 8 — defer-deep to industry-researcher when active; (c) new decision-class-taxonomy algorithm step; (d) PRD-revision-vs-addendum classification on the revision-pass algorithm.
+
+- **`agents/designer.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-1` (catching six days of staleness). Adds Operating Principle 7 (reference apps with biz-legal routing) + marketing-designer redirect-table entry for marketing-surface design.
+
+- **`agents/conductor.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-1`. Adds the Workstream Index Rebuild algorithm section — Conductor now maintains `workspace/<slug>/workstream-index.md` on phase transitions per the new protocol.
+
+- **`agents/critic.md`** — `prompt_version` bumped `2026-05-13-1 → 2026-05-18-1`. Adds the Phase B.1 four-axis bundle: `depth_assessment` axis (verdict shallow / adequate / deep for research-class artifacts), `decision_class` axis (verifies OQ classification), `V-anchor` axis (verifies V-item classification + anchor presence), `addendum_vs_revision` axis (verifies PRD revision-pass classification).
+
+- **`agents/backlog-curator.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-1`. Adds Phase B.2 flag patterns: `STATE-DRIFT-CANDIDATE` (mechanical work-item drift) + `WORKSTREAM-INDEX-DRIFT-CANDIDATE` (per workstream-index protocol).
+
+- **`agents/org-designer.md`** — `prompt_version` bumped `2026-05-12-1 → 2026-05-18-1`. Adds Phase B.3 — operator-driven activation checklist (the 4-question gate at 3-of-4 threshold) + `project_class` enum docs per decision-class-taxonomy composition.
+
+- **`agents/executive-assistant.md`** — `prompt_version` bumped `2026-05-13-1 → 2026-05-18-1`. Adds Phase A.1 ESCALATED-OQ rendering split — `/briefing`, `/queue`, `/inbox`, and Decision Packets all split operator-blocking OQs from ESCALATED OQs into separate sections per decision-class-taxonomy §5.
+
+- **`agents/product-marketing-manager.md`** — Adds marketing-designer cross-reference to the upstream-visual-asset list + redirect-table entry. No `prompt_version` bump (cross-reference additions are not semantic edits per `framework-change-discipline.md §9`).
+
+- **`agents/ui-ux-reviewer.md`** — Adds marketing-designer redirect-table entry + marketing-class memory-append authority. No `prompt_version` bump (cross-reference additions only).
+
+- **`agents/_planned/customer-researcher.md`** — Activation trigger rewritten as the same three-lane structure (Critic-signal portfolio / operator-driven / project-class default). Aligns with industry-researcher's trigger shape. Stub remains planned — no behavior change today; the activation gate now matches the portfolio-recurrence-driven pattern instead of impressionistic.
+
+- **`agents/_planned/README.md`** — Stub count updated (9 → 10); knowledge-curator entry added; sibling-to-backlog-curator rationale appended.
+
+- **`templates/decision-packet.md`** — Adds the ESCALATED-OQ rendering contract — splits `▸ OPEN QUESTIONS (operator-blocking)` from `▸ ESCALATED OQs (NOT operator-blocking; engineering proceeds with workaround)` per decision-class-taxonomy §5. Cardinal-zero rule for empty ESCALATED sections (omit entire section).
+
+- **`templates/tech-strategy.md`** — Adds §8 `Architecture-now V-anchors` reserved section per v2-roadmap-anchoring §5. Per `architecture-now` V-item: four required fields (Composes with / Wrong-path risk this prevents / Boundary shape / Open question if any). Cardinal-zero rule for absence. Pre-existing §8 (Open Questions) renumbered.
+
+- **`templates/stacks/_baseline/tier2-conductor.md`** — Adds the Constrained-Mode Routing section. Tier 2 conductor enforces the dispatch contract: constrained vs. default routing rules, preflight-echo enforcement at the conductor seat, rejection-without-preflight contract.
+
+- **`templates/stacks/_baseline/tier2-implementer.md`** — Adds the Constrained Mode Preflight section. Implementer emits the preflight echo before the first Edit/Write call; full template embedded. Tier 2 conductor rejects reportback without preflight.
+
+- **`protocols/citation-protocol.md`** — Adds `[context7]` row to §Tags table.
+
+- **`protocols/telemetry-events.md`** — Adds §2.5 reserved next-slice `docs-research-call` event spec (SPEC ONLY pending hook implementation) + reserves the `harness-or-permission` event source from the permission-denial-capture hook (now active).
+
+- **`hooks/_telemetry.py`** — Adds `emit_harness_block()` helper for the new permission-denial-capture hook. Backwards-compatible additive change.
+
+- **`settings.json`** — Wires `permission-denial-capture.py` into PostToolUse + PostToolUseFailure events. Both wirings use the same script with a `*` matcher.
+
+- **`scripts/build-src/build.ts`** + **`scripts/emit-metric.py`** + **`scripts/rollup-metrics.py`** + **`hooks/prompt-router.py`** + 13 protocols — Project-slug rename only (`agent-dashboard` → `tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059)`) cascading from a prior internal cascade-rename event. No semantic content changes. See `Known follow-ups` below — these slug-rename phrasings ship to npm consumers and will be genericized in a future patch sweep.
+
+- **`agents/_planned/test-engineer.md`** + **`agents/db-admin.md`** — Single + double project-slug rename only. No semantic changes.
+
+### Known follow-ups
+
+- **Brand-integrity sweep deferred to v0.23.1.** Thirteen protocols + three scripts contain `tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059)` phrasing — load-bearing project-slug references with internal IDs and internal dates that ship verbatim to npm-tarball consumers. Per `feedback_framework_changelog_audience_discipline` (2026-05-17): public artifacts shipping in the tarball should avoid project slugs and internal user-decision dates. Sweep planned within ~48h as a patch release.
+
+- **Interim `scripts/sync-src/sync-codex.ts` planned for absorption** into `scripts/render-runtime-adapter.ts` post architecture-flip. Both ship in this release. The renderer is the long-term path; the sync script keeps Codex consumers working today.
+
+- **`docs-research-call` telemetry hook implementation deferred.** The event spec is reserved in `protocols/telemetry-events.md §2.5` (SPEC ONLY); the hook + helper land in a future release.
+
+### Migration notes
+
+**No breaking changes.** Two new active agents add new dispatch paths but no existing path is removed or narrowed. Four new protocols are referenced by other agents' algorithms within this same release — adopters running the framework gain the new behaviors automatically on the next dispatch. Eight existing agents bump `prompt_version`; Critic flags staleness on dependent artifacts produced under the prior version per `framework-change-discipline.md §9` (re-run-or-justify recommendation).
+
+The `awaiting-acceptance` backlog status is additive — existing `in-progress` items continue to function unchanged; the new transition fires only when the implementer signals impl-landed-pre-user-signoff.
+
+### SemVer classification: MINOR
+
+Per `protocols/versioning-protocol.md §3.2` ("new capability without removing any existing capability"):
+
+- Two new agents under `agents/` → MINOR per §3.2.
+- Three new commands under `commands/` → MINOR per §3.2.
+- Four new protocols under `protocols/` → MINOR per §3.2.
+- Six new templates + one new stack subtree under `templates/` → MINOR per §3.2.
+- One new hook under `hooks/` wired additively → MINOR per §3.2.
+- New `runtime-adapters/` subsystem + new scripts → MINOR (additive).
+- Eight `prompt_version` bumps on active agents — all additive (new algorithm steps, new sections); no responsibility removed or narrowed → MINOR per §3.2.
+
+MAJOR rejected: no agent removed, no command removed, no protocol removed, no hook authenticity marker removed, no `fires_when` trigger narrowed, no existing field removed from `settings.json` schema.
+
+PATCH rejected: substantially more than doc edits — two new active Tier 1 agents, four new protocols, a new runtime-adapters subsystem, a canonical dispatch-contract protocol section, a new hook chain, eight `prompt_version` bumps with substantive algorithm changes.
+
+### Cross-channel sync
+
+All three channel-version fields update atomically:
+- `package.json` `0.22.0 → 0.23.0`
+- `.claude-plugin/plugin.json` `0.22.0 → 0.23.0`
+- `.claude-plugin/marketplace.json` `plugins[0].version` `0.22.0 → 0.23.0`
+
+### Files-array audit
+
+- **`runtime-adapters/`** is a new top-level directory introduced in this release. The `runtime-adapters` entry is added to `package.json#files` so the metadata subsystem ships in the npm tarball.
+- All other modified or added paths fall under existing `package.json#files` entries — `agents/`, `commands/`, `protocols/`, `templates/`, `hooks/`, `scripts/`, `docs/`, `.claude-plugin/`, `settings.json`, `memory/`. No additional files-array changes required.
+- Step 6d tarball-completeness probe (codified v0.18.0) confirms `runtime-adapters/` + the four v0.11.0-regression-class directories (`playbooks/`, `memory/`, `docs/`, `settings.json`) all surface in the published tarball.
+
+### Provenance
+
+PR [#5](https://github.com/tapintomymind/agents/pull/5) bundles the Context7 + external-ecosystem typology dispatch with intervening framework drift that accumulated on the authoring tree since v0.22.0 — the full Phase A.1 + Phase B framework-feedback rollout. The full categorized scope reference lives in the internal release inventory consulted at release time.
+
 ## [0.22.0] — 2026-05-17 — Operator infrastructure + framework discipline: sync reliability, HQ topology, Strategist OP#7
 
 **Minor release.** This is an operator-facing infrastructure and framework-discipline release. Operators running the framework publish pipeline see direct behavioral changes. Pure consumers scaffolding this framework into their projects see no behavioral change in shipped agent prompts, protocols, hooks, or templates — the indirect benefit is a more reliable publish pipeline going forward. One exception: `agents/strategist.md` gains a new Operating Principle 7 (anchor-grep pre-flight) that affects all future Strategist dispatches in consumer environments.
