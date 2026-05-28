@@ -40,7 +40,7 @@
     ],
     "Stop": [
       {
-        "_purpose": "Three-stage Stop hook chain. (1) stop-critic-check.py: blocks Stop if any project is mid-flight (blocked_on set, contested artifacts, unresolved BLOCKING critic concerns). (2) stop-dispatch-monitor.py: observational — reads .claude/workspace/_global/events.jsonl, counts orchestrator-source dispatch-gate blocks for this session, writes a memory pattern note + appends to MEMORY.md when ≥ 3. (3) session-tracking-seal.py: BL-055 v0.15.0; reads the per-session sidecar at <workspace>/_global/sessions/<cc_session_id>.json, compares files_in_flight against git log main since started, and writes status: sealed | partial | noop into active-sessions.md. Never blocks Stop (stop-critic-check is the gate); bookkeeping only.",
+        "_purpose": "Four-stage Stop hook chain. (1) stop-critic-check.py: blocks Stop if any project is mid-flight (blocked_on set, contested artifacts, unresolved BLOCKING critic concerns). (2) stop-dispatch-monitor.py: observational — reads .claude/workspace/_global/events.jsonl, counts orchestrator-source dispatch-gate blocks for this session, writes a memory pattern note + appends to MEMORY.md when ≥ 3. (3) stop-phase-transition.py: observational — M-D track slice S1 (telemetry-events.md §2.4). Diffs each project's state.json.current_phase against a sidecar snapshot at <workspace>/_global/.phase-snapshot.json and emits a state-machine/transition/<from>-<to> event per genuine phase change (local emit_event + cloud emit_event_http). Silent on first-seen bootstrap + no-change. Never blocks Stop. Dispatch-outcome (subagent-dispatch/outcome) is NOT in this hook — scoped to follow-up slice S1b (no reliable non-heuristic Stop-payload signal). (4) session-tracking-seal.py: BL-055 v0.15.0; reads the per-session sidecar at <workspace>/_global/sessions/<cc_session_id>.json, compares files_in_flight against git log main since started, and writes status: sealed | partial | noop into active-sessions.md. Never blocks Stop (stop-critic-check is the gate); bookkeeping only.",
         "matcher": "*",
         "hooks": [
           {
@@ -51,6 +51,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-dispatch-monitor.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-phase-transition.py\"",
             "timeout": 10
           },
           {

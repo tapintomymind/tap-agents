@@ -81,13 +81,13 @@ We do **not** emit on pass-through where it would be uninteresting:
 
 ### §2.4 Reserved next-slice names
 
-Categories that may land next; NOT live in v0.11.0:
+Categories reserved for the broader telemetry layer. Status per triple:
 
-- `subagent-dispatch` / `outcome` / `<verdict>` — Task tool outcome per dispatch (success / blocked / declined).
-- `slash-command` / `fire` / `<command-name>` — every slash-command invocation.
-- `state-machine` / `transition` / `<from>-<to>` — state.json phase changes captured by a Stop hook.
+- `subagent-dispatch` / `outcome` / `<verdict>` — Task tool outcome per dispatch (success / blocked / declined). **RESERVED — not live.** Deferred to slice S1b: a Stop hook has no reliable, non-heuristic signal for per-dispatch verdicts (the Stop payload does not enumerate Task tool calls or their return shapes), so emitting it would require transcript-scraping guesswork. Producers MUST NOT emit until the S1b implementation lands.
+- `slash-command` / `fire` / `<command-name>` — every slash-command invocation. **RESERVED — not live.**
+- `state-machine` / `transition` / `<from>-<to>` — state.json phase changes captured by a Stop hook. **LIVE since v0.25.0** (M-D track slice S1). Producer: `hooks/stop-phase-transition.py`, wired into the Stop chain. Emits one event per genuine `current_phase` change (diffed against the `<workspace>/_global/.phase-snapshot.json` sidecar); silent on first-seen bootstrap and no-change. `payload` carries `project_slug`, `from_phase`, `to_phase`, `phase_status`. Consumers MAY parse these defensively per §5.
 
-When the next-slice author lands these, this section becomes the canonical list of source-type-subtype triples in use.
+When a next-slice author lands a reserved triple, flip its status here; this section is the canonical list of source-type-subtype triples in use.
 
 ### §2.5 Reserved next-slice: `docs-research-call` (SPEC ONLY — added 2026-05-18)
 

@@ -65,12 +65,20 @@ import json
 import sys
 from pathlib import Path
 
-# Telemetry — fail-open.
+# Telemetry — fail-open. emit_event_http is the cloud-mirror sibling (v0.24.0);
+# it fails open when TAPAGENTS_LIVE_TOKEN is unset, so calling it is always safe.
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+    from _telemetry import (  # type: ignore[import-not-found]
+        emit_event,
+        emit_event_http,
+        emit_misfire,
+    )
 except Exception:  # noqa: BLE001
     def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_event_http(**_kwargs) -> None:  # type: ignore[no-redef]
         return
 
     def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
@@ -134,6 +142,10 @@ def main() -> int:
     if workspace is None:
         # No workspace yet — pre-bootstrap session. Nothing to register.
         # Emit a single fire event so the absence is observable in telemetry.
+        # Local emit_event() is the source of truth (§4 producer contract);
+        # emit_event_http() is the best-effort cloud mirror (no-op without
+        # TAPAGENTS_LIVE_TOKEN). Local first, then HTTP, so a cloud failure
+        # never affects the local audit trail.
         emit_event(
             source="session-tracking-register",
             type="fire",
@@ -143,6 +155,16 @@ def main() -> int:
             agent_id=None,
             payload={"summary": "no workspace dir; skipping registration"},
             session_id=cc_session_id or None,
+        )
+        emit_event_http(
+            source="session-tracking-register",
+            event_type="fire",
+            event_subtype="no-workspace",
+            session_id=cc_session_id or None,
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload={"summary": "no workspace dir; skipping registration"},
         )
         return 0
 
@@ -155,18 +177,32 @@ def main() -> int:
         existing["last_source"] = source
         write_sidecar(workspace, cc_session_id, existing)
         upsert_entry(workspace, existing)
+        resume_subtype = source if source in {"startup", "resume", "clear", "compact"} else "unknown"
+        resume_payload = {
+            "summary": f"resume of existing session {existing.get('tapagents_session_id')}",
+            "resume_count": existing["resume_count"],
+        }
+        # Local emit (source of truth) then cloud mirror (fail-open; no-op
+        # without TAPAGENTS_LIVE_TOKEN). Same subtype + payload for both.
         emit_event(
             source="session-tracking-register",
             type="fire",
-            subtype=source if source in {"startup", "resume", "clear", "compact"} else "unknown",
+            subtype=resume_subtype,
             agent_context="orchestrator",
             agent_type=None,
             agent_id=None,
-            payload={
-                "summary": f"resume of existing session {existing.get('tapagents_session_id')}",
-                "resume_count": existing["resume_count"],
-            },
+            payload=resume_payload,
             session_id=cc_session_id or None,
+        )
+        emit_event_http(
+            source="session-tracking-register",
+            event_type="fire",
+            event_subtype=resume_subtype,
+            session_id=cc_session_id or None,
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload=resume_payload,
         )
         return 0
 
@@ -189,18 +225,32 @@ def main() -> int:
     write_sidecar(workspace, cc_session_id, stub)
     upsert_entry(workspace, stub)
 
+    stub_subtype = source if source in {"startup", "resume", "clear", "compact"} else "unknown"
+    stub_payload = {
+        "summary": f"registered stub {tapagents_id}",
+        "tapagents_session_id": tapagents_id,
+    }
+    # Local emit (source of truth) then cloud mirror (fail-open; no-op without
+    # TAPAGENTS_LIVE_TOKEN). Same subtype + payload for both.
     emit_event(
         source="session-tracking-register",
         type="fire",
-        subtype=source if source in {"startup", "resume", "clear", "compact"} else "unknown",
+        subtype=stub_subtype,
         agent_context="orchestrator",
         agent_type=None,
         agent_id=None,
-        payload={
-            "summary": f"registered stub {tapagents_id}",
-            "tapagents_session_id": tapagents_id,
-        },
+        payload=stub_payload,
         session_id=cc_session_id or None,
+    )
+    emit_event_http(
+        source="session-tracking-register",
+        event_type="fire",
+        event_subtype=stub_subtype,
+        session_id=cc_session_id or None,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload=stub_payload,
     )
     return 0
 

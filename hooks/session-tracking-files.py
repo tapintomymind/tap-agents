@@ -77,12 +77,20 @@ import json
 import sys
 from pathlib import Path
 
-# Telemetry — fail-open.
+# Telemetry — fail-open. emit_event_http is the cloud-mirror sibling (v0.24.0);
+# it fails open when TAPAGENTS_LIVE_TOKEN is unset, so calling it is always safe.
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+    from _telemetry import (  # type: ignore[import-not-found]
+        emit_event,
+        emit_event_http,
+        emit_misfire,
+    )
 except Exception:  # noqa: BLE001
     def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_event_http(**_kwargs) -> None:  # type: ignore[no-redef]
         return
 
     def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
@@ -232,20 +240,38 @@ def main() -> int:
     write_sidecar(workspace, cc_session_id, data)
     upsert_entry(workspace, data)
 
+    files_agent_context = "subagent" if _is_subagent(payload) else "orchestrator"
+    files_agent_type = payload.get("agent_type")
+    files_agent_id = payload.get("agent_id")
+    files_payload = {
+        "tool_name": tool_name,
+        "summary": ("materialized + " if materialized_now else "") +
+                   ("appended " if appended else "noop-duplicate ") + rel,
+        "tapagents_session_id": data["tapagents_session_id"],
+    }
+    # Local emit (source of truth per §4 producer contract) then cloud mirror
+    # (fail-open; no-op without TAPAGENTS_LIVE_TOKEN). Same subtype/payload +
+    # the SAME subagent-attribution fields for both, so the cloud feed carries
+    # identical agent_context/agent_type/agent_id to the local row.
     emit_event(
         source="session-tracking-files",
         type="fire",
         subtype=scope_label,
-        agent_context="subagent" if _is_subagent(payload) else "orchestrator",
-        agent_type=payload.get("agent_type"),
-        agent_id=payload.get("agent_id"),
-        payload={
-            "tool_name": tool_name,
-            "summary": ("materialized + " if materialized_now else "") +
-                       ("appended " if appended else "noop-duplicate ") + rel,
-            "tapagents_session_id": data["tapagents_session_id"],
-        },
+        agent_context=files_agent_context,
+        agent_type=files_agent_type,
+        agent_id=files_agent_id,
+        payload=files_payload,
         session_id=cc_session_id,
+    )
+    emit_event_http(
+        source="session-tracking-files",
+        event_type="fire",
+        event_subtype=scope_label,
+        session_id=cc_session_id,
+        agent_context=files_agent_context,
+        agent_type=files_agent_type,
+        agent_id=files_agent_id,
+        payload=files_payload,
     )
     return 0
 

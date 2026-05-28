@@ -51,12 +51,20 @@ import json
 import sys
 from pathlib import Path
 
-# Telemetry — fail-open.
+# Telemetry — fail-open. emit_event_http is the cloud-mirror sibling (v0.24.0);
+# it fails open when TAPAGENTS_LIVE_TOKEN is unset, so calling it is always safe.
 try:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from _telemetry import emit_event, emit_misfire  # type: ignore[import-not-found]
+    from _telemetry import (  # type: ignore[import-not-found]
+        emit_event,
+        emit_event_http,
+        emit_misfire,
+    )
 except Exception:  # noqa: BLE001
     def emit_event(**_kwargs) -> None:  # type: ignore[no-redef]
+        return
+
+    def emit_event_http(**_kwargs) -> None:  # type: ignore[no-redef]
         return
 
     def emit_misfire(**_kwargs) -> None:  # type: ignore[no-redef]
@@ -164,6 +172,9 @@ def main() -> int:
         data["completion_note"] = "No cross-cutting edits during session; stub closed without seal."
         write_sidecar(workspace, cc_session_id, data)
         upsert_entry(workspace, data)
+        noop_payload = {"summary": f"noop-closed {data.get('tapagents_session_id')}"}
+        # Local emit (source of truth) then cloud mirror (fail-open; no-op
+        # without TAPAGENTS_LIVE_TOKEN). Local first, then HTTP.
         emit_event(
             source="session-tracking-seal",
             type="fire",
@@ -171,8 +182,18 @@ def main() -> int:
             agent_context="orchestrator",
             agent_type=None,
             agent_id=None,
-            payload={"summary": f"noop-closed {data.get('tapagents_session_id')}"},
+            payload=noop_payload,
             session_id=cc_session_id,
+        )
+        emit_event_http(
+            source="session-tracking-seal",
+            event_type="fire",
+            event_subtype="noop",
+            session_id=cc_session_id,
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload=noop_payload,
         )
         return 0
 
@@ -189,6 +210,12 @@ def main() -> int:
         data = _seal(data, status="sealed", sha=sha, merged=merged, unmerged=unmerged)
         write_sidecar(workspace, cc_session_id, data)
         upsert_entry(workspace, data)
+        sealed_payload = {
+            "summary": f"sealed {data.get('tapagents_session_id')} ({len(merged)} files via {sha})",
+            "files_merged": len(merged),
+        }
+        # Local emit (source of truth) then cloud mirror (fail-open; no-op
+        # without TAPAGENTS_LIVE_TOKEN). Local first, then HTTP.
         emit_event(
             source="session-tracking-seal",
             type="fire",
@@ -196,11 +223,18 @@ def main() -> int:
             agent_context="orchestrator",
             agent_type=None,
             agent_id=None,
-            payload={
-                "summary": f"sealed {data.get('tapagents_session_id')} ({len(merged)} files via {sha})",
-                "files_merged": len(merged),
-            },
+            payload=sealed_payload,
             session_id=cc_session_id,
+        )
+        emit_event_http(
+            source="session-tracking-seal",
+            event_type="fire",
+            event_subtype="auto-sealed",
+            session_id=cc_session_id,
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload=sealed_payload,
         )
         return 0
 
@@ -209,6 +243,13 @@ def main() -> int:
         data = _seal(data, status="partial", sha=sha, merged=merged, unmerged=unmerged)
         write_sidecar(workspace, cc_session_id, data)
         upsert_entry(workspace, data)
+        partial_payload = {
+            "summary": f"partial {data.get('tapagents_session_id')} ({len(merged)} merged, {len(unmerged)} unmerged)",
+            "files_merged": len(merged),
+            "files_unmerged": len(unmerged),
+        }
+        # Local emit (source of truth) then cloud mirror (fail-open; no-op
+        # without TAPAGENTS_LIVE_TOKEN). Local first, then HTTP.
         emit_event(
             source="session-tracking-seal",
             type="fire",
@@ -216,12 +257,18 @@ def main() -> int:
             agent_context="orchestrator",
             agent_type=None,
             agent_id=None,
-            payload={
-                "summary": f"partial {data.get('tapagents_session_id')} ({len(merged)} merged, {len(unmerged)} unmerged)",
-                "files_merged": len(merged),
-                "files_unmerged": len(unmerged),
-            },
+            payload=partial_payload,
             session_id=cc_session_id,
+        )
+        emit_event_http(
+            source="session-tracking-seal",
+            event_type="fire",
+            event_subtype="partial-seal",
+            session_id=cc_session_id,
+            agent_context="orchestrator",
+            agent_type=None,
+            agent_id=None,
+            payload=partial_payload,
         )
         return 0
 
@@ -231,6 +278,12 @@ def main() -> int:
     data["last_updated"] = now_iso()
     write_sidecar(workspace, cc_session_id, data)
     upsert_entry(workspace, data)
+    in_progress_payload = {
+        "summary": f"left in-progress {data.get('tapagents_session_id')} ({len(unmerged)} unmerged)",
+        "files_unmerged": len(unmerged),
+    }
+    # Local emit (source of truth) then cloud mirror (fail-open; no-op without
+    # TAPAGENTS_LIVE_TOKEN). Local first, then HTTP.
     emit_event(
         source="session-tracking-seal",
         type="fire",
@@ -238,11 +291,18 @@ def main() -> int:
         agent_context="orchestrator",
         agent_type=None,
         agent_id=None,
-        payload={
-            "summary": f"left in-progress {data.get('tapagents_session_id')} ({len(unmerged)} unmerged)",
-            "files_unmerged": len(unmerged),
-        },
+        payload=in_progress_payload,
         session_id=cc_session_id,
+    )
+    emit_event_http(
+        source="session-tracking-seal",
+        event_type="fire",
+        event_subtype="left-in-progress",
+        session_id=cc_session_id,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload=in_progress_payload,
     )
     return 0
 
