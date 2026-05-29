@@ -490,6 +490,98 @@ def latest_main_sha() -> str | None:
         return None
 
 
+def loc_landed_on_main_since(started_iso: str) -> dict:
+    """Return per-file + aggregate lines-of-code that landed on `main` since
+    `started_iso`. The `--numstat` sibling of `files_landed_on_main_since()`.
+
+    This is the ONE honest LOC source the framework can stand behind: the
+    line counts of work actually *committed to main* in the session's time
+    window (M-D track slice B; see
+    `workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum
+    Rev 2 §"Slice B"). It deliberately mirrors `files_landed_on_main_since()`
+    one-for-one — same `git -C <CLAUDE_PROJECT_DIR>` context, same `main`
+    branch, same `--since=<started_iso>` window — so it is reliable EXACTLY
+    where the existing seal logic is reliable (a Tier-2 product repo whose
+    `CLAUDE_PROJECT_DIR` is a git work-tree with a `main` branch) and a clean
+    no-op (the empty/zero shape below) EXACTLY where the existing one is
+    (e.g. the framework-HQ orchestrator context, whose root is not a git
+    repo and has no `main`).
+
+    "This session's work" = commits on `main` with author/commit date at or
+    after `started_iso`. This is the same committed-to-main definition the
+    auto-seal contract already uses; the LOC is just the line-delta view of
+    that same set. Uncommitted / feature-branch-only work is NOT counted —
+    it is not yet "shipped" by the auto-seal definition and its line count is
+    not authoritatively computable (a later edit to the same region would
+    double-count). See the schema doc (`telemetry-events.md §2.6`) for the
+    committed-vs-provisional distinction.
+
+    Method: `git log --since=<iso> --numstat --pretty=format: main`. The
+    `--numstat` format emits `<added>\t<deleted>\t<path>` per file per commit;
+    binary files emit `-\t-\t<path>` (excluded by the numeric guard below).
+    Counts are SUMMED across all commits in the window, so a file edited in
+    three commits contributes the sum of its three deltas — the honest total
+    of lines added/removed to `main` in the window, not a single A..B diff.
+
+    Returns a dict (always this shape; never raises — fail-open):
+
+        {
+          "added":   int,            # total lines added across the window
+          "deleted": int,            # total lines deleted across the window
+          "files":   { "<path>": {"added": int, "deleted": int}, ... },
+          "files_count": int,        # == len(files); distinct text files touched
+          "available": bool,         # True iff the git query actually ran and
+                                     # returned 0; False on any failure (no
+                                     # repo, no `main`, git missing, timeout)
+        }
+
+    On any failure `available` is False and the counts are zero — callers
+    MUST treat `available == False` as "LOC could not be measured here"
+    (NOT as "this session changed zero lines"). The two are different: the
+    seal emitter uses `available` to decide whether to attach a trustworthy
+    LOC figure at all.
+    """
+    empty: dict = {"added": 0, "deleted": 0, "files": {}, "files_count": 0,
+                   "available": False}
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(_project_dir()), "log", f"--since={started_iso}",
+             "--numstat", "--pretty=format:", "main"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return empty
+        files: dict[str, dict[str, int]] = {}
+        total_added = 0
+        total_deleted = 0
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            added_s, deleted_s, path = parts[0].strip(), parts[1].strip(), parts[2].strip()
+            # Binary files report "-" for both counts; skip — no honest LOC.
+            if not added_s.isdigit() or not deleted_s.isdigit() or not path:
+                continue
+            added = int(added_s)
+            deleted = int(deleted_s)
+            rec = files.setdefault(path, {"added": 0, "deleted": 0})
+            rec["added"] += added
+            rec["deleted"] += deleted
+            total_added += added
+            total_deleted += deleted
+        return {
+            "added": total_added,
+            "deleted": total_deleted,
+            "files": files,
+            "files_count": len(files),
+            "available": True,
+        }
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return empty
+
+
 # ---------------------------------------------------------------------------
 # Path-normalization helper for files_in_flight entries
 # ---------------------------------------------------------------------------

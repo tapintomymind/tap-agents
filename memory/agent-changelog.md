@@ -8,6 +8,18 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-05-29 — Framework v0.26.0 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
+
+The third M-D telemetry slice lands, held/unpublished alongside v0.25.0. Where v0.25.0 mirrored events the framework already produced, this slice captures something new: what a session actually produced. At session seal the team now emits a `session-work-output` / `summary` / `seal` event carrying the product files touched and the lines-of-code committed in that session — the data the dashboard's per-session view needs to show "files done / LOC done."
+
+The single most important design call is that this is a separate telemetry stream, not a widening of the cross-cutting collision manifest. That manifest exists to stop concurrent sessions from colliding on shared framework files, and its deliberate blindness to product source code is what keeps it scannable. "What did this session produce" is a different question with a different reader — the dashboard user, not a sibling session — so it gets its own stream and the collision matcher is left untouched.
+
+LOC is designed around honesty. The only number the framework stands behind is the committed-to-main figure, computed at seal by a new `--numstat` git helper that mirrors the existing committed-files helper one-for-one (same repo context, same `main` branch, same since-the-session-started window). A mid-session or uncommitted figure would be provisional — a later edit to the same region double-counts — so the seal event never emits one; the provisional flag is reserved at `false` so a future live-ticking enhancement stays schema-compatible. Where there is no git repo or no `main` (for instance an orchestrator session at the framework root), the figure is unmeasurable and nothing is emitted at all — the stream only carries data for sessions running inside a product repo. Re-emits across resumes are idempotent: the hook only re-emits when genuinely new commits have landed.
+
+The change is additive and backwards-compatible (`telemetry-events.md §6`): a new source/type/subtype triple flipped from reserved to live, new payload keys, no existing triple mutated, no schema column added (everything rides the existing JSON payload). A new wired-hook behavior emitting a newly-live reserved triple makes the release a framework MINOR per `versioning-protocol.md §3.2`. The work-output POST is an app→app telemetry mirror (Pool A, not an LLM call). The schema spec also records the dashboard render contract for the follow-on display slice, so that surface can be built later without re-deriving field shapes — the render itself is not built here. Coverage: `scripts/test-session-work-output.py` (16 stdlib unittest cases — LOC computation, committed-vs-provisional, dual-emit, no-emit-when-no-work, idempotency, truncation, lifecycle-unaffected). No devDeps added.
+
+Cross-reference: `CHANGELOG.md` v0.26.0 entry; `workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` (Addendum Rev 2, Slice B).
+
 ## 2026-05-29 — Framework v0.25.0 — Telemetry cloud-mirror: phase-transitions (M-D slice S1) + session lifecycle (M-D slice A)
 
 The telemetry half of the "wrap up telemetry + dashboard features" push lands in one release, bundling two same-theme M-D track slices because the version was still unpublished when the second slice arrived.
