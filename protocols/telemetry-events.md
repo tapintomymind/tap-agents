@@ -86,6 +86,7 @@ Categories reserved for the broader telemetry layer. Status per triple:
 - `subagent-dispatch` / `outcome` / `<verdict>` — Task tool outcome per dispatch (success / blocked / declined). **RESERVED — not live.** Deferred to slice S1b: a Stop hook has no reliable, non-heuristic signal for per-dispatch verdicts (the Stop payload does not enumerate Task tool calls or their return shapes), so emitting it would require transcript-scraping guesswork. Producers MUST NOT emit until the S1b implementation lands.
 - `slash-command` / `fire` / `<command-name>` — every slash-command invocation. **RESERVED — not live.**
 - `state-machine` / `transition` / `<from>-<to>` — state.json phase changes captured by a Stop hook. **LIVE since v0.25.0** (M-D track slice S1). Producer: `hooks/stop-phase-transition.py`, wired into the Stop chain. Emits one event per genuine `current_phase` change (diffed against the `<workspace>/_global/.phase-snapshot.json` sidecar); silent on first-seen bootstrap and no-change. `payload` carries `project_slug`, `from_phase`, `to_phase`, `phase_status`. Consumers MAY parse these defensively per §5.
+- `session-work-output` / `summary` / `seal` — what a session actually *produced* (product files touched + committed lines-of-code) captured at session seal. **LIVE since v0.26.0** (M-D track slice B). Producer: `hooks/session-tracking-seal.py` (`_emit_work_output`), the same Stop hook that emits the lifecycle `fire` events. This is a DELIBERATELY SEPARATE stream from the cross-cutting collision manifest (`active-sessions.md` / `is_cross_cutting_path()`), which stays framework-files-only; product `src/` work-output rides here, not there. Full schema in §2.6. Consumers MAY parse defensively per §5.
 
 When a next-slice author lands a reserved triple, flip its status here; this section is the canonical list of source-type-subtype triples in use.
 
@@ -139,6 +140,97 @@ The standard `payload.summary` reserved key (per §2.2) is set to a short human-
 **Consumer.** `scripts/telemetry-rollup.py` will gain a `docs-research-rollup` mode in a follow-up dispatch — aggregates measured tokens-per-call by `subtype` and computes the median for `protocols/docs-research-protocol.md §5` substitution. The 5-call threshold for §5 substitution (per `protocols/docs-research-protocol.md §8`) is the gate; before N≥5, the rollup mode emits a "insufficient sample" verdict and Critic does NOT yet flag §5's `[inference]` estimates as stale.
 
 **Provenance.** This spec exists to ground `protocols/docs-research-protocol.md §5` and §8 in a measurement source rather than perpetual `[inference]`. See `memory/runtime_tapagents_telemetry_events.md` for the existing events.jsonl conventions this event slots into. Schema is additive-only per §6 — adding `docs-research` as a new `source` value is a MINOR per §6 once the hook implementation ships.
+
+### §2.6 Live: `session-work-output` (LIVE since v0.26.0 — M-D track slice B)
+
+**Status.** LIVE. Producer: `hooks/session-tracking-seal.py` (`_emit_work_output`). Flipped from reserved → live in §2.4 by the M-D slice-B dispatch (2026-05-29). Consumers MAY parse defensively per §5.
+
+**Purpose.** Captures what a session actually *produced* — product files touched + committed lines-of-code — so the dashboard's per-session view (Slice C) can render "files done / LOC done" per the operator's live-session-tracking vision (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2). This is the third telemetry producer family on the shared emit → ingest → `live_events` → render rail, after `state-machine` (S1) and the `session-tracking-*` lifecycle mirror (slice A).
+
+**Why a SEPARATE stream (load-bearing design call).** The cross-cutting collision manifest (`active-sessions.md`, driven by `is_cross_cutting_path()` / `files_in_flight`) exists for ONE purpose: session-collision avoidance across concurrent sessions touching shared *framework* files. Its deliberate blindness to product `src/` keeps the manifest scannable. "What did this session produce" is a different question with a different consumer (the dashboard user, not a sibling session), so it gets its own stream. The slice-B implementation does NOT widen the collision matcher; the two never mix.
+
+**Triple.** `source` / `type` / `subtype`:
+
+- `source: "session-work-output"` — distinct from the `session-tracking-*` lifecycle sources (slice A) and from `state-machine` (S1), so the cloud feed can filter work-output independently.
+- `type: "summary"` — an at-seal rollup (not a per-edit event).
+- `subtype: "seal"` — emitted once per genuine seal pass with new committed work (see emission rule).
+
+**Event shape (within the §2 schema):**
+
+```json
+{
+  "ts": "2026-05-29T18:22:00Z",
+  "session_id": "<from-hook-payload-or-unknown>",
+  "source": "session-work-output",
+  "type": "summary",
+  "subtype": "seal",
+  "agent_context": "orchestrator",
+  "agent_type": null,
+  "agent_id": null,
+  "payload": {
+    "summary": "work-output 2026-05-29T17-40-feature-x: 7 file(s), +412/-87 LOC committed to main via abc1234",
+    "files_touched": ["src/lib/billing/stripe-webhook.ts", "src/app/api/checkout/route.ts"],
+    "files_count": 7,
+    "files_truncated": false,
+    "loc_added": 412,
+    "loc_deleted": 87,
+    "loc_provisional": false,
+    "committed_sha": "abc1234",
+    "tapagents_session_id": "2026-05-29T17-40-feature-x"
+  }
+}
+```
+
+**Reserved `payload.*` keys for this event type:**
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `payload.files_touched` | string[] | yes | Repo-relative paths of files committed to `main` in the session window. Capped to a representative **top-N (N=50, by total churn)** to respect the ingest per-event ~4 KB cap. NEVER carries file CONTENTS — paths + counts only. When the session touched more than N files, this is the highest-churn subset; `files_count` reports the true total. |
+| `payload.files_count` | number | yes | True count of distinct (text) files committed to `main` in the window. `files_count > len(files_touched)` ⇔ the list was truncated (see `files_truncated`). |
+| `payload.files_truncated` | bool | yes | `true` iff `files_touched` is a truncated top-N subset of `files_count`. Lets a consumer render "and N more" without re-deriving. |
+| `payload.loc_added` | number | yes | Lines added, SUMMED across all commits on `main` in the window. The honest committed figure (see "LOC honesty" below). |
+| `payload.loc_deleted` | number | yes | Lines deleted, summed across the window. |
+| `payload.loc_provisional` | bool | yes | Always `false` for this `seal` subtype — the figure is the committed-to-main (authoritative) number, never a mid-session estimate. Reserved so a FUTURE provisional per-edit enhancement (a distinct emit carrying `loc_provisional: true`) is schema-compatible without a break. |
+| `payload.committed_sha` | string \| null | yes | Short `main` HEAD SHA the figure was computed against (`latest_main_sha()`); `null` if unreachable. The attribution anchor — same "the SHA the seal saw" semantics the lifecycle `auto_seal_merge` uses. |
+| `payload.tapagents_session_id` | string \| null | yes | The TapAgents session id (`<YYYY-MM-DDTHH-MM>-<scope>`) for cross-referencing the lifecycle/seal events of the same session. |
+
+The standard `payload.summary` reserved key (§2.2) is a one-line human-readable rollup (counts + LOC + SHA), truncated to ≤ 200 chars per the helper.
+
+**Ingest field-length caveat (load-bearing).** Per the shipped ingest endpoint's caps (`event_subtype` ≤ 80, `project_slug` ≤ 100, `session_id` ≤ 200; per-event ~4 KB; `payload.summary` truncated to 200), ALL file paths and the `files_touched[]` array ride in the free-shape `jsonb` `payload`, NEVER in a top-level field. The top-N=50 cap keeps the payload well under 4 KB even with long paths. A long path placed in `event_subtype` would be rejected `invalid_event`.
+
+**LOC honesty — what is reliable vs what is NOT (per the slice-B dispatch directive).**
+
+| Capture point | Method | Reliable? |
+|---|---|---|
+| **Committed work, at seal** | `git log --since=<started> --numstat ... main` summed across the window (`loc_landed_on_main_since()`) | ✅ **RELIABLE** — the ONE LOC number the framework emits. |
+| **Uncommitted / feature-branch / mid-session** | per-edit byte/line delta from the tool payload | ⚠️ **PROVISIONAL** — NOT emitted by this `seal` event (roadmap OD-B3: "ship final-only first"). Reserved via `loc_provisional` for a later enhancement. |
+| **A single authoritative "total LOC" mid-session** | — | ❌ **NOT computable** — only the committed figure (at seal) is authoritative. |
+
+**"This session's work" definition (chosen + flagged).** = files **committed to `main` since the sidecar's `started` timestamp**, in the `CLAUDE_PROJECT_DIR` git repo. This is identical to the committed-to-main definition the existing auto-seal contract uses (`files_landed_on_main_since()`); the LOC stream is the `--numstat` line-delta view of that same set. The choice is deliberate: it is reliable exactly where the existing seal logic is (a Tier-2 product repo whose `CLAUDE_PROJECT_DIR` is a git work-tree with a `main`), and a clean no-op where it is not (the framework-HQ orchestrator context, whose root is NOT a git repo — so the dogfood orchestrator session emits no work-output, which is correct).
+
+**Emission rule (no-emit-when-no-work).** The producer emits **at most one** `session-work-output/summary/seal` event per genuine seal pass, and only when there is measured committed work:
+
+- git/`main` unavailable (`loc_landed_on_main_since().available == False`) → **emit NOTHING** (the figure is unmeasurable; a zero would falsely read as "changed nothing").
+- git ran but zero files landed on `main` in the window → **emit NOTHING** (honest empty).
+- git ran and ≥1 file landed → emit ONE event with the honest counts.
+- **Idempotency across resumes:** the producer records the committed-SHA it last emitted against on the sidecar (`work_output_emitted_sha`, the hook's own bookkeeping — NOT part of this schema) and re-emits only when the SHA changes (genuinely-new commits since the last seal). No new commits → no re-emit.
+
+**Billing.** Pool A. Pure git + file-stat + the existing `emit_event_http()` app-to-app HTTP. No `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+**Dashboard-render contract for Slice C (DEFINE, not build — for a follow-on C extension).** Slice C's `/dashboard/live` per-session detail consumes this stream as follows; this contract is recorded so C can be extended later without re-deriving shapes:
+
+- **Query.** Read `live_events` filtered to `source = 'session-work-output'`, grouped by `session_id` (and optionally `project_slug`). The existing `live_events_user_source_idx` and `live_events_user_project_ts_idx` indexes cover this; query the table directly (no `live_activity_unified` VIEW dependency — OD-4 defer stands).
+- **Per-session "work done" panel fields (read straight from `payload`):**
+  - `filesCount` ← `payload.files_count` — render as "N files".
+  - `locAdded` / `locDeleted` ← `payload.loc_added` / `payload.loc_deleted` — render as "+X / −Y LOC".
+  - `locFinal` ← `payload.loc_provisional === false` — render the figure with a "final / committed" affordance (NOT "live"). The dashboard MUST NOT present this number as live/provisional; it is the committed total.
+  - `filesTouched` ← `payload.files_touched` (string[]) — render the list; if `payload.files_truncated === true`, append "+ (files_count − files_touched.length) more".
+  - `committedSha` ← `payload.committed_sha` — optional commit-link affordance.
+  - `tapagentsSessionId` ← `payload.tapagents_session_id` — join key to the same session's lifecycle (`session-tracking-*`) and phase (`state-machine`) rows for one unified session card.
+- **Liveness composition.** A "live session" row is one with a recent `session-tracking-register`/`-files` event and no terminal `session-tracking-seal`; the work-output `summary/seal` event (when present) supplies that row's files/LOC figures. Absence of a work-output event for a session = "no committed work yet" (render 0 / "—"), distinct from a session that committed work (render the figures).
+- **What C must NOT assume:** that every session has a work-output event (HQ/orchestrator sessions and zero-commit sessions have none — see emission rule); that the figure is provisional (it never is for this subtype); that `files_touched` is complete (check `files_truncated`).
+
+**Provenance.** M-D track Addendum Rev 2 §"Slice B" + OD-B1 (triple grammar) + OD-B3 (final-only first). Schema additive-only per §6 — a new `source` value + new `type`/`subtype` is MINOR; the `payload.*` keys are PATCH-grade additive. No existing triple mutated.
 
 ## §3 Storage
 

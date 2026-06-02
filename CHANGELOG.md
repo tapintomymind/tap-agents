@@ -4,6 +4,40 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.26.0] — 2026-05-29 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
+
+**Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2), held/unpublished alongside v0.25.0. Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from the held v0.25.0 rather than a retroactive widening of that release's scope.
+
+**The new stream.** A new `session-work-output` / `summary` / `seal` event triple, flipped from reserved → **LIVE** in `protocols/telemetry-events.md §2.4` and fully documented in the new **§2.6**. The producer is `hooks/session-tracking-seal.py` (`_emit_work_output`) — the same Stop hook that already emits the session-lifecycle events — using the exact S1/slice-A dual-emit shape: local `emit_event()` (source of truth) then best-effort cloud-mirror `emit_event_http()` (fail-open, no-op without `TAPAGENTS_LIVE_TOKEN`).
+
+**Deliberately a SEPARATE stream — the cross-cutting collision manifest is NOT widened.** `active-sessions.md` / `is_cross_cutting_path()` / `files_in_flight` exist for session-collision avoidance across concurrent sessions touching shared *framework* files, and stay framework-files-only. "What did this session produce" is a different question with a different consumer (the dashboard user), so product `src/` work-output rides its own stream. The matcher is untouched.
+
+**LOC honesty.** The only LOC number the framework emits is the **committed-to-main** figure computed at seal by a new `loc_landed_on_main_since()` git helper in `hooks/_session_tracking.py` — the `git log --since=<started> --numstat … main` sibling of the existing `--name-only` `files_landed_on_main_since()`. "This session's work" = files committed to `main` since the sidecar's `started` timestamp, the same committed-to-main definition the auto-seal contract already uses. Binary files (which report no line count) are excluded; counts are summed across all commits in the window. A mid-session/uncommitted figure is **provisional and is NOT emitted** by this `seal` event (`payload.loc_provisional` is always `false`; the key is reserved so a future provisional per-edit enhancement is schema-compatible). Where git/`main` is unavailable — e.g. the framework-HQ orchestrator context, whose root is not a git repo — the figure is unmeasurable and **no event is emitted** (no-emit-when-no-work); the stream only carries data for sessions running inside a product git repo. Re-emit is idempotent across resumes: the producer records the committed-SHA it last emitted against on its own sidecar bookkeeping and re-emits only when genuinely-new commits land.
+
+**Additive-only** (`telemetry-events.md §6`): a new `source` value + new `type`/`subtype` is MINOR; the `payload.*` keys (`files_touched`, `files_count`, `files_truncated`, `loc_added`, `loc_deleted`, `loc_provisional`, `committed_sha`) are PATCH-grade additive. No existing triple mutated; the frozen top-level schema is untouched; no `live_events` column add (everything rides the existing `jsonb` payload). New wired-hook behavior emitting a newly-live reserved triple ⇒ framework MINOR per `protocols/versioning-protocol.md §3.2`. The §2.6 spec also records the Slice-C dashboard-render contract (field names + shapes for the `/dashboard/live` per-session "work done" panel) so the render extension can be built later without re-deriving shapes — the render itself is NOT built here.
+
+**Billing: Pool A.** Pure git + file-stat + the existing app→app `emit_event_http()` HTTP. No `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Added
+
+- **`hooks/_session_tracking.py` — `loc_landed_on_main_since(started_iso)`** — the `--numstat` sibling of `files_landed_on_main_since()`. Returns `{added, deleted, files: {path: {added, deleted}}, files_count, available}`; sums per-file deltas across all commits on `main` in the window; excludes binary files; fails open to the `available: False` zero-shape on any git failure (no repo / no `main` / git missing / timeout). `available` distinguishes "couldn't measure" from "measured zero."
+- **`hooks/session-tracking-seal.py` — `_emit_work_output()` + `WORK_OUTPUT_TOP_N_FILES` (=50)** — computes work-output at seal and dual-emits the `session-work-output`/`summary`/`seal` event. Rolls the file list up to a representative top-N (by churn) to respect the ingest per-event ~4 KB cap, with `files_count`/`files_truncated` signalling truncation. Wired into `main()` before the existing lifecycle branches (so it fires for sessions that touched only product `src/`); the lifecycle branches are unchanged.
+- **`protocols/telemetry-events.md §2.6`** — full schema for the now-LIVE `session-work-output` triple: event shape, reserved `payload.*` keys, the LOC reliable-vs-provisional table, the "this session's work" definition, the no-emit-when-no-work emission rule, the ingest field-length caveat, and the Slice-C dashboard-render contract. §2.4 reservation flipped reserved → LIVE.
+- **`scripts/test-session-work-output.py`** — 16 stdlib `unittest` cases (zero new devDeps): LOC computation (sum-across-commits, binary exclusion, git-failure fail-open, measured-zero), dual-emit local+cloud parity, committed-vs-provisional (`loc_provisional` always false at seal), no-emit-when-no-work (unavailable / zero-files / no-sidecar), idempotency across resumes (re-emit only on SHA change), top-N truncation, and a guard that the existing lifecycle seal events are unaffected.
+
+### Provenance + cross-references
+
+- M-D track scope/sequencing + Slice B design: `workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` (Addendum Rev 2 §"Slice B"; OD-B1 triple grammar; OD-B3 final-only-first).
+- Builds on v0.25.0's dual-emit pattern (`hooks/stop-phase-transition.py`) and the shipped `emit_event_http()` cloud-mirror helper (v0.24.0).
+
+### SemVer classification: MINOR
+
+Per `protocols/versioning-protocol.md §3.2`:
+
+- **Additive only.** New wired-hook behavior (a new emitter within the already-wired seal hook) emitting a newly-live reserved telemetry triple + a new git helper. Every existing consumer at v0.25.0 continues to function unchanged (the new event is purely additional; consumers ignore unknown sources per `telemetry-events.md §5`).
+- **No file removed or renamed** in any §3.2/§3.3-governed directory (`agents/`, `commands/`, `protocols/`, `templates/`). One new test script added under `scripts/`. No `settings.json` change (the seal hook is already wired).
+- **No public API or export shape change**; no `live_events` schema change (new datum rides the existing `jsonb` payload).
+
 ## [0.25.0] — 2026-05-29 — Telemetry cloud-mirror: phase-transitions (M-D slice S1) + session lifecycle (M-D slice A)
 
 **Minor release.** Two same-theme slices of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md`), bundled into one release because both are additive, cloud-mirror-only work on the frozen telemetry schema and this version was unpublished when slice A landed:

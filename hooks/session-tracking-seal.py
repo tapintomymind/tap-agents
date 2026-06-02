@@ -44,6 +44,30 @@ Stdin payload (Claude Code Stop hook):
 
 Output: empty stdout (no blocking message). Exit 0 always. Telemetry:
 `session.tracking.auto_sealed` or `session.tracking.partial_seal`.
+
+Work-output capture (M-D track slice B, added v0.26.0)
+------------------------------------------------------
+In ADDITION to the lifecycle `fire`/seal events above, this hook emits a
+SEPARATE `session-work-output` / `summary` / `seal` event that captures what
+the session actually *produced* — product `src/` files + lines-of-code —
+independent of the cross-cutting collision manifest. This is a DISTINCT
+telemetry stream by deliberate design (see
+`protocols/telemetry-events.md §2.6` and the M-D roadmap Addendum Rev 2):
+`files_in_flight` / `is_cross_cutting_path()` exist for session-collision
+avoidance across concurrent sessions and are intentionally framework-files-
+only; "what did this session produce" is a different question with a
+different consumer (the dashboard user), so it rides its own stream and does
+NOT widen the collision matcher.
+
+The work-output figure is computed at seal from `loc_landed_on_main_since()`
+— `git diff --numstat` of work *committed to `main`* in the session's window.
+This is the only LOC number the framework can stand behind (committed-to-main
+= the same definition the auto-seal contract uses); a mid-session/uncommitted
+figure is provisional and is NOT emitted here (see schema §2.6 and roadmap
+OD-B3 — "ship final-only first"). When git/main is unavailable (e.g. the
+framework-HQ orchestrator context, whose root is not a git repo) the figure
+is unmeasurable and NO work-output event is emitted (no-emit-when-no-work).
+The work-output emit is fail-open and never blocks Stop.
 """
 from __future__ import annotations
 
@@ -76,6 +100,7 @@ try:
         files_landed_on_main_since,
         find_workspace,
         latest_main_sha,
+        loc_landed_on_main_since,
         now_iso,
         read_sidecar,
         upsert_entry,
@@ -90,6 +115,10 @@ except Exception:  # noqa: BLE001
 
     def latest_main_sha():  # type: ignore[no-redef]
         return None
+
+    def loc_landed_on_main_since(_s):  # type: ignore[no-redef]
+        return {"added": 0, "deleted": 0, "files": {}, "files_count": 0,
+                "available": False}
 
     def now_iso():  # type: ignore[no-redef]
         return ""
@@ -139,6 +168,124 @@ def _seal(data: dict, *, status: str, sha: str | None, merged: list[str],
     return data
 
 
+# Cap on how many file paths ride in the work-output event payload. The
+# shipped ingest endpoint enforces a per-event ~4 KB cap (verified, M-D
+# roadmap Addendum Rev 2 §"Slice B" ingest caveat). A session that touches
+# hundreds of files must roll up to COUNTS + a representative top-N path list
+# rather than dump every path. The full per-file map stays available locally
+# in the events.jsonl row (the local emit carries the same payload, and the
+# local log has no field-length cap beyond the summary truncation). Top-N is
+# selected by largest total churn (added+deleted) so the most substantial
+# files are the ones that survive truncation.
+WORK_OUTPUT_TOP_N_FILES = 50
+
+
+def _emit_work_output(
+    *,
+    data: dict,
+    session_id: str | None,
+) -> bool:
+    """Emit the `session-work-output` / `summary` / `seal` event (slice B).
+
+    Computes the session's product-file work-output + committed LOC from
+    `loc_landed_on_main_since(started)` and dual-emits (local emit_event
+    source-of-truth, then emit_event_http cloud mirror — exact S1/slice-A
+    pattern). This is a SEPARATE stream from the lifecycle/seal events; it is
+    emitted regardless of whether `files_in_flight` was non-empty, because a
+    session that touched only product `src/` (never a cross-cutting framework
+    file) still produced work worth surfacing on the dashboard.
+
+    No-emit-when-no-work contract:
+      - git/main unavailable (loc.available is False) → emit NOTHING. The LOC
+        is unmeasurable here; emitting a zero figure would be a lie (it would
+        read as "this session changed nothing" when the truth is "couldn't
+        measure"). The framework-HQ orchestrator context hits this path (root
+        is not a git repo), so the dogfood orchestrator session is silent —
+        correct: the work-output stream is for sessions running inside a
+        product git repo.
+      - git ran but zero files landed on main in the window
+        (loc.available True, files_count == 0) → emit NOTHING. Honest empty;
+        nothing was committed, so there is no work-output to report.
+      - git ran and >=1 file landed → emit ONE event with the honest counts.
+
+    Returns True iff an event was emitted (for the caller's stderr surface).
+    """
+    started = data.get("started") or ""
+    loc = loc_landed_on_main_since(started)
+
+    # No-emit-when-no-work: unmeasurable OR nothing committed in window.
+    if not loc.get("available"):
+        return False
+    files_map: dict = loc.get("files") or {}
+    files_count = int(loc.get("files_count") or 0)
+    if files_count <= 0 or not files_map:
+        return False
+
+    sha = latest_main_sha()
+    loc_added = int(loc.get("added") or 0)
+    loc_deleted = int(loc.get("deleted") or 0)
+
+    # Roll up to a representative top-N path list (by total churn) to respect
+    # the ingest per-event cap. The full files_count is always reported so a
+    # truncated list is unambiguous (files_count > len(files_touched) signals
+    # truncation to the consumer).
+    ranked = sorted(
+        files_map.items(),
+        key=lambda kv: (kv[1].get("added", 0) + kv[1].get("deleted", 0)),
+        reverse=True,
+    )
+    files_touched = [path for path, _delta in ranked[:WORK_OUTPUT_TOP_N_FILES]]
+    files_truncated = files_count > len(files_touched)
+
+    summary = (
+        f"work-output {data.get('tapagents_session_id')}: "
+        f"{files_count} file(s), +{loc_added}/-{loc_deleted} LOC "
+        f"committed to main via {sha or '(unknown)'}"
+    )
+    work_payload = {
+        "summary": summary,
+        "files_touched": files_touched,
+        "files_count": files_count,
+        "files_truncated": files_truncated,
+        "loc_added": loc_added,
+        "loc_deleted": loc_deleted,
+        # The committed-to-main figure is the authoritative one; this stream
+        # never emits a provisional mid-session number (roadmap OD-B3). The
+        # flag is carried explicitly = False so consumers can render
+        # "final / committed" unambiguously and so a future provisional
+        # per-edit enhancement (a separate emit with loc_provisional: true)
+        # is schema-compatible.
+        "loc_provisional": False,
+        "committed_sha": sha,
+        "tapagents_session_id": data.get("tapagents_session_id"),
+    }
+
+    # Local emit (source of truth per §4 producer contract) then cloud mirror
+    # (fail-open; no-op without TAPAGENTS_LIVE_TOKEN). Local first, then HTTP,
+    # so a cloud failure never affects the local audit trail.
+    emit_event(
+        source="session-work-output",
+        type="summary",
+        subtype="seal",
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload=work_payload,
+        session_id=session_id,
+    )
+    emit_event_http(
+        source="session-work-output",
+        event_type="summary",
+        event_subtype="seal",
+        session_id=session_id,
+        agent_context="orchestrator",
+        agent_type=None,
+        agent_id=None,
+        payload=work_payload,
+    )
+    return True
+
+
 def main() -> int:
     payload = read_payload()
     cc_session_id = payload.get("session_id") or ""
@@ -156,6 +303,30 @@ def main() -> int:
     data = read_sidecar(workspace, cc_session_id)
     if data is None:
         return 0
+
+    # Work-output capture (slice B) runs on every genuine seal pass that has a
+    # sidecar — BEFORE the lifecycle branch logic and BEFORE the already-sealed
+    # early-return, so it fires regardless of cross-cutting files_in_flight and
+    # even for sessions that touched ONLY product src/ (no framework file). It
+    # is its own separate stream; the lifecycle branches below are unchanged.
+    #
+    # Idempotency: a session may end (Stop) multiple times across resumes. We
+    # record the committed-SHA the work-output was last emitted against on the
+    # sidecar (`work_output_emitted_sha`) and re-emit only when the SHA changes
+    # (i.e. genuinely-new commits landed since the last seal). No new commits →
+    # no re-emit. This keeps the work-output stream one-event-per-new-work
+    # rather than one-per-Stop, and the marker is the hook's own bookkeeping
+    # (not part of the telemetry schema). Fail-open: a marker-write failure at
+    # worst re-emits an identical row next Stop (the dashboard dedups on shape).
+    last_emitted_sha = data.get("work_output_emitted_sha")
+    current_main_sha = latest_main_sha()
+    if current_main_sha is not None and current_main_sha != last_emitted_sha:
+        if _emit_work_output(data=data, session_id=cc_session_id):
+            data["work_output_emitted_sha"] = current_main_sha
+            # Persist the marker. We do NOT upsert_entry() here — work-output
+            # is not an active-sessions.md concern; only the sidecar carries
+            # the marker. The lifecycle branches below own the manifest writes.
+            write_sidecar(workspace, cc_session_id, data)
 
     # Already sealed? Nothing to do.
     if data.get("status") in {"sealed", "noop"}:
