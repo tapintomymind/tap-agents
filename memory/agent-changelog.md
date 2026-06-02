@@ -8,6 +8,12 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-06-02 — Framework v0.31.1 — CHANGELOG-prose consistency for the v0.31.0 deploy-neutral ignoreCommand
+
+A documentation-consistency patch. The v0.31.0 release shipped the correct six-path `ignoreCommand` in the deploy-neutral config and the protocol, but its CHANGELOG narrative still described an earlier four-path form — a concurrent spec refinement updated the config, the protocol, and the CHANGELOG prose at the framework root after the v0.31.0 release commit had already captured the older prose. Because published packages are immutable, this patch reconciles the narrative going forward so the latest published CHANGELOG documents the config it actually ships. No config or behavior change; adopters at v0.31.0 already carry the correct config.
+
+Cross-reference: `CHANGELOG.md` v0.31.1 entry.
+
 ## 2026-06-02 — Framework v0.31.0 — Deploy neutrality: framework-sync commits never redeploy a consumer environment
 
 Scaffold-ships a `vercel.json` `ignoreCommand` so a framework-sync commit (per the sync-tapagents-protocol §3 fingerprint) is deploy-neutral on every consumer environment. The `sync-tapagents → main` promotion and the `main → dev` back-merge each push a deploy branch; on `main` a sync-rebuild is merely wasteful, but on `dev`/QA it is dangerous because the back-merge can redeploy in-flight, unpromoted work. The committed `ignoreCommand` asks "did anything outside the framework-scaffold paths change?" — exit 0 skips the deploy, non-zero builds — so pure-scaffold promotions never rebuild the app, while a framework dependency bump (which changes `package.json`, deliberately excluded from the skip set) still verifies on the isolated `sync-tapagents` preview. The mechanism is the deploy-time complement to the existing branch-isolation discipline (Layers A–E): the protocol gains §4.5 and a sixth, scaffold-shipped Layer F; the Tier 2 deployment template gains a scaffold-time install step; the handoff-protocol mechanical checklist gains a verification item. Additive — no existing capability removed; existing consumers adopt it the next time their deployment agent runs or via a one-line surgical commit.
