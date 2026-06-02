@@ -30,7 +30,13 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs";
 import { tmpdir, hostname } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// The package's own version — what the CLI's --version MUST print (no lag).
+const PKG_VERSION = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"),
+).version;
 
 import { runDeviceFlow, DeviceFlowError, authBaseFromIngestUrl } from "../cli/lib/device-flow.mjs";
 import {
@@ -218,8 +224,11 @@ test("happy path: E1 → poll → 200 returns the token bundle", async () => {
     assert.equal(bundle.token_id, "uuid-1");
     // The user instructions were printed with the user_code + verification_uri.
     assert.match(sink.text(), /Open https:\/\/tapagents\.ai\/device and enter code: WXYZ-1234/);
-    // E1 sent a client label for audit.
-    assert.match(JSON.stringify(srv.codeRequests()[0]), /tapagents-cli\/0\.28\.0/);
+    // E1 sent a client label for audit — version tracks package.json (no lag).
+    assert.match(
+      JSON.stringify(srv.codeRequests()[0]),
+      new RegExp(`tapagents-cli/${PKG_VERSION.replace(/\./g, "\\.")}`),
+    );
     // Every E3 poll echoed back the EXACT device_code from E1 (not the user_code,
     // not a mangled value) — confirms the client polls with the right credential.
     for (const tb of srv.tokenRequests()) {
@@ -676,7 +685,9 @@ test("main --version / --help / unknown", async () => {
   const t1 = makeCtx();
   let code = await main(["--version"], t1.ctx);
   assert.equal(code, 0);
-  assert.match(t1.out(), /^0\.28\.0$/m);
+  // Must equal package.json's version exactly — guards against the version-lag
+  // (a re-hardcoded literal) regressing the bin's reported version.
+  assert.match(t1.out().trim(), new RegExp(`^${PKG_VERSION.replace(/\./g, "\\.")}$`, "m"));
 
   const t2 = makeCtx();
   code = await main(["--help"], t2.ctx);

@@ -23,6 +23,10 @@
 // Pure Node stdlib (Pool A). Dependencies (http, clock, sleep, out) are injected
 // so the whole flow is driveable against a mock server with a fake clock in tests.
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { postJson } from "./http.mjs";
 
 // RFC-8628 §3.5 vocabulary + the contract's IP-abuse trip.
@@ -38,7 +42,17 @@ const DEFAULT_INTERVAL_SECONDS = 5;
 const DEFAULT_EXPIRES_IN_SECONDS = 600;
 const SLOW_DOWN_BACKOFF_SECONDS = 5; // §1.5: "increase the local interval by 5s"
 const TIMEOUT_GRACE_SECONDS = 15; // §1.5: "expires_in + a small grace (e.g. 615s)"
-const CLIENT_VERSION = "0.28.0"; // mirrors package.json; used in the `client` label.
+// Read at runtime from the package's own package.json (cli/lib/ → two dirs up)
+// so the `client` label never lags the published version. Fail-soft: never throws.
+const CLIENT_VERSION = (() => {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
+    const v = JSON.parse(readFileSync(pkgPath, "utf8")).version;
+    return typeof v === "string" && v.length > 0 ? v : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 /** Error subclass carrying the RFC-8628 error code for terminal failures. */
 export class DeviceFlowError extends Error {
