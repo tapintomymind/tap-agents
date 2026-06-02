@@ -10,6 +10,7 @@
  *  4. .claude-plugin/plugin.json `version` === package.json `version`
  *  5. .claude-plugin/marketplace.json plugin entries all match package.json `version`
  *  6. Every agent / command file in source is reflected in the dist manifest
+ *  7. (mirror-only) the `tapagents` CLI bin's reported version === package.json `version`
  *
  * Run via:
  *   npm run verify
@@ -159,6 +160,42 @@ async function checkIndexLoadable(): Promise<void> {
   }
 }
 
+/**
+ * Defensive, mirror-only: the `tapagents` CLI bin must report the same version as
+ * package.json — closes the version-lag class where the bin hardcodes a stale
+ * literal (the published v0.29.0 bin printed "0.28.0").
+ *
+ * Written DEFENSIVELY so this one verify.ts works at BOTH topology endpoints:
+ *   - At framework HQ there is NO cli/ (the CLI is mirror-native, committed only
+ *     into tap-agents/), so the existsSync guard makes this a clean no-op.
+ *   - In the published mirror (tap-agents/, where publish.yml runs verify) cli/
+ *     exists, so the check runs and gates the publish.
+ *
+ * The bin exports `VERSION` (the exact value `tapagents --version` prints) and
+ * guards its own auto-run behind an isEntrypoint check, so importing it here is
+ * side-effect-free.
+ */
+async function checkCliVersionMatchesPackage(packageVersion: string): Promise<void> {
+  const cliPath = join(ROOT, "cli", "tapagents.mjs");
+  if (!existsSync(cliPath)) {
+    return; // No cli/ here (HQ topology) — nothing to check.
+  }
+  try {
+    const mod = (await import(pathToFileURL(cliPath).href)) as { VERSION?: unknown };
+    if (typeof mod.VERSION !== "string") {
+      fail("cli/tapagents.mjs does not export VERSION as a string.");
+      return;
+    }
+    if (mod.VERSION !== packageVersion) {
+      fail(
+        `cli/tapagents.mjs reported version (${mod.VERSION}) does not match package.json version (${packageVersion}). The bin must read its version from package.json at runtime — not a hardcoded literal.`,
+      );
+    }
+  } catch (err) {
+    fail(`Failed to import cli/tapagents.mjs to verify its version: ${(err as Error).message}`);
+  }
+}
+
 async function main(): Promise<void> {
   const pkgRaw = await readFile(join(ROOT, "package.json"), "utf8");
   const pkg = JSON.parse(pkgRaw) as { version: string };
@@ -171,6 +208,7 @@ async function main(): Promise<void> {
   await checkVersionsAligned(pkg.version, manifest);
   await checkSourceReflectedInManifest(manifest);
   await checkIndexLoadable();
+  await checkCliVersionMatchesPackage(pkg.version);
 
   if (errorCount > 0) {
     console.error(`[verify] FAILED with ${errorCount} error(s).`);

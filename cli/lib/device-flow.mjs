@@ -3,8 +3,8 @@
 // Implements the CLIENT side of E1 + E3 from the FROZEN contract
 // `_global/tapagents-login-device-auth-contract-2026-06-02.md` §1.2 / §1.4 / §1.5.
 // The SERVER side (E1/E2/E3 endpoints + the /device approve page) is U1 in
-// tapagents-app and is NOT in this package — U2 builds against the frozen wire
-// contract and a mock server (scripts/test-tapagents-cli.mjs).
+// the consumer app (`<project>`) and is NOT in this package — U2 builds against
+// the frozen wire contract and a mock server (scripts/test-tapagents-cli.mjs).
 //
 // Flow:
 //   1. POST {ingestBase}/api/auth/device/code  → device_code + user_code + URIs

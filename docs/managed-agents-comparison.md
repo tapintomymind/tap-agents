@@ -98,7 +98,7 @@ Current state: QE smoke runs against prod URLs are bounded by the local session'
 
 ### 3.2 Async research agents (planned activations)
 
-The team's `agents/_planned/` roster includes `industry-researcher.md` and `customer-researcher.md` `[memory/backlog.md §Planned (not built day one) per the founding framework design spec at .claude/docs/specs/2026-05-04-framework-design.md L43-46]`. **Note:** these agents currently sit in `agents/_planned/`; activating them implies an Org Designer activation contract per `protocols/framework-contract-discipline.md` (split from Strategist if research depth demands per the founding spec). Hosting them on Managed Agents is gated behind that activation, not a substitute for it. When activated, these agents do bulk research that runs cleanly without intermediate human gates.
+The team's `agents/_planned/` roster includes `industry-researcher.md` and `customer-researcher.md` `[memory/backlog.md §Planned (not built day one) per Claude Team Design Spec at .claude/docs/specs/2026-05-04-<project>-design.md L43-46]`. **Note:** these agents currently sit in `agents/_planned/`; activating them implies an Org Designer activation contract per `protocols/framework-contract-discipline.md` (split from Strategist if research depth demands per the founding spec). Hosting them on Managed Agents is gated behind that activation, not a substitute for it. When activated, these agents do bulk research that runs cleanly without intermediate human gates.
 
 **Use case:** activate `industry-researcher` on Managed Agents for an overnight "scan the competitive landscape for X feature" run, with webhook completion + result-fetch into TapAgents memory. The async-friendly nature of these roles (no real-time interruption needed) makes them a natural fit.
 
@@ -211,4 +211,4 @@ Critic's Devil's Advocate pass on this doc surfaced an additional re-evaluation 
 - `agents/org-designer.md` — continuous team-shape evaluation (gap §4.5).
 - `memory/backlog.md` BL-025 + BL-026 + BL-029 — the in-flight backlog items this doc references.
 - `memory/agent-changelog.md` 2026-05-07 — Phase 1 outcome-grading landing narrative.
-- `.claude/docs/specs/2026-05-04-framework-design.md` — founding team design spec.
+- `.claude/docs/specs/2026-05-04-<project>-design.md` — founding team design spec.

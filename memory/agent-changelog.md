@@ -8,6 +8,14 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-06-02 — Framework v0.30.0 — Private-data-safe publish pipeline: mechanical genericizer + no-re-leak guardrails
+
+The framework publishes through a public npm mirror, so any real private identifier authored into a framework file — a project codename, an infra hostname, an operator path — would egress to the registry. A manual privacy sweep had removed a batch of these by hand, but a hand sweep is fragile: the very next sync that carried raw content would re-leak it. This release makes the prevention mechanical. A single genericizer map is now the source of truth for the known private-identifier classes; a sync-time lint aborts the publish if any known codename survives into the proposed output; a no-re-leak gate (`npm run verify-genericize`) dry-runs the sync and greps the result before any real apply; and a new PreToolUse hook blocks an author from ever writing a real private identifier into a synced framework file in the first place. The doctrine layer is equally explicit: author clean, never rely on the safety net — the net only knows the identifiers already in its map, so a brand-new identifier class would sail through every automated layer until someone adds it.
+
+This release also closes the one residual the automated grep could not see. The published tarball carries a mirror-native CLI tree that the genericizer never processes (it exists only in the mirror, not at the authoring root) and whose files use an extension the gate did not scan. A bare project-codename sat in a CLI source comment there. The fix scrubs the comment to a placeholder and extends the no-re-leak gate to grade the whole published-tarball surface — mirror-native trees and the additional file extensions — not just the synced subset, so this leak class cannot recur. Pre-existing low-severity historical identifiers in older changelog entries are accepted as-is per operator decision; no credentials were ever at stake.
+
+Cross-reference: `CHANGELOG.md` v0.30.0 entry.
+
 ## 2026-06-02 — Framework v0.29.1 — CLI version-lag fix: `tapagents --version` tracks the published version
 
 A patch follow-up to the v0.29.0 `tapagents` CLI. The CLI that shipped in v0.29.0 reported its version from a hardcoded string literal that had been left at `0.28.0` — so the published tool answered `tapagents --version` with `0.28.0`, one release behind itself, and the device-flow telemetry client label likewise announced the stale version. The bug was cosmetic-but-misleading: the version a tool reports is exactly the kind of fact people and audit logs trust to be true, and a hardcoded literal is structurally guaranteed to rot every time the package version moves.

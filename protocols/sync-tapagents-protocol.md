@@ -145,7 +145,7 @@ The framework HQ `CLAUDE.md` and each Tier 2 project's `CLAUDE.md` reference thi
 
 ### §5.5 Layer E — Memory entries
 
-Two `~/.claude/projects/<your-machine-tag>/memory/` entries:
+Two `~/.claude/projects/<project>/memory/` entries:
 
 1. `feedback_no_direct_commits_on_main_back_merge_discipline.md` — extended with the framework-sync carve-out clause referencing this protocol.
 2. `project_sync_tapagents_protocol_2026-05-14.md` — new memory file capturing the protocol's existence, the v0.20.0 incident that triggered it, and when to consult it.
@@ -185,7 +185,7 @@ The PreToolUse hook (§5.2) and CI guard (§5.3) both read this file (with fallb
 
 This protocol responds to the 2026-05-14 v0.20.0 adoption incident on <project>. The branch `sync-tapagents` already existed (since 2026-05-12 per `cc7fa17`) with deliberate Vercel whitelist configuration; the producer-side auto-adoption workflow already targets it. What was missing was the strict-enforcement discipline that the branch is the ONLY legitimate destination for framework-sync content. This protocol fixes that.
 
-The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. <project> is the first dogfood case; the same rules will apply to `<project>`, `<project>` (the marketing site if it ever consumes the framework), and any new project the user spins up.
+The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. <project> (formerly <project>) is the first dogfood case; the same rules will apply to `<project>`, `tapintomymind` (the marketing site if it ever consumes the framework), and any new project the user spins up.
 
 ## §9 Related protocols at a glance
 

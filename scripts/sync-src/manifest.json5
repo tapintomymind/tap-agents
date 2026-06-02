@@ -49,10 +49,14 @@
     "scripts/rollup-metrics.py",
     "workspace/.gitkeep",
     "workspace/_examples/**/*",
-    "workspace/_registry.md",
     "workspace/_global/.gitkeep",
-    "workspace/_global/portfolio.json",
     "workspace/_global/setup_state.json",
+    // NOTE: workspace/_registry.md and workspace/_global/portfolio.json were
+    // REMOVED from include[] on 2026-06-02 (sync-genericizer remediation §6.1).
+    // They tracked real active project slugs as their content; the operator
+    // decision was to EXCLUDE them from the public mirror entirely (see the
+    // matching exclude[] entries + comment below). Re-adding them here would
+    // re-leak live slugs via the explicit-include-overrides-exclude precedence.
     ".claude-plugin/**/*",
     ".github/**/*",
     "settings.json",
@@ -157,6 +161,19 @@
     "workspace/_inbox/**/*",
     "workspace/_archived/**/*",
 
+    // Operator's live cross-project registry — real active slugs ARE the
+    // content. Per the 2026-06-02 sync-genericizer remediation (design
+    // workspace/_global/architect-designs/2026-06-02-sync-genericizer-remediation.md
+    // §6.1, operator decision: EXCLUDE both), a public framework consumer has
+    // no use for the operator's live project registry. Excluding them entirely
+    // is cleaner than genericizing every slug to `<project>` × N (which would
+    // empty the file's content surface). This also resolves the PR#13
+    // inconsistency where portfolio.json was genericized but _registry.md was
+    // lint-exempted with its slugs left intact (a latent re-leak the lint
+    // couldn't catch because the file was exempt). Removed from include[] above.
+    "workspace/_global/portfolio.json",
+    "workspace/_registry.md",
+
     // _private — explicit private spaces.
     "agents/_private/**/*",
     "playbooks/_private/**/*",
@@ -179,6 +196,7 @@
     "settings.json": "sanitize-settings",
     "hooks/orchestrator-dispatch-gate.py": "sanitize-passthrough",
     "hooks/pre-tool-gate.py": "sanitize-passthrough",
+    "hooks/framework-private-data-gate.py": "sanitize-passthrough",
     "hooks/prompt-router.py": "sanitize-passthrough",
     "hooks/prompt-router-feedback.py": "sanitize-passthrough",
     "hooks/session-start-brief.py": "sanitize-passthrough",
@@ -232,6 +250,147 @@
     "agent-dashboard",
     "claude-team-app",
   ],
+
+  // ---------------------------------------------------------------------------
+  // genericize — publish-time identifier rewrite map (2026-06-02 remediation)
+  // ---------------------------------------------------------------------------
+  //
+  // Single source of truth for the HQ→mirror identifier genericization. Read by
+  // `genericizeBody()` in sync.ts and wired into plan()'s copy + sanitize
+  // branches (NOT templates — CHANGELOG/README/package.json have dedicated
+  // transformers; the CHANGELOG transformer ALSO calls genericizeBody as its
+  // engine). Design:
+  //   workspace/_global/architect-designs/2026-06-02-sync-genericizer-remediation.md
+  //
+  // WHY THIS EXISTS: the bulk `.md`/script copy set flowed through the `copy`
+  // path with NO transform, so a `--apply` run overwrote the clean genericized
+  // mirror (produced by PR#13's MANUAL sweep) with HQ's raw codenames — and the
+  // path-only `project-slug-ref` lint never fired on bare-label prose like the
+  // string "agent-dashboard". This map makes the sweep mechanical + repeatable.
+  //
+  // ORDER OF APPLICATION (genericizeBody enforces this; do not reorder casually):
+  //   0. protect-mask  — replace every `protect[]` substring with a sentinel so
+  //                       no later rule can rewrite inside it (immune zone).
+  //   1. rename_clauses — strip the "formerly agent-dashboard … BL-059"
+  //                       parentheticals FIRST, so the inner `agent-dashboard`
+  //                       is removed WITH the clause, not left as a stray
+  //                       `<project>`.
+  //   2. compound       — slug-prefixed compound identifiers
+  //                       (ip-protection-mcp-execution-model). MUST precede the
+  //                       bare-prefix `project_slugs` pass so the `-mcp-…`
+  //                       suffix survives (bare `ip-protection` is a prefix of
+  //                       the compound).
+  //   3. hosts          — prod Vercel hostnames (compound `<slug>.vercel.app`
+  //                       form before any bare-slug rule could eat the slug).
+  //   4. repo_paths     — `tapintomymind/<repo>` GitHub owner/repo forms →
+  //                       `<org>/<project>`. MUST precede project_slugs: a repo
+  //                       path contains the bare slug (`tapintomymind/claude-team`
+  //                       ⊃ `claude-team`); if the bare-slug pass ran first it
+  //                       would leave `tapintomymind/<project>` and this rule
+  //                       would never match. The claude-team rule is scoped to
+  //                       the REPO-PATH form ONLY per operator decision — the
+  //                       bare "Claude Team" brand prose is preserved.
+  //   5. project_slugs  — bare-label + path slugs → `<project>`. Word-boundary
+  //                       anchored (`\b…\b`); ORDER WITHIN the list is
+  //                       longest-first at compile time so `claude-team-app`
+  //                       matches before any shorter prefix.
+  //   6. neon_endpoints — Neon branch endpoint IDs. LITERAL-anchored (never
+  //                       `ep-\w+`) so benign `ep-*` prose ("step-by-step",
+  //                       "deep-research") is untouched.
+  //   7. operator       — operator home-path + bare username. Applied AFTER the
+  //                       protect-mask so `tapintomymind/tap-agents` is immune;
+  //                       the username rule additionally uses a negative
+  //                       lookbehind for `tapintomymind/` in genericizeBody.
+  //   8. unmask         — restore the protected substrings.
+  //
+  // PROTECT (NEVER rewritten — false-positive guards):
+  //   - `@tapintomymind/tap-agents` + `tapintomymind/tap-agents` — the PUBLIC
+  //     npm package name + public repo slug (37× across HQ). Genericizing it
+  //     corrupts every dependency-pin + release string.
+  //   - `hq.tapintomymind.com` — the brand domain (confirmed absent from synced
+  //     surfaces; masked here as defense-in-depth + on the verify-grep denylist).
+  //
+  // MAINTENANCE: extend project_slugs (+ the matching `workspace/<slug>/**`
+  // exclude glob) on every new Tier-1 project. The `bare-codename` lint
+  // (sync.ts) + the `verify-genericize` grep gate + the framework-private-data
+  // pre-write hook form a triple guard, but a brand-new identifier CLASS (new
+  // prod URL, new cloud provider's IDs) must be added here by hand.
+  genericize: {
+    // The "formerly …" rename-provenance parentheticals. Run FIRST (before the
+    // bare-slug pass) so the inner slug is removed with the clause. The leading
+    // optional `, ` / ` ` and surrounding parens are absorbed so no orphan
+    // punctuation remains. Two textual variants exist in HQ ("pre-2026-05-14"
+    // and "renamed 2026-05-14").
+    rename_clauses: [
+      { find: ",?\\s*\\(?formerly agent-dashboard,?\\s*(?:pre-|renamed )?2026-05-14(?:\\s*cascade-rename)?(?:\\s*BL-059)?(?:\\s*cascade-rename)?\\)?", replace: "" },
+    ],
+    // Compound slug-prefixed identifiers — replace the slug prefix only, keep
+    // the descriptive suffix. MUST precede project_slugs (bare ip-protection is
+    // a prefix of this compound).
+    compound: [
+      { find: "ip-protection-mcp-execution-model", replace: "<project>-mcp-execution-model" },
+    ],
+    // Prod Vercel hostnames. Compound `<slug>.vercel.app` form.
+    hosts: [
+      { find: "tapagents-app\\.vercel\\.app", replace: "<project>.vercel.app" },
+    ],
+    // Bare-label + path project slugs. genericizeBody compiles each as a
+    // word-boundary-anchored rule and sorts longest-first so a longer slug
+    // (claude-team-app) matches before a shorter prefix would. The path form
+    // (`workspace/<slug>/`) is covered by the same word-boundary rule.
+    project_slugs: [
+      "agent-dashboard",
+      "tapagents-football-gm",
+      "tapagents-app",
+      "claude-team-app",
+      "claude-team",
+      "ip-protection",
+    ],
+    // GitHub owner/repo paths. The claude-team entry is REPO-PATH-SCOPED per
+    // operator decision (keep the "Claude Team" brand prose; genericize only
+    // the slug/repo-path form). `tapintomymind/tap-agents` is PROTECTed and
+    // never reaches these rules.
+    repo_paths: [
+      { find: "tapintomymind/claude-team-app", replace: "<org>/<project>" },
+      { find: "tapintomymind/claude-team", replace: "<org>/<project>" },
+      { find: "tapintomymind/tapagents-app", replace: "<org>/<project>" },
+      { find: "tapintomymind/tapagents-football-gm", replace: "<org>/<project>" },
+    ],
+    // Neon branch endpoint IDs. LITERAL strings (+ optional `-pooler` suffix) —
+    // never a `ep-\w+` regex, which would eat benign prose.
+    neon_endpoints: [
+      { find: "ep-aged-wildflower-aprg1xfd", replace: "<neon-endpoint>" },
+      { find: "ep-broad-moon-apiaksv1", replace: "<neon-endpoint>" },
+    ],
+    // Operator identity. The home-path form collapses the operator's machine
+    // path; the bare-username rule is applied with a negative lookbehind for
+    // `tapintomymind/` in genericizeBody (the `@tapintomymind/tap-agents`
+    // package name is also protect-masked, belt + suspenders).
+    operator: [
+      { find: "/Users/tapandesai/App Development", replace: "<framework-root>" },
+      { find: "\\btapandesai\\b", replace: "<operator>" },
+    ],
+    // Protected substrings — masked before any rule runs, restored after.
+    protect: [
+      "@tapintomymind/tap-agents",
+      "tapintomymind/tap-agents",
+      "hq.tapintomymind.com",
+    ],
+  },
+
+  // Per-file genericize exemptions — paths where the genericize transform is
+  // SKIPPED entirely (mirror of lint_exemptions shape, but file-scoped: the
+  // whole genericize pass is bypassed for these paths, and the `bare-codename`
+  // lint also skips them). Use ONLY when a file legitimately carries real slugs
+  // as its content surface AND it actually ships.
+  //
+  // Empty at 2026-06-02: the two files that would have qualified
+  // (workspace/_registry.md, workspace/_global/portfolio.json) are EXCLUDED
+  // from sync entirely per §6.1, so they never reach the genericizer and need
+  // no exemption. The secret-patterns.ts / sync.test.ts tautological fixtures
+  // are handled by genericizeBody's built-in scope gate (sync-src self-skip),
+  // not by this list.
+  genericize_exemptions: [],
 
   // Per-rule lint exemption surface — consumed by `lintPropagatedBody()` in
   // sync.ts. Each key is a lint rule code (matching the `code` field on

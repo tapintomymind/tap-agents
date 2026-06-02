@@ -325,7 +325,7 @@ Future projects in non-web domains (mobile, marketing, media curation) adopt thi
 - **Backlog mechanics:**
   - `protocols/backlog-protocol.md §2.1` — canonical ID-allocation rule (Backlog Curator allocates `followup_items_filed[]` BL-NNNs at filing)
   - `protocols/backlog-protocol.md §4` — post-edit verify cadence (fires on every backlog mutation including `followup_items_filed[]` allocation)
-- **Industry portability anchor:** `~/.claude/projects/.../memory/project_team_industry_portability.md` (TapAgents generalizes beyond app-dev; this protocol preserves portability per §9)
+- **Industry portability anchor:** `~/.claude/projects/<project>/memory/project_team_industry_portability.md` (TapAgents generalizes beyond app-dev; this protocol preserves portability per §9)
 - **User principle anchor:** `memory/feedback_iterate_on_users_behalf.md` — "iterate on user's behalf most of the time" (this protocol's bounded auto-iteration loop is a structural realization of that principle)
 
 ---

@@ -40,7 +40,7 @@ You only see hard checkpoints (5 in pipeline) and any blockers/contradictions. E
 
 ```
 /team I want to build a music discovery site that creates Spotify playlists for emerging trends
-/team rebuild <project>'s onboarding to be SaaS-flavored with multi-tenant
+/team rebuild tapintomymind's onboarding to be SaaS-flavored with multi-tenant
 /team make a CLI for managing my morning routine
 /team ./specs/draft-prd.md
 /team ./api-spec.yaml

@@ -8,7 +8,7 @@
 
 **Pattern source:** Anthropic Managed Agents `dreams` feature (May 2026 announcement, Research Preview gated behind beta header `dreaming-2026-04-21`). Local adaptation; the immutable-input + proposed-output + atomic-accept properties transfer cleanly because they are file-layout discipline, not API runtime — TapAgents stays local, file-based, Conductor-routed, user-in-loop. `[user: orchestrator-supplied framing from May 2026 Managed Agents announcement; primary URL claude.com/docs Dreams page — to be captured at next protocol revision pass per BL-025/BL-026 precedent]`.
 
-**Industry portability:** dream-pass discipline is artifact-shape-agnostic. A marketing-campaign memory store or documentary-curation memory store has the same staleness risk; the protocol generalizes per `~/.claude/projects/.../memory/project_team_industry_portability.md`. Validation explicitly deferred to first non-app-dev project per `framework-contract-discipline.md §3` "current-stack-only" annotation pattern (BL-025 precedent).
+**Industry portability:** dream-pass discipline is artifact-shape-agnostic. A marketing-campaign memory store or documentary-curation memory store has the same staleness risk; the protocol generalizes per `~/.claude/projects/<project>/memory/project_team_industry_portability.md`. Validation explicitly deferred to first non-app-dev project per `framework-contract-discipline.md §3` "current-stack-only" annotation pattern (BL-025 precedent).
 
 ---
 
@@ -284,8 +284,8 @@ Once Phase 3 settles, dream-pass promotes from "TapAgents-flavored extension" to
 - `destructive-data-ops.md` — defense-in-depth pattern (dream-pass three-layer enforcement modeled on)
 - `memory/README.md` — public/private split; provenance rule; configurable `${MEMORY_ROOT}` (NOT a precedent for `memory.next/`)
 - `memory/_examples/` — example file shapes (dream-pass output mirrors this parallel-directory pattern)
-- Industry-portability anchor: `~/.claude/projects/.../memory/project_team_industry_portability.md`
-- User principle anchor: `~/.claude/projects/.../memory/feedback_iterate_on_users_behalf.md`
+- Industry-portability anchor: `~/.claude/projects/<project>/memory/project_team_industry_portability.md`
+- User principle anchor: `~/.claude/projects/<project>/memory/feedback_iterate_on_users_behalf.md`
 - Anthropic source pattern: claude.com/docs Managed Agents `dreams` feature (May 2026 preview, beta header `dreaming-2026-04-21`) — primary URL deferred per OD followup-list
 
 ---

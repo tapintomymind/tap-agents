@@ -7,6 +7,7 @@
 | File | Role |
 |---|---|
 | `react-component-agent.md` | First stack-specific frontend worker; canonical Constrained-Mode Implementation consumer for UI-shell slices |
+| `secret-scan-hooks-setup.md` | Copy-source wiring for the gitleaks pre-commit hook + CI gate. Replaces the broken `npx husky init` default (`core.hooksPath=.husky/_`, which silently doesn't fire in fresh `git worktree` checkouts) with a git-TRACKED `.husky` hooksPath + self-contained hook. Paste-able, NOT auto-applied. |
 
 ## What's NOT here yet
 
@@ -31,6 +32,7 @@ The inheritance is implicit-but-documented (this file). Architect does NOT need 
 
 ## Cross-references
 
+- `secret-scan-hooks-setup.md` — copy-ready gitleaks pre-commit + CI-gate wiring (this directory); concrete instantiation of `protocols/security-scanning-defaults.md` §4 "Worktree caveat" + §A.1 row 3.
 - `workspace/_global/v1.0-release-plan.md` — defers full nextjs template population to v1.1+ per backlog item BL-CIM-FU-2.
 - `workspace/_global/codex-integration-1.0-roadmap.md` — multi-host adapter arc that informs full template shape.
 - `workspace/_global/framework-hygiene-audit-2026-05-17.md` — surfaced this partial-population state as audit item C-15 / BL-CIM-FU-2.
