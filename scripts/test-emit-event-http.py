@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -205,9 +206,13 @@ class EmitEventHttpTests(unittest.TestCase):
             captured.append(req.full_url)
             return _FakeResp()
 
-        # Clear any inherited URL var, set only the token.
+        # Clear any inherited URL var, set only the token. Point XDG_CONFIG_HOME
+        # at an empty tmp dir so the Slice-A0 credential-file read does not
+        # supply an `ingest_url` from a real ~/.config/tapagents/credentials.json
+        # (which would override the expected default).
         env_unset = ["TAPAGENTS_LIVE_INGEST_URL"]
-        with mock.patch.dict(os.environ, {"TAPAGENTS_LIVE_TOKEN": "tap_local_x"}, clear=False), \
+        with tempfile.TemporaryDirectory() as cfg, \
+             mock.patch.dict(os.environ, {"TAPAGENTS_LIVE_TOKEN": "tap_local_x", "XDG_CONFIG_HOME": cfg}, clear=False), \
              mock.patch.object(_telemetry.urllib.request, "urlopen", side_effect=fake_urlopen):
             for k in env_unset:
                 os.environ.pop(k, None)
@@ -229,7 +234,13 @@ class EmitEventHttpTests(unittest.TestCase):
             return _FakeResp()
 
         # Strip token + url so we hit the missing-token branch deterministically.
-        with mock.patch.dict(os.environ, {}, clear=True), \
+        # Point XDG_CONFIG_HOME at an empty tmp dir so the Slice-A0 credential-
+        # file read (_resolve_credentials) finds NO file — otherwise a real
+        # ~/.config/tapagents/credentials.json on the dev machine (e.g. written
+        # by `npm run dashboard:demo`) would supply a token and defeat the
+        # "no token" premise.
+        with tempfile.TemporaryDirectory() as cfg, \
+             mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": cfg}, clear=True), \
              mock.patch.object(_telemetry.urllib.request, "urlopen", side_effect=fake_urlopen):
             # Capture stderr so we can confirm "warn once" semantics.
             buf = io.StringIO()
@@ -240,11 +251,11 @@ class EmitEventHttpTests(unittest.TestCase):
 
             self.assertEqual(len(captured), 0,
                              "HTTP should not fire when token missing")
-            # Should have warned exactly once, not 25× — count "TAPAGENTS_LIVE_TOKEN"
-            # mentions in stderr.
-            warn_count = buf.getvalue().count("TAPAGENTS_LIVE_TOKEN not set")
-            self.assertLessEqual(warn_count, 1,
-                                 f"Expected ≤1 warn for missing token; saw {warn_count}")
+            # Should have warned exactly once, not 25× — count the missing-token
+            # stderr line (A0 reworded it to mention credentials.json).
+            warn_count = buf.getvalue().count("no TAPAGENTS_LIVE_TOKEN env var")
+            self.assertEqual(warn_count, 1,
+                             f"Expected exactly 1 warn for missing token; saw {warn_count}")
 
     def test_http_failure_does_not_raise(self) -> None:
         """500 / network error → swallowed silently; calling code continues."""

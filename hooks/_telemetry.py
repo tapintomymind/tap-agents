@@ -343,6 +343,48 @@ _WARNED_MISSING_URL = False
 _ATEXIT_REGISTERED = False
 
 
+def _resolve_credentials() -> tuple[str | None, str]:
+    """Resolve (token, ingest_url) FRESH on every flush.
+
+    Precedence (Slice A0):
+        token: TAPAGENTS_LIVE_TOKEN env → credentials.json#token → None
+        url:   TAPAGENTS_LIVE_INGEST_URL env → credentials.json#ingest_url
+               → _DEFAULT_INGEST_URL
+
+    The credential file lives at
+    ``${XDG_CONFIG_HOME:-~/.config}/tapagents/credentials.json`` and is a JSON
+    object: ``{"token": "tap_local_…", "ingest_url": "https://…/ingest", …}``.
+    Reading it fresh here (not at import time) removes BOTH the manual
+    ``export`` and the restart requirement: a brand-new hook subprocess reads
+    the file directly on its own flush, so a token written mid-session is
+    picked up by the very next hook fire — no env inheritance involved.
+
+    Env wins so existing operator setups + CI overrides are byte-identical to
+    today. Fail-open: a missing or malformed file is swallowed and we fall back
+    to env-or-default exactly like a missing env var. Never raises.
+    """
+    token = os.environ.get("TAPAGENTS_LIVE_TOKEN")
+    url = os.environ.get("TAPAGENTS_LIVE_INGEST_URL")
+    if token and url:
+        # Both fully resolved from the environment — skip the file stat.
+        return token, url
+    try:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+            Path.home(), ".config"
+        )
+        p = Path(base) / "tapagents" / "credentials.json"
+        if p.is_file():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                token = token or (data.get("token") if isinstance(data.get("token"), str) else None)
+                url = url or (data.get("ingest_url") if isinstance(data.get("ingest_url"), str) else None)
+    except Exception:
+        # Fail-open — file unreadable / not JSON / wrong shape → fall back to
+        # env-or-default. Identical no-op behavior to a missing env var today.
+        pass
+    return token, (url or _DEFAULT_INGEST_URL)
+
+
 def _http_post_json(url: str, body: dict, *, token: str, timeout: float = 5.0) -> None:
     """Best-effort JSON POST. Raises on any HTTP error; caller must catch.
 
@@ -369,10 +411,13 @@ def _http_post_json(url: str, body: dict, *, token: str, timeout: float = 5.0) -
 def _flush_batch_locked() -> None:
     """Flush the current batch via one HTTP POST. Caller holds _BATCH_LOCK.
 
-    Reads env vars at flush time (not import time) so operators can set them
-    after the process starts. On missing env vars or HTTP failure, the batch
-    is silently dropped — fail-open per the existing emit_event() contract.
-    Local emit_event() writes are the source of truth; this is a cloud mirror.
+    Resolves the token + ingest URL FRESH at flush time (not import time) via
+    _resolve_credentials() — env var → credentials.json → default URL — so
+    operators can set EITHER an env var OR write the credential file after the
+    process starts (Slice A0; the file read removes the restart requirement
+    entirely). On missing token or HTTP failure, the batch is silently dropped
+    — fail-open per the existing emit_event() contract. Local emit_event()
+    writes are the source of truth; this is a cloud mirror.
     """
     global _BATCH, _BATCH_TIMER, _WARNED_MISSING_TOKEN, _WARNED_MISSING_URL
 
@@ -387,7 +432,9 @@ def _flush_batch_locked() -> None:
     pending = _BATCH
     _BATCH = []
 
-    token = os.environ.get("TAPAGENTS_LIVE_TOKEN")
+    # Env wins; then the credential file; then the default URL. Read fresh so a
+    # token written mid-session (env OR file) is picked up on the next flush.
+    token, url = _resolve_credentials()
     if not token:
         if not _WARNED_MISSING_TOKEN:
             _WARNED_MISSING_TOKEN = True
@@ -395,15 +442,15 @@ def _flush_batch_locked() -> None:
             try:
                 import sys
                 print(
-                    "[tap-agents-live-emit] TAPAGENTS_LIVE_TOKEN not set; "
-                    "cloud mirror disabled (local emit_event continues normally).",
+                    "[tap-agents-live-emit] no TAPAGENTS_LIVE_TOKEN env var and "
+                    "no token in ~/.config/tapagents/credentials.json; cloud "
+                    "mirror disabled (local emit_event continues normally).",
                     file=sys.stderr,
                 )
             except Exception:
                 pass
         return
 
-    url = os.environ.get("TAPAGENTS_LIVE_INGEST_URL", _DEFAULT_INGEST_URL)
     if not url:
         if not _WARNED_MISSING_URL:
             _WARNED_MISSING_URL = True

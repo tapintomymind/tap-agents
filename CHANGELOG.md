@@ -4,6 +4,45 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.27.0] — 2026-05-29 — Credential-file read in `_telemetry.py`: onboarding-enablement (M-D Slice A0)
+
+**Minor release. Held/unpublished** (no tag/push/npm-publish — operator distribution decision, same posture as the held v0.25.0 + v0.26.0). The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
+
+**The change in one sentence.** `emit_event_http()`'s token + ingest-URL resolution now reads FRESH on every flush from a precedence chain — **env (`TAPAGENTS_LIVE_TOKEN` / `TAPAGENTS_LIVE_INGEST_URL`) → credential file `~/.config/tapagents/credentials.json` → built-in default URL** — instead of from the environment alone.
+
+**Why this removes the restart (the load-bearing reasoning).** Env vars are inherited at process launch, so changing `TAPAGENTS_LIVE_TOKEN` previously required relaunching the whole Claude Code tree. A file read inside the flush path has no such constraint: each hook subprocess is a fresh `python` process that reads the file directly on its own threshold/atexit flush, so a token written mid-session (by a future `tapagents login`, or by the operator demo, or by hand) is picked up by the **very next hook fire — no `export`, no restart**. This extends the existing fresh-read-at-flush-time discipline (the env var was already read at flush, not import); it does not change that timing.
+
+**Fully backward-compatible.** Env wins: when `TAPAGENTS_LIVE_TOKEN` is set, behavior is byte-identical to v0.26.0 (the resolver short-circuits and never stats the file). The credential file is purely the new default for humans who never want to touch env; existing operator setups + CI overrides are unchanged. **Fail-open preserved** end-to-end: a missing file, unreadable file, malformed JSON, wrong-shape JSON, or non-string `token`/`ingest_url` field all degrade to the exact no-op behavior of a missing env var today (warn-once to stderr, cloud mirror disabled, local `emit_event()` continues as source of truth). `Path.home()` raising is also swallowed. The resolver never raises.
+
+**Billing: Pool A.** Pure stdlib file `stat`/`read` + the existing app→app `emit_event_http()` HTTP. No `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Added
+
+- **`hooks/_telemetry.py` — `_resolve_credentials() -> tuple[str | None, str]`** — module-level helper resolving `(token, ingest_url)` via the env→file→default precedence chain. Honors `XDG_CONFIG_HOME` (falls back to `~/.config`); reads JSON `{"token": "tap_local_…", "ingest_url": "https://…/ingest", …}` (`token` is the only load-bearing key; `ingest_url` co-located so a self-host/preview target needs zero env vars). Wrapped in a catch-all fail-open. `_flush_batch_locked()` replaces its two `os.environ.get(...)` reads with one `token, url = _resolve_credentials()` call; the warn-once branches now fire only when *neither* env nor file yields a credential.
+- **`scripts/test-credential-resolution.py`** — 13 stdlib `unittest` cases (zero new devDeps): the full precedence matrix (env-token-wins, file-token-used, mixed env-token+file-url, env-url-wins, default-url-when-no-file-url, none-anywhere), the fail-open contract (malformed JSON, non-object JSON, non-string fields, missing file, `Path.home()` raising), and an end-to-end flush that POSTs to the file's `ingest_url` with the file's bearer token when NO env var is set (the "no export, no restart" guarantee). Each case isolates `XDG_CONFIG_HOME` to a tmp dir so the operator's real credential file is never read.
+
+### Changed
+
+- **`scripts/test-emit-event-http.py`** — hardened the two env-clearing fail-open tests (`test_no_token_is_silent_noop`, `test_default_url_used_when_only_token_set`) to isolate `XDG_CONFIG_HOME` to an empty tmp dir. A0's new credential-file read means these tests would otherwise pick up a real `~/.config/tapagents/credentials.json` (e.g. one written by the `tapagents-app` operator demo) and read a token where the test asserts "no token", silently breaking the suite on a dev machine that has run the demo. Also updated the missing-token warn-string assertion to match A0's reworded stderr line. No behavior change to `emit_event_http()`.
+
+### Provenance + cross-references
+
+- Slice A0 design + credential model: `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (§2 credential model, §2.4 read-path spec — implemented verbatim).
+- Builds on the `emit_event_http()` cloud-mirror helper (v0.24.0) + the dual-emit slices (v0.25.0 phase-transitions + session lifecycle, v0.26.0 work-output).
+- The companion `tapagents-app` operator demo (`npm run dashboard:demo`) writes a real `credentials.json` pointing at the local ingest, exercising this exact read path; it lands in the app repo, not here.
+
+### SemVer classification: MINOR
+
+Per `protocols/versioning-protocol.md §3.2`:
+
+- **Additive only.** A new internal helper + a new precedence tier inside an already-wired hook. Every existing consumer at v0.26.0 continues to function unchanged: with `TAPAGENTS_LIVE_TOKEN` set the resolution is byte-identical; with it unset the prior no-op fail-open is preserved (now additionally satisfiable by a file).
+- **No file removed or renamed** in any §3.2/§3.3-governed directory (`agents/`, `commands/`, `protocols/`, `templates/`, `hooks/`, `scripts/`). One modified hook (`hooks/_telemetry.py`) + one new test script (`scripts/test-credential-resolution.py`).
+- **No public API or export shape change**; no `settings.json` change (the emitter is already wired into every hook that mirrors). No `live_events` schema change.
+
+### Sync-tapagents note
+
+The HQ copy `.claude/hooks/_telemetry.py` was mirrored surgically in the same change (the live HQ copy is what the operator's running session executes, so A0 is **live-local immediately** — the operator's current-session hooks read the credential file now). Framework adoption into `tapagents-app` (if/when this release is published + the dep bumped) flows through the dedicated `sync-tapagents` branch per `protocols/sync-tapagents-protocol.md`, not directly through `dev`.
+
 ## [0.26.0] — 2026-05-29 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
 
 **Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2), held/unpublished alongside v0.25.0. Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from the held v0.25.0 rather than a retroactive widening of that release's scope.
