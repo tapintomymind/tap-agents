@@ -4,6 +4,32 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.28.0] — 2026-06-02 — Public-mirror privacy sweep + agent-changelog backfill
+
+**Patch release.** Documentation-only — no code logic changed, no agent added or removed, no hook or command semantics changed.
+
+Two bundled doc updates that arrived together:
+
+**Privacy sweep (the deferred v0.23.1 brand-integrity sweep, landing as v0.28.0).** Genericizes private project slugs (`tapagents-app`, `agent-dashboard`, `tapagents-football-gm`, `ip-protection`) → `<project>` across all public narrative and framework-doc files: 17 protocols, 14 agent definitions, commands, templates, playbooks, scripts (comment/docstring lines only), and CI workflow comments. Removes personal username (`tapandesai`) and home-directory path segments from CHANGELOG and agent-changelog narrative prose. `notify-adopters.yml` refactored to read the downstream consumer repo from a repository variable (`vars.ADOPTER_REPO`) rather than a hardcoded org/slug — private project name no longer embedded in public source. The v0.23.0 entry had flagged this sweep as deferred to v0.23.1; it is landing here as v0.28.0 because no patch release window opened between v0.23.0 and this session.
+
+**Agent-changelog backfill.** `memory/agent-changelog.md` was missing the v0.26.0 and v0.27.0 narrative entries (the M-D telemetry-track slices). Both are now present, authored from the v0.25.0 entry as the format template: public-safe, newest-at-top, cross-referenced to their CHANGELOG entries per `protocols/changelog-protocol.md §1` and `commands/release.md` Step 5.
+
+### Changed
+
+- 17 protocol files, 14 agent definition files, 3 command files, 5 script files, 1 hook, 1 template, 1 playbook, 1 spec doc — project-slug genericization (comment and narrative text only; no functional logic changed).
+- `memory/agent-changelog.md` — v0.26.0 and v0.27.0 narratives backfilled; older narrative prose genericized.
+- `CHANGELOG.md` — five previously-missing entries (v0.22.0, v0.23.0, v0.25.0, v0.26.0, v0.27.0) back-synced from the published mirror to the authoring root; stale "Held/unpublished" annotation on v0.27.0 entry updated to reflect published status.
+- `.github/workflows/notify-adopters.yml` — downstream consumer repo moved from hardcoded slug to `vars.ADOPTER_REPO` repository variable.
+- `README.md` — stale project-slug reference genericized.
+
+### SemVer classification: PATCH
+
+Per `protocols/versioning-protocol.md §3.1`: no public API change, no file added or removed in any `§3.2/§3.3`-governed directory, no new agent or command activated, no hook or gate semantics changed. Pure text-content corrections across existing files.
+
+### Provenance
+
+Deferred from v0.23.0 entry's "brand-integrity sweep planned within ~48h as v0.23.1." No separate agent-changelog entry (this is a doc-hygiene release; no team-shape change per `protocols/changelog-protocol.md §1`).
+
 ## [0.27.0] — 2026-05-29 — Credential-file read in `_telemetry.py`: onboarding-enablement (M-D Slice A0)
 
 **Minor release. Held/unpublished** (no tag/push/npm-publish — operator distribution decision, same posture as the held v0.25.0 + v0.26.0). The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
