@@ -230,7 +230,13 @@ jobs:
           # node -p with .files.join('\n') emits newline-separated entries.
           # DO NOT use JSON.stringify+tr (codified-but-broken in pre-v0.18.0
           # draft of Step 6d; Critic caught).
-          for required in $(node -p "require('./package.json').files.join('\n')"); do
+          #
+          # Filter out npm negation entries (`!`-prefixed, e.g. `!docs/specs`,
+          # `!**/__pycache__`). These are EXCLUSIONS — by definition they are
+          # never present in the tarball, so a presence-check against them
+          # always "fails" and produces a spurious v0.11.0-regression FAIL.
+          # (False-failed v0.29.0/v0.29.1/v0.30.0 before this filter landed.)
+          for required in $(node -p "require('./package.json').files.filter(f => !f.startsWith('!')).join('\n')"); do
             # Match either a directory ("playbooks/") or a top-level file
             # ("settings.json"). The package.json#files entries can be either
             # form; tarball contents include both as "package/<entry>" and,
@@ -251,7 +257,9 @@ jobs:
 
           # Cleanup
           rm -f "$PROBE_TGZ"
-          ENTRY_COUNT=$(node -p "require('./package.json').files.length")
+          # Count only the inclusion entries actually checked (negation `!`
+          # entries are filtered out of the presence loop above).
+          ENTRY_COUNT=$(node -p "require('./package.json').files.filter(f => !f.startsWith('!')).length")
           echo "PASS — tarball contents match package.json#files (${ENTRY_COUNT}/${ENTRY_COUNT} entries verified)."
           echo "result=pass" >> "$GITHUB_OUTPUT"
           echo "entry_count=${ENTRY_COUNT}" >> "$GITHUB_OUTPUT"

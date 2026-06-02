@@ -4,6 +4,23 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.30.1] — 2026-06-02 — Gate 5 §4.5 Invariant-2: filter npm `!`-negation `files[]` entries (false-positive fix)
+
+**Patch release. Bug fix to the release machinery — no team-shape change, no consumer-visible behavior change.** Fixes a false-positive in the Gate 5 §4.5 "Invariant 2 — tarball completeness" check (per `protocols/versioning-protocol.md §4.5`). The check iterated every entry in `package.json#files` and verified each was PRESENT in the published tarball — but `package.json#files` also carries npm **negation** entries (`!docs/specs`, `!**/__pycache__`, `!**/*.pyc`, `!**/*.pyo`) which are EXCLUSIONS, by definition never in the tarball. The presence-check treated them as missing and raised a spurious FAIL ("missing required files-array entries: `!docs/specs …`" / "v0.11.0-regression class").
+
+**Impact.** The bug false-failed the independent `verify-publish.yml` CI verification on v0.29.0, v0.29.1, and v0.30.0 — all three of which had genuinely complete tarballs — auto-filing three Gate-5-failure issues (#18, #20, #23) for releases that were in fact correctly published. Verified against registry reality: the v0.30.0 published tarball passes the corrected check (17/17 inclusion entries present) and fails the old un-filtered check on exactly the 4 negation entries. The issue-filing path itself was never broken — the false failures correctly auto-filed; the fix removes the false trigger.
+
+**Fix.** Filter `!`-prefixed entries before the presence loop: `require('./package.json').files.filter(f => !f.startsWith('!'))`. The release flow already used this filtered form by hand for v0.30.0's Step 9d (which passed), confirming the form is correct.
+
+### Fixed
+
+- **`commands/release.md` (Step 9d — tarball completeness probe)** — the operator-side Gate 5 §4.5 invariant-2 loop now filters npm negation entries (`f => !f.startsWith('!')`) before the per-entry presence check, so `!`-prefixed exclusions are no longer mis-counted as missing. This is the published-file change that drives this PATCH (`commands/` is in `package.json#files`).
+- **`.github/workflows/verify-publish.yml` (Invariant 2 — tarball completeness)** — same filter applied to the independent CI verification loop, plus the success-message entry count now reflects only the inclusion entries actually checked. CI-only (`.github/` is not in the published `files[]`); rides this release commit without driving the bump.
+
+### Provenance
+
+- Fix authored 2026-06-02 in response to the three false `verify-publish.yml` failures on the v0.29.0 / v0.29.1 / v0.30.0 tags. HQ↔mirror `commands/release.md` parity restored in the same pass. The corrected check runs GREEN on this very release as the proof.
+
 ## [0.30.0] — 2026-06-02 — Private-data-safe publish pipeline: mechanical genericizer + no-re-leak guardrails
 
 **Minor release. Additive — new hook + new scripts + a new sync lint; no existing capability removed.** Makes the HQ→public-mirror publish pipeline mechanically private-data-safe so no future sync can re-leak the private identifiers that the manual PR#13 privacy sweep removed by hand. The PR#13 sweep was fragile: the next raw-codename sync would have re-leaked it. This release replaces that fragility with three mechanical guards (a sync-time `bare-codename` lint, a `verify-genericize` no-re-leak grep gate, and an authoring-time `framework-private-data-gate.py` PreToolUse hook) plus a strict author-clean doctrine in `CLAUDE.md`/`AGENTS.md`. It also closes the one residual the genericizer's grep could not see — a bare project-codename in `cli/lib/device-flow.mjs` — and extends the gate so the published-tarball surface (including mirror-native trees like `cli/` and `.mjs`/`.js` files) is graded, not just the synced subset.
