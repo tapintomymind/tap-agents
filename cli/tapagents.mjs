@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tapagents.mjs — the `tapagents` CLI bin (package's FIRST bin entry, v0.28.0).
+// tapagents.mjs — the `tapagents` CLI bin (package's FIRST bin entry).
 //
 // One install surface, subcommands (contract §3.3):
 //   tapagents login  [--url <ingest>]   Run the device flow; write credentials.json (0600).
@@ -28,8 +28,10 @@
 // supplies the real implementations.
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
-import { pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runDeviceFlow, authBaseFromIngestUrl, DeviceFlowError } from "./lib/device-flow.mjs";
 import {
   writeCredentials,
@@ -39,7 +41,24 @@ import {
   DEFAULT_INGEST_URL,
 } from "./lib/credentials.mjs";
 
-const VERSION = "0.28.0";
+/**
+ * The CLI version, read at runtime from the package's own package.json so it can
+ * never lag the published `version`. `package.json` sits one dir up from this
+ * module (cli/ → package root); resolve it via import.meta.url so the read is
+ * cwd-independent. Fail-soft: a literal fallback keeps `--version` working even
+ * if the file is somehow unreadable — this resolver NEVER throws.
+ */
+function resolveVersion() {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    const v = JSON.parse(readFileSync(pkgPath, "utf8")).version;
+    return typeof v === "string" && v.length > 0 ? v : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const VERSION = resolveVersion();
 
 const USAGE = `tapagents — connect this machine to Tap Agents Live telemetry.
 

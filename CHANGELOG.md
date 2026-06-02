@@ -4,6 +4,22 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.29.1] — 2026-06-02 — CLI version-lag fix: `tapagents --version` reads `package.json` at runtime
+
+**Patch release.** Fixes a version-lag bug in the `tapagents` CLI bin shipped in v0.29.0: the CLI's reported version was a hardcoded `0.28.0` literal that never tracked the published `package.json` version. The shipped v0.29.0 tarball's `tapagents --version` printed `0.28.0`, and the device-flow telemetry `client` / `User-Agent` label sent `tapagents-cli/0.28.0` — both lagging the real package version. This patch replaces both hardcoded literals with a **fail-soft runtime read** of `version` from the package's own `package.json` (resolved via `import.meta.url`, so the read is cwd-independent), so the CLI's reported version can never again drift from what was published.
+
+PATCH-grade per `protocols/versioning-protocol.md §3.1`: no agent / command / protocol / template added, removed, or renamed; no `settings.json` schema change; the package's `bin` entry, its path, and the CLI's external command surface are all unchanged. The only behavioral change is that `tapagents --version` (and the telemetry client label) now report the correct, current version instead of a stale literal — a fix that is safe to auto-merge by Dependabot in a downstream build.
+
+### Changed
+
+- **`cli/tapagents.mjs`** — replaced the hardcoded `const VERSION = "0.28.0"` with a `resolveVersion()` helper that reads `version` from `../package.json` at runtime via `import.meta.url`. Fail-soft: returns a literal `"0.0.0"` fallback and never throws if the file is somehow unreadable, so `--version` always answers. De-staled the file-header comment that pinned `v0.28.0`.
+- **`cli/lib/device-flow.mjs`** — replaced the hardcoded `const CLIENT_VERSION = "0.28.0"` (the device-flow `client` / `User-Agent` telemetry label) with the same fail-soft runtime read of `../../package.json`, so the audit label tracks the published version.
+- **`scripts/test-tapagents-cli.mjs`** — both version assertions now assert dynamically against the live `package.json` version rather than a hardcoded `0.28.0` literal: the `--version` output check (was `/^0\.28\.0$/m`) and the device-flow client-label check (was `/tapagents-cli\/0\.28\.0/`). Guards against the version-lag regressing again (a re-hardcoded literal would now fail the suite).
+
+### Provenance
+
+CLI version-lag fix cut directly on `release/v0.29.1` off `origin/main`. Mirror-native change (the CLI lives only in the `tap-agents/` publish mirror, not HQ `.claude/`); no `sync.ts` propagation involved. Bundled verify-guard against this lag class is deferred to a separate follow-on remediation.
+
 ## [0.29.0] — 2026-06-02 — `tapagents login` CLI bin (M-D Slice U2) + public-mirror privacy sweep
 
 **Minor release.** Ships the `tapagents login` device-auth CLI (OAuth 2.0 Device Authorization Grant, RFC 8628). The MINOR classification is driven by the package's **first `bin` entry** (a net-new export surface — `protocols/versioning-protocol.md §3.2`); the bundled privacy-sweep doc changes, PATCH-grade on their own, are absorbed into this MINOR. **Prod-activation note on the CLI:** its device-flow endpoints (`POST /api/auth/device/code`, `POST /api/auth/device/token`) are **live on the dev environment** (PR #82 merged + deployed to dev in `tapagents-app`: a `device_codes` table + 3 endpoints + the `/device` approve page); **prod activation is gated on a separate operator endpoint-promotion.** Until that promotion, `tapagents login` against the default (prod) host returns a clean error — the CLI ships dormant-but-graceful on prod, by design and with operator sign-off. ops-security reviewed and approved (combined review of PR #82 + PR #80); the SEC-1/OD-L2 `framework_events` multi-tenant user-scoping fix is merged (PR #80 → dev). See `workspace/_global/tapagents-login-device-auth-contract-2026-06-02.md` (the frozen wire contract this implements) §4–§5.

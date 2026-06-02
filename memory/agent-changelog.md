@@ -8,6 +8,14 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-06-02 — Framework v0.29.1 — CLI version-lag fix: `tapagents --version` tracks the published version
+
+A patch follow-up to the v0.29.0 `tapagents` CLI. The CLI that shipped in v0.29.0 reported its version from a hardcoded string literal that had been left at `0.28.0` — so the published tool answered `tapagents --version` with `0.28.0`, one release behind itself, and the device-flow telemetry client label likewise announced the stale version. The bug was cosmetic-but-misleading: the version a tool reports is exactly the kind of fact people and audit logs trust to be true, and a hardcoded literal is structurally guaranteed to rot every time the package version moves.
+
+The fix removes the failure mode rather than just correcting the number. Both the CLI's reported version and the device-flow client label now read the `version` field from the package's own `package.json` at runtime, resolved relative to the module's own location so the read works regardless of the working directory. The read is fail-soft — if the file were ever unreadable it falls back to a harmless literal and never throws, so `--version` always answers — and the two test assertions that previously pinned the literal now assert against the live `package.json` version, so a future re-hardcoding would fail the suite instead of silently shipping. This is a framework PATCH per `versioning-protocol.md §3.1`: nothing was added or removed from the team, no command surface changed, and the only observable difference is that the CLI now tells the truth about which version it is. The change is mirror-native — the CLI exists only in the publish mirror — so no internal→public sync was involved. A bundled verify-guard that would catch this lag class at release time is deferred to a separate follow-on.
+
+Cross-reference: `CHANGELOG.md` v0.29.1 entry.
+
 ## 2026-06-02 — Framework v0.29.0 — `tapagents login` CLI bin: one-time device-flow onboarding (M-D slice U2)
 
 The framework package grows its first command-line tool. Through v0.27.0 the package shipped only library content — agents, commands, protocols, templates, hooks, and a programmatic export — but never an executable. v0.29.0 adds the package's first `bin`: a `tapagents` CLI whose headline subcommand, `tapagents login`, is the one-time, `gh auth login`-style step that connects a machine to Tap Agents Live telemetry. It directly answers the standing operator requirement that clients should not have to run any command to keep syncing telemetry to the dashboard — after a single login there is no further command, no restart, ever.
