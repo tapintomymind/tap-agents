@@ -5,7 +5,7 @@
  * emits dist/index.mjs + dist/index.d.ts + dist/manifest.json. The dist/ output is
  * what `npm publish` ships alongside the raw .md files (raw files stay at the package
  * root for consumers who prefer file-system access; dist/ holds inlined string bodies
- * for programmatic consumers like tapagents-app, formerly agent-dashboard pre-2026-05-14 BL-059).
+ * for programmatic consumers like <project>).
  *
  * Run via:
  *   npm run build

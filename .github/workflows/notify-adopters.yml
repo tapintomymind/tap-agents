@@ -1,7 +1,7 @@
 name: notify-adopters
 
 # Fires after `publish.yml` completes successfully on a `v*.*.*` tag push.
-# Sends a `repository_dispatch` event to `tapintomymind/tapagents-app` so its
+# Sends a `repository_dispatch` event to `${{ vars.ADOPTER_REPO }}` so its
 # auto-adoption workflow can open a paired `chore(framework): adopt tap-agents
 # vX.Y.Z` PR within minutes of the npm publish landing.
 #
@@ -14,7 +14,7 @@ name: notify-adopters
 #   - Easy to disable — delete one file to turn off auto-adoption without
 #     disturbing the publish path.
 #   - Brief constraint — explicit "do NOT touch tap-agents' publish.yml"
-#     (per tapagents-app PR #28 design — scope §7 #4).
+#     (per <project> PR #28 design — scope §7 #4).
 #
 # Trigger semantics:
 #   `workflow_run` on `publish` workflow `completed` event, filtered to
@@ -30,16 +30,16 @@ name: notify-adopters
 #
 # What gets dispatched:
 #   - Event type:      tap-agents-published
-#   - Target repo:     tapintomymind/tapagents-app
+#   - Target repo:     ${{ vars.ADOPTER_REPO }}
 #   - Client payload:  { version: "X.Y.Z", tag: "vX.Y.Z", sha: "<commit-sha>",
 #                        publish_run_id: "<gh-run-id>", published_at: "<iso>" }
 #
 # Required repo secrets:
 #   ADOPT_DISPATCH_TOKEN — fine-grained PAT, scoped to
-#     tapintomymind/tapagents-app with permission: contents:write ONLY
+#     ${{ vars.ADOPTER_REPO }} with permission: contents:write ONLY
 #     (CR-7 Pass-3 narrowing — the cross-repo dispatch endpoint only needs
 #     contents:write; the prior contents+actions scope was over-broad).
-#     Quarterly rotation (calendar reminder per tapagents-app scope §5 + §10).
+#     Quarterly rotation (calendar reminder per <project> scope §5 + §10).
 #
 # Failure modes + recovery:
 #   - Pre-release tag (e.g., 0.17.0-rc.1) → workflow logs ::notice:: and
@@ -51,8 +51,8 @@ name: notify-adopters
 #                                         PAT and re-runs via workflow_dispatch
 #                                         on adopt-tap-agents.yml (consumer side)
 #                                         with the version input.
-#   - 404 (target repo renamed/moved)  → workflow fails red; update the target
-#                                         in this file's `repository: …` line.
+#   - 404 (target repo renamed/moved)  → workflow fails red; update the
+#                                         ADOPTER_REPO repo variable.
 #   - 422 (event payload malformed)    → unlikely (we control payload shape);
 #                                         workflow fails red, diagnose payload.
 #   - Network/registry blip            → workflow fails red; consumer's daily
@@ -86,7 +86,7 @@ permissions:
 
 jobs:
   notify:
-    name: Dispatch tap-agents-published to tapagents-app
+    name: Dispatch tap-agents-published to adopter
     runs-on: ubuntu-latest
     # Fire only on successful publish runs. Failed publishes don't propagate.
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
@@ -131,7 +131,7 @@ jobs:
           set -euo pipefail
           case "$VERSION" in
             *-*)
-              echo "::notice::Skip pre-release dispatch for $VERSION (contains hyphen; not a stable release). Operator-driven adoption available via tapagents-app workflow_dispatch + allow_prerelease=true."
+              echo "::notice::Skip pre-release dispatch for $VERSION (contains hyphen; not a stable release). Operator-driven adoption available via ${{ vars.ADOPTER_REPO }} workflow_dispatch + allow_prerelease=true."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               ;;
             *)
@@ -171,12 +171,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DISPATCH_TOKEN:-}" ]; then
-            echo "::error::ADOPT_DISPATCH_TOKEN secret not seeded. See tapagents-app/.claude/scope/tap-agents-auto-adoption.md §10 — create a fine-grained PAT scoped to tapintomymind/tapagents-app with contents:write ONLY, then add to this repo's Settings → Secrets → ADOPT_DISPATCH_TOKEN."
+            echo "::error::ADOPT_DISPATCH_TOKEN secret not seeded. Create a fine-grained PAT scoped to ${{ vars.ADOPTER_REPO }} with contents:write ONLY, then add to this repo's Settings → Secrets → ADOPT_DISPATCH_TOKEN."
             exit 1
           fi
           echo "ADOPT_DISPATCH_TOKEN present (length redacted)."
 
-      - name: Dispatch tap-agents-published event to tapagents-app
+      - name: Dispatch tap-agents-published event to adopter
         # Uses the GitHub REST API directly (no third-party action) so the
         # only trust surface is GitHub + the secret. peter-evans/repository-
         # dispatch is the popular alternative but adds a supply-chain
@@ -188,6 +188,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           SHA: ${{ github.event.workflow_run.head_sha }}
           PUBLISH_RUN_ID: ${{ github.event.workflow_run.id }}
+          ADOPTER_REPO: ${{ vars.ADOPTER_REPO }}
         run: |
           set -euo pipefail
           PUBLISHED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -209,7 +210,7 @@ jobs:
               }
             }')
 
-          echo "Dispatching to tapintomymind/tapagents-app:"
+          echo "Dispatching to $ADOPTER_REPO:"
           echo "$PAYLOAD" | jq .
 
           HTTP_CODE=$(curl --silent --show-error --output /tmp/dispatch-response.json \
@@ -219,7 +220,7 @@ jobs:
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: 2022-11-28" \
             --data "$PAYLOAD" \
-            "https://api.github.com/repos/tapintomymind/tapagents-app/dispatches")
+            "https://api.github.com/repos/$ADOPTER_REPO/dispatches")
 
           if [ "$HTTP_CODE" != "204" ]; then
             echo "::error::repository_dispatch returned HTTP $HTTP_CODE (expected 204). Response body:"
@@ -230,12 +231,14 @@ jobs:
 
       - name: Summary
         if: steps.prerelease-check.outputs.skip != 'true'
+        env:
+          ADOPTER_REPO: ${{ vars.ADOPTER_REPO }}
         run: |
           echo "### tap-agents v${{ steps.version.outputs.version }} adoption dispatch sent" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Target:** tapintomymind/tapagents-app" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Target:** $ADOPTER_REPO" >> "$GITHUB_STEP_SUMMARY"
           echo "**Event type:** tap-agents-published" >> "$GITHUB_STEP_SUMMARY"
           echo "**Publish run:** ${{ github.event.workflow_run.html_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Consumer workflow: tapagents-app → adopt-tap-agents.yml" >> "$GITHUB_STEP_SUMMARY"
+          echo "Consumer workflow: $ADOPTER_REPO → adopt-tap-agents.yml" >> "$GITHUB_STEP_SUMMARY"
           echo "Expected PR within ~5 min on branch \`sync-tapagents\`." >> "$GITHUB_STEP_SUMMARY"

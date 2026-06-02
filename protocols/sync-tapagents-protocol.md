@@ -3,20 +3,20 @@
 **Owner:** Architect codifies; Org Designer maintains; Critic enforces at every framework-adoption commit.
 **Status:** Active 2026-05-14.
 **Authority:** User direction 2026-05-14 — *"We need to enforce this strictly somehow. And this is also important for the TapAgents framework to remember in general about project flow. We can't override process."*
-**Trigger incident:** v0.20.0 adoption on agent-dashboard (2026-05-14) — dev → main no-ff merge dragged 4 unrelated dev commits (`3c4f32d` BL-049/050, `c09bf96` BL-061, `80752fa` BL-043, `cbda843` tailor-scaffold telemetry) into the prod build alongside the framework version bump. The framework adoption commit shipped, but it shipped *with riders*. The branch `sync-tapagents` exists precisely to prevent this — `cc7fa17` ("chore(vercel): whitelist sync-tapagents branch — framework→dashboard propagation") configured Vercel to build it — but the discipline of routing framework adoptions through it had eroded between v0.16.0 (2026-05-12) and v0.20.0 (2026-05-14). This protocol restores the discipline mechanically.
+**Trigger incident:** v0.20.0 adoption on <project> (2026-05-14) — dev → main no-ff merge dragged 4 unrelated dev commits (`3c4f32d` BL-049/050, `c09bf96` BL-061, `80752fa` BL-043, `cbda843` tailor-scaffold telemetry) into the prod build alongside the framework version bump. The framework adoption commit shipped, but it shipped *with riders*. The branch `sync-tapagents` exists precisely to prevent this — `cc7fa17` ("chore(vercel): whitelist sync-tapagents branch — framework→dashboard propagation") configured Vercel to build it — but the discipline of routing framework adoptions through it had eroded between v0.16.0 (2026-05-12) and v0.20.0 (2026-05-14). This protocol restores the discipline mechanically.
 
 **Related:**
 - `protocols/versioning-protocol.md` — what the framework publishes; this protocol governs how consumers adopt
 - `protocols/dev-to-main-promotion.md` — the default consumer-side promotion flow; this protocol is the carve-out for framework adoptions
 - `memory/feedback_no_direct_commits_on_main_back_merge_discipline.md` — the parent convention; this protocol adds the framework-sync exception
 - `tap-agents/.github/workflows/notify-adopters.yml` — producer-side dispatch that already targets the consumer's `sync-tapagents` branch
-- `tapagents-app/.github/workflows/adopt-tap-agents.yml` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`) — consumer-side auto-adoption that opens PRs on `sync-tapagents`
+- `<project>/.github/workflows/adopt-tap-agents.yml` (path reflects post-2026-05-14 BL-059 cascade-rename; was `<project>/`) — consumer-side auto-adoption that opens PRs on `sync-tapagents`
 
 ---
 
 ## §1 Why this exists
 
-The framework `@tapintomymind/tap-agents` ships through npm; downstream consumers (currently `tapagents-app`, formerly `agent-dashboard` pre-2026-05-14 BL-059 cascade-rename; future Tier 2 projects scaffolded via TapAgents) adopt each release by bumping the dependency pin + regenerating `scaffold-source/`. The mechanical surface of a framework adoption is small and well-defined: three to five files changed, all under a known fingerprint (see §3).
+The framework `@tapintomymind/tap-agents` ships through npm; downstream consumers (currently `<project>`, formerly `<project>` pre-2026-05-14 BL-059 cascade-rename; future Tier 2 projects scaffolded via TapAgents) adopt each release by bumping the dependency pin + regenerating `scaffold-source/`. The mechanical surface of a framework adoption is small and well-defined: three to five files changed, all under a known fingerprint (see §3).
 
 If framework adoptions land on `dev` and are then promoted via `dev → main` no-ff merge, they accumulate **rider commits** — any unrelated dev work merged into `dev` between releases also crosses to main alongside the framework bump. That is the v0.20.0 incident: 4 unrelated commits rode along, all of which independently had legitimate paths to prod through the standard `dev → main` promotion flow, but none of which had been individually approved as ready for prod.
 
@@ -29,12 +29,12 @@ The `sync-tapagents` branch isolates framework adoptions to a single-purpose bra
 
 ## §2 Scope
 
-This protocol governs the adoption of `@tapintomymind/tap-agents` npm releases by any Tier 2 project scaffolded via TapAgents (currently `tapagents-app`, formerly `agent-dashboard` pre-2026-05-14 BL-059; future projects inherit the convention).
+This protocol governs the adoption of `@tapintomymind/tap-agents` npm releases by any Tier 2 project scaffolded via TapAgents (currently `<project>`, formerly `<project>` pre-2026-05-14 BL-059; future projects inherit the convention).
 
 It governs:
 - Commits that modify `package.json` to change the `@tapintomymind/tap-agents` dependency version
 - Commits that modify `package-lock.json` corresponding to the above version change
-- Commits that regenerate `scaffold-source/` (typically from `npm run prebuild` per tapagents-app convention, OR equivalent in future consumers)
+- Commits that regenerate `scaffold-source/` (typically from `npm run prebuild` per <project> convention, OR equivalent in future consumers)
 - Commits that update `scaffold-source/.scaffold-meta.json` (or equivalent scaffold metadata file declaring the bundled framework version)
 - Commits to consumer-side `.bot-manifest.json`, hook payload sync state, or any other adoption-bookkeeping files written by `adopt-tap-agents.yml`
 
@@ -183,9 +183,9 @@ The PreToolUse hook (§5.2) and CI guard (§5.3) both read this file (with fallb
 
 ## §8 Provenance
 
-This protocol responds to the 2026-05-14 v0.20.0 adoption incident on agent-dashboard. The branch `sync-tapagents` already existed (since 2026-05-12 per `cc7fa17`) with deliberate Vercel whitelist configuration; the producer-side auto-adoption workflow already targets it. What was missing was the strict-enforcement discipline that the branch is the ONLY legitimate destination for framework-sync content. This protocol fixes that.
+This protocol responds to the 2026-05-14 v0.20.0 adoption incident on <project>. The branch `sync-tapagents` already existed (since 2026-05-12 per `cc7fa17`) with deliberate Vercel whitelist configuration; the producer-side auto-adoption workflow already targets it. What was missing was the strict-enforcement discipline that the branch is the ONLY legitimate destination for framework-sync content. This protocol fixes that.
 
-The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. tapagents-app (formerly agent-dashboard) is the first dogfood case; the same rules will apply to `tapagents-football-gm`, `tapintomymind` (the marketing site if it ever consumes the framework), and any new project the user spins up.
+The protocol is generic: it applies to any current or future Tier 2 project scaffolded via TapAgents. <project> is the first dogfood case; the same rules will apply to `<project>`, `<project>` (the marketing site if it ever consumes the framework), and any new project the user spins up.
 
 ## §9 Related protocols at a glance
 

@@ -57,8 +57,8 @@ jobs:
       - name: Run CHANGELOG format test (CR-13 / NF-9)
         # Asserts every "## [X.Y.Z] — YYYY-MM-DD ..." heading matches the
         # canonical regex that the consumer-side awk extractor in
-        # tapagents-app/.github/workflows/adopt-tap-agents.yml expects.
+        # <project>/.github/workflows/adopt-tap-agents.yml expects.
         # If a heading drifts, the consumer silently emits an empty CHANGELOG
         # section in adoption PRs — this test catches drift before merge.
-        # Phase 2b deliverable per tapagents-app PR #28 design.
+        # Phase 2b deliverable per <project> PR #28 design.
         run: npm run test:changelog-format

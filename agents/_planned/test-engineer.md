@@ -26,7 +26,7 @@ activation_trigger: |
 ## Why This Stub Exists
 
 Empirical gap surfaced 2026-05-07 during a multi-round test hardening pass on
-agent-dashboard:
+<project>:
 
 - The route at `src/app/api/projects/[slug]/route.ts` was migrated from
   `db.transaction()` to `db.batch([...])` (production-correct fix; neon-http
@@ -43,9 +43,9 @@ worked for some files and not others.
 
 **The structural fix landed first** (cheaper than a new agent):
 - Conductor's coding→review gate now requires tests for new source files
-  (per `agent-dashboard/.claude/agents/tier2-conductor.md` "At every coding →
+  (per `<project>/.claude/agents/tier2-conductor.md` "At every coding →
   review transition" gate, 2026-05-07).
-- CI runs vitest on every PR (`agent-dashboard/.github/workflows/vitest.yml`).
+- CI runs vitest on every PR (`<project>/.github/workflows/vitest.yml`).
 - Pre-commit hook runs typecheck + unit tests locally.
 - Shared mock harness extracted to `tests/unit/_helpers/fake-db.ts` so future
   route specs don't reinvent it.
@@ -132,7 +132,7 @@ When activated, Test Engineer's contract:
 3. File moves from `_planned/` to `agents/`.
 4. Decide: framework-level (Tier 1) or stack-specific (Tier 2)?
    - If 2+ projects need it → Tier 1, generic
-   - If only the tapagents-app stack needs it → Tier 2 with
+   - If only the <project> stack needs it → Tier 2 with
      Vitest+Drizzle+neon-http specialization in the prompt
 5. Update tier2-conductor's coding→review gate to delegate to Test Engineer
    instead of routing back to feature agent (when activated, the gate's
@@ -177,7 +177,7 @@ Decision criteria:
 
 ## Cross-References
 
-- `agent-dashboard/.claude/agents/tier2-conductor.md` (the coding→review
+- `<project>/.claude/agents/tier2-conductor.md` (the coding→review
   gate that this stub backstops)
 - `App Development/.claude/agents/quality-engineer.md` (sibling role —
   strategy + smoke axis)
@@ -185,7 +185,7 @@ Decision criteria:
   Engineer would extend)
 - `App Development/.claude/memory/runtime-gotchas.md` (the `db.batch` /
   `getTableName` / circular-SQL incident records that motivated this stub)
-- `agent-dashboard/tests/unit/_helpers/fake-db.ts` (the shared harness Test
+- `<project>/tests/unit/_helpers/fake-db.ts` (the shared harness Test
   Engineer would own)
-- `agent-dashboard/.github/workflows/vitest.yml` (the CI gate Test Engineer
+- `<project>/.github/workflows/vitest.yml` (the CI gate Test Engineer
   would tune)

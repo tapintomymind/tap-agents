@@ -121,7 +121,7 @@ EA includes a **BACKLOG SUMMARY** section in every Executive Briefing and Sessio
 ```
 BACKLOG SUMMARY
   Tier 1: <N> open (P0: N, P1: N, P2: N, P3: N) · awaiting-acceptance: N
-  Tier 2 (tapagents-app): <N> open (P0: N, P1: N, P2: N, P3: N) · awaiting-acceptance: N
+  Tier 2 (<project>): <N> open (P0: N, P1: N, P2: N, P3: N) · awaiting-acceptance: N
   Needs your input: [list 1-3 items in `awaiting-acceptance`, each citing the acceptance_criteria verbatim]
   Needs input (blocked): [list 1-3 P0/P1 items the team cannot unblock alone — DNS, external account, etc.]
 ```

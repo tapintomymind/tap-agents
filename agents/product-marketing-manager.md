@@ -217,7 +217,7 @@ Until that threshold is met, Shape A is the only authorized publication protocol
 
 ## Bootstrap Mode
 
-tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059) has ~0 users at activation. Full feature briefs + user guides + release notes for an audience of one (the user themselves) is over-investment. Bootstrap mode handles this:
+<project> has ~0 users at activation. Full feature briefs + user guides + release notes for an audience of one (the user themselves) is over-investment. Bootstrap mode handles this:
 
 - **Default state on activation:** `bootstrap = true` for every invocation, unless the invoking command includes `--full`.
 - **Production scope in bootstrap mode:** `release-notes.md` only (always — doubles as the user's own changelog during pre-launch) + `internal-docs.md` (single combined replacement for feature brief + user docs).

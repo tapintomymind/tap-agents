@@ -12,7 +12,7 @@
 
 ## §1 Why this exists
 
-The framework now egresses through two distribution channels: the Claude Code plugin marketplace (raw `.md` files from the GitHub repo) and the npm registry (`@tapintomymind/tap-agents` as a dependency of `tapagents-app`, formerly `agent-dashboard` pre-2026-05-14 BL-059, and any future consumer). Both channels read from a single canonical repo. Both consumers — humans installing via `/plugin marketplace`, and the tapagents-app Vercel build pulling from npm — rely on **SemVer being honest** to decide whether to adopt an update.
+The framework now egresses through two distribution channels: the Claude Code plugin marketplace (raw `.md` files from the GitHub repo) and the npm registry (`@tapintomymind/tap-agents` as a dependency of `<project>`, formerly `<project>` pre-2026-05-14 BL-059, and any future consumer). Both channels read from a single canonical repo. Both consumers — humans installing via `/plugin marketplace`, and the <project> Vercel build pulling from npm — rely on **SemVer being honest** to decide whether to adopt an update.
 
 If a "patch" silently renames an agent or removes a command, downstream consumers break. If a "major" only ships a typo fix, downstream Dependabot auto-merges get paused needlessly. Neither failure is recoverable by readers — the version number is the contract.
 
@@ -138,7 +138,7 @@ Gates 1-4 verify the release is correctly **authored** (local commit, CHANGELOG,
 **Why this gate exists.** Two failure modes accumulated in 30 days established the need:
 
 - **v0.15.0 orphan (2026-05-12).** A `release: v0.15.0` commit + `v0.15.0` tag exist in the local `tap-agents/` checkout. `git ls-remote --tags origin` showed the tag was never pushed. `publish.yml` never fired. `npm view @tapintomymind/tap-agents versions` jumped `v0.14.0 → v0.16.0`. The operator step `git push origin v<new>` was issued but its completion was unverified; nothing downstream caught the gap. The release was correctly **authored** but never **published**.
-- **v0.11.0–v0.12.1 files-array regression.** `package.json#files` silently lost 4 directories (`playbooks/`, `memory/`, `docs/`, `settings.json`) at v0.11.0. The tag pushed, `publish.yml` ran, `npm publish` succeeded — but the tarball that landed on the registry was missing the dropped paths. Downstream `agent-dashboard` prebuild broke. Different failure class, same gap shape: no verification that the **published artifact** matches the release author's intent.
+- **v0.11.0–v0.12.1 files-array regression.** `package.json#files` silently lost 4 directories (`playbooks/`, `memory/`, `docs/`, `settings.json`) at v0.11.0. The tag pushed, `publish.yml` ran, `npm publish` succeeded — but the tarball that landed on the registry was missing the dropped paths. Downstream `<project>` prebuild broke. Different failure class, same gap shape: no verification that the **published artifact** matches the release author's intent.
 
 Gate 5 verifies three invariants on every release after `publish.yml` reports success:
 
@@ -207,7 +207,7 @@ Currently-annotated orphans:
 | npm | releases | softprops-action-gh-release errored | `awk` CHANGELOG entry → `gh release create v<v> --notes-file <entry>` |
 | npm, releases | local | Non-canonical-checkout publish | Investigate; should not happen in normal flow |
 
-**Output.** Human-readable to stdout by default (the form EA folds into TEAM HEALTH); `--json` flag for machine-readable form (EA-parser-friendly, future tapagents-app ingestion).
+**Output.** Human-readable to stdout by default (the form EA folds into TEAM HEALTH); `--json` flag for machine-readable form (EA-parser-friendly, future <project> ingestion).
 
 **Exit codes.**
 - `0` — parity confirmed (zero unknown divergences; known-orphans annotated)
@@ -259,7 +259,7 @@ The `/release` command updates all three atomically. Gate 2's hook checks alignm
 
 The framework is currently in the `0.X.Y` range. Per SemVer convention, the `0.X` major-zero range permits breaking changes inside MINOR bumps — i.e., `0.7.0 → 0.8.0` MAY include breaking changes that would warrant a major bump at `1.0+`.
 
-**This protocol explicitly overrides that loophole.** The §3 classifier applies as-written regardless of the major-zero phase. Reasoning: downstream consumers (`tapagents-app` Vercel build, future npm consumers) cannot distinguish "we're still in 0.X, things can change freely" from "this minor is a normal additive bump." Honesty wins over convention.
+**This protocol explicitly overrides that loophole.** The §3 classifier applies as-written regardless of the major-zero phase. Reasoning: downstream consumers (`<project>` Vercel build, future npm consumers) cannot distinguish "we're still in 0.X, things can change freely" from "this minor is a normal additive bump." Honesty wins over convention.
 
 When the framework cuts `v1.0.0`, this protocol stays unchanged. The `v1.0.0` cut itself is a MAJOR bump under §3 (the marketplace plugin name and the npm package name become stable contracts).
 
@@ -277,4 +277,4 @@ The two version layers never disagree because they're answering different questi
 
 ## §9 Provenance
 
-This protocol responds to the 2026-05-11 distribution-strategy decision: the framework's `tap-agents` repo becomes the canonical source for both Claude Code marketplace consumers and the `tapagents-app` Vercel build (formerly `agent-dashboard` pre-2026-05-14 BL-059) (replacing the `scaffold-source/` mirror, which `framework-change-discipline.md` §2 explicitly declares out-of-scope of doctrinal review). With two consumer channels in play, the version field crosses a threshold from internal-discipline to external-contract, and this protocol codifies the discipline.
+This protocol responds to the 2026-05-11 distribution-strategy decision: the framework's `tap-agents` repo becomes the canonical source for both Claude Code marketplace consumers and the `<project>` Vercel build (formerly `<project>` pre-2026-05-14 BL-059) (replacing the `scaffold-source/` mirror, which `framework-change-discipline.md` §2 explicitly declares out-of-scope of doctrinal review). With two consumer channels in play, the version field crosses a threshold from internal-discipline to external-contract, and this protocol codifies the discipline.

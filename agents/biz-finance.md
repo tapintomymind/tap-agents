@@ -180,4 +180,4 @@ If you have questions for the user mid-draft, write them to `workspace/<slug>/bi
 
 ## Provenance
 
-Promoted from `agents/_planned/biz-finance.md` STUB on 2026-05-13 per `workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md`. Activation trigger fired: `ip-protection-mcp-execution-model` planning cycle produced founding artifact `pricing-tier-design.md` through 3 Critic passes reaching CLEAR verdict. Contract scope codifies the operational discipline that produced that artifact.
+Promoted from `agents/_planned/biz-finance.md` STUB on 2026-05-13 per `workspace/_global/org-designer-proposals/promote-biz-finance-biz-legal-gtm-launch-strategist-2026-05-13.md`. Activation trigger fired: `<project>-mcp-execution-model` planning cycle produced founding artifact `pricing-tier-design.md` through 3 Critic passes reaching CLEAR verdict. Contract scope codifies the operational discipline that produced that artifact.

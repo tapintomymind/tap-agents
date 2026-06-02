@@ -14,7 +14,7 @@ USAGE:
     python3 .claude/scripts/rollup-metrics.py --window 90d --full
 
     # Per-project drill-down:
-    python3 .claude/scripts/rollup-metrics.py --project tapagents-app --window 30d
+    python3 .claude/scripts/rollup-metrics.py --project <project> --window 30d
 
 OUTPUT:
     Markdown table by default (so it pastes cleanly into briefings /

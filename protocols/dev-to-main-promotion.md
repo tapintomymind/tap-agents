@@ -16,7 +16,7 @@ This protocol uniquely owns: **the doctrine, ordering, and tooling contract for 
 
 ## §1. Why this exists
 
-Coordination friction observed during 2026-05-06 sessions on the founding Tier 2 project (agent-dashboard): schema changes that should land before code deploys (additive) were on equal footing with schema changes that should land after code deploys (destructive). Without a doctrine, the operator picks ordering by intuition, and intuition fails on the destructive case (deployed code expecting old columns 500s when the column is already gone).
+Coordination friction observed during 2026-05-06 sessions on the founding Tier 2 project (<project>): schema changes that should land before code deploys (additive) were on equal footing with schema changes that should land after code deploys (destructive). Without a doctrine, the operator picks ordering by intuition, and intuition fails on the destructive case (deployed code expecting old columns 500s when the column is already gone).
 
 The promotion event is also the moment where multiple concerns collide: dirty working tree, branch parity, type/lint failures, env-var drift, schema delta, deploy verification, audit emission. A single command that encodes the doctrine prevents the operator from omitting any one of them under time pressure.
 
@@ -29,7 +29,7 @@ Promotion-from-dev-to-main fires this protocol when **any** of:
 - The promotion includes one or more new schema migrations (additive, destructive, or rename)
 - The promotion includes more than 5 commits since the last main merge
 - The promotion touches env vars (`.env.*` files, Vercel env, secrets manager scopes — any platform's prod-env surface)
-- The user explicitly invokes the protocol's tool (e.g., `./scripts/promote-to-prod.sh` in the tapagents-app founding example, formerly agent-dashboard pre-2026-05-14 BL-059)
+- The user explicitly invokes the protocol's tool (e.g., `./scripts/promote-to-prod.sh` in the <project> founding example, formerly <project-legacy>)
 
 A trivial UI-only one-commit hotfix MAY skip the protocol — but defaulting to running it costs nothing.
 
@@ -153,7 +153,7 @@ The entry lands in `<project>/.claude/memory/agent-changelog.md`, NOT the framew
 
 ## §5. The promote-to-prod tool contract
 
-Every Tier 2 project on the dev→main strategy SHOULD have a `scripts/promote-to-prod.sh` (or the stack-equivalent) that implements this protocol's contract. Founding implementation: `tapagents-app/scripts/promote-to-prod.sh` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`).
+Every Tier 2 project on the dev→main strategy SHOULD have a `scripts/promote-to-prod.sh` (or the stack-equivalent) that implements this protocol's contract. Founding implementation: `<project>/scripts/promote-to-prod.sh` (path reflects post-2026-05-14 BL-059 cascade-rename; was `<project>/`).
 
 **The tool MUST:**
 
@@ -170,7 +170,7 @@ Every Tier 2 project on the dev→main strategy SHOULD have a `scripts/promote-t
 11. Append the audit entry to the project-scoped `agent-changelog.md` per Gate 5 — automatically, not as operator follow-up (atomic-cadence rule).
 12. On success, print the merge SHA, the deployment URL, and the audit-entry path.
 13. On failure at any gate, print the exact rollback command (e.g., `git push origin main --force-with-lease HEAD~1` if the merge landed but verification failed and the operator needs to revert; the tool MUST NOT auto-execute force-pushes — that is Tier D).
-14. **(Added 2026-05-06)** Before any destructive op runs (after Gate 2, before Gate 3), invoke `db-admin` sentinel-verification against the prod `DATABASE_URL`. The script writes a sentinel via the URL, reads back via the same URL, refuses on 0 rows. Audit-id captured for the Gate 5 entry. **Implementation:** because a script cannot synchronously dispatch the `db-admin` agent, use a two-step operator flow — script halts on first run with instructions to invoke `/db-admin` in a second session, capture the audit-id, then re-run the script with `DB_ADMIN_AUDIT_ID=<id>` env var set. The script verifies the audit-id maps to the actual prod URL host before proceeding. See founding implementation at `tapagents-app/scripts/promote-to-prod.sh:317-374` Gate 2.5.
+14. **(Added 2026-05-06)** Before any destructive op runs (after Gate 2, before Gate 3), invoke `db-admin` sentinel-verification against the prod `DATABASE_URL`. The script writes a sentinel via the URL, reads back via the same URL, refuses on 0 rows. Audit-id captured for the Gate 5 entry. **Implementation:** because a script cannot synchronously dispatch the `db-admin` agent, use a two-step operator flow — script halts on first run with instructions to invoke `/db-admin` in a second session, capture the audit-id, then re-run the script with `DB_ADMIN_AUDIT_ID=<id>` env var set. The script verifies the audit-id maps to the actual prod URL host before proceeding. See founding implementation at `<project>/scripts/promote-to-prod.sh:317-374` Gate 2.5.
 15. **(Added 2026-05-06)** Interactive `DESTROY` typed-confirmation (Gate 3 in the founding implementation) satisfies `db-admin`'s Tier C per-command typed-confirmation requirement (per `protocols/destructive-data-ops.md §4`) IFF Gate 2.5 (above) already passed in the same script invocation. The combined flow is: classify → sentinel-verify (Gate 2.5) → surface BEFORE state + verified host → read DESTROY (Gate 3) → execute → audit. Per-invocation binding (per `destructive-data-ops.md §8 #6`) is satisfied by each script run doing its own sentinel-test against current `PROD_DB_URL`.
 
 **The tool MUST NOT:**
@@ -260,4 +260,4 @@ These five items are the explicit follow-up surface for the next promotion-tooli
 
 ---
 
-*This protocol is load-bearing for any Tier 2 project on the dev→main strategy. Founding implementation lives in tapagents-app's scripts directory (formerly agent-dashboard pre-2026-05-14 BL-059); future projects on different stacks substitute the introspection + deploy-poll mechanics while keeping the doctrine, ordering, gates, and audit routing.*
+*This protocol is load-bearing for any Tier 2 project on the dev→main strategy. Founding implementation lives in <project>'s scripts directory (formerly <project-legacy>); future projects on different stacks substitute the introspection + deploy-poll mechanics while keeping the doctrine, ordering, gates, and audit routing.*

@@ -114,7 +114,7 @@ The Tier 2 project's `.env.local` (or runtime env) declares `NEON_BRANCH=<branch
 - `NEON_BRANCH=production | prod | live` → Tier C (board meeting).
 - `NEON_BRANCH=dev | test | preview | local | <anything not the above>` → Tier B (autonomous + audit).
 
-**Note on actual branch names:** Neon allows arbitrary branch names per project. The classifier checks the *role* the branch plays, not just literal name. For tapagents-app (the canonical example, formerly agent-dashboard pre-2026-05-14 BL-059), the user's branches are named `production`, `dev`, `local` — all three exist with isolated data, mapped one-per-Vercel-scope. See `memory/project_db_topology.md` for the verified mapping.
+**Note on actual branch names:** Neon allows arbitrary branch names per project. The classifier checks the *role* the branch plays, not just literal name. For <project> (the canonical example, formerly <project-legacy>), the user's branches are named `production`, `dev`, `local` — all three exist with isolated data, mapped one-per-Vercel-scope. See `memory/project_db_topology.md` for the verified mapping.
 
 **Migration application by branch (canonical pattern):**
 - Local branch first (validate against the developer's checkout)

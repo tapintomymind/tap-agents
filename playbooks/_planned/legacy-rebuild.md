@@ -5,7 +5,7 @@ Workflow for working with an existing codebase rather than greenfield. Modernizi
 ## Build When
 
 First time the team is invoked on an existing codebase rather than a new project. Likely use cases:
-- Rebuilding `tapintomymind` (or a section of it)
+- Rebuilding `<project>` (or a section of it)
 - Extracting a feature from an existing project into its own product
 - Modernizing legacy code without losing institutional knowledge
 

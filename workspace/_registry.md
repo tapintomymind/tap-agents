@@ -8,7 +8,7 @@ For up-to-date executive briefing: `/status` (EA delivers same data + recommenda
 
 ## Active Projects
 
-### tapagents-football-gm
+### <project>
 - Phase: planned
 - Entered phase: 2026-05-14 (scoping → planned hard checkpoint passed; user verbatim "Approve" on Decision Packet v2)
 - Last activity: conductor (scoping → planned advance) at 2026-05-14T18:00:00Z
@@ -16,7 +16,7 @@ For up-to-date executive briefing: `/status` (EA delivers same data + recommenda
 - Blockers: none
 - Priority: high
 - Next action: User signals "go for build" → Architect produces implementer briefs + QE produces test-plan.md
-- Workspace: workspace/tapagents-football-gm/
+- Workspace: workspace/<project>/
 
 Dual-purpose project: primary goal is a football GM simulation game (PGM3 / UFootballGM lineage, web/Next.js, American football, fictional rosters, phased P1 Roster+Sim → P2 Draft → P3 Cap+Trades → P4 Progression); secondary goal is framework dogfood in USE-AS-CUSTOMER mode. Per Q6 lock, the framework-hands-off constraint is binding — no TapAgents changes mid-build, no Org Designer dispatch mid-project, STUB agents (QE, GTM) activate only on explicit user signal. Framework frictions are captured in framework-friction-log.md for post-project retrospective only.
 
@@ -35,7 +35,7 @@ Dual-purpose project: primary goal is a football GM simulation game (PGM3 / UFoo
 
 ---
 
-### ip-protection
+### <project>
 - Phase: planned
 - Entered phase: 2026-05-13 (scoping → planned hard checkpoint passed; user verbatim "Approve" on Decision Packet v3)
 - Last activity: conductor (scoping → planned advance per Decision Packet v3 approval) at 2026-05-13T21:00:00Z
@@ -43,7 +43,7 @@ Dual-purpose project: primary goal is a football GM simulation game (PGM3 / UFoo
 - Blockers: none
 - Priority: high
 - Next action: Three Architect dispatches + QE dispatch run in parallel; user signals "go for build" to begin Tier 2 implementation against locked MCP-build scope.md + tech-strategy.md artifacts
-- Workspace: workspace/ip-protection/
+- Workspace: workspace/<project>/
 
 **Planning cycle summary (closed 2026-05-13):**
 - architect-spike-mcp-server.md — CLEAR (rev 2 hygiene cleared)
@@ -57,22 +57,22 @@ Dual-purpose project: primary goal is a football GM simulation game (PGM3 / UFoo
 - scope.md — CLEAR (rev pass 5; γ-expanded 5-agent v1 roster; M-A2.5 + M-A4.5 milestones; all 12 user-decisions APPROVED)
 - tech-strategy.md — CLEAR (rev pass 5; γ-expansion absorbed; §13 QE handoff widened; stack + 12 risks + γ-expanded MCP tool surface)
 - ops-security-review-decisions-2026-05-13.md — CLEAR-with-WARN (3 WARNs; 22 hardening items within milestone budgets)
-- Decision Packet v3: `workspace/_global/decision-packets/2026-05-13-ip-protection-scoping-to-planned.md` — verbatim "Approve" 2026-05-13
+- Decision Packet v3: `workspace/_global/decision-packets/2026-05-13-<project>-scoping-to-planned.md` — verbatim "Approve" 2026-05-13
 - Deferred activations queued: 3 Architect (dashboard MVP, auto-drive Conductor, email & lifecycle infra) + QE (test-plan.md); Tier 2 implementation awaits user build signal; Org Designer 3-STUB promotion separate queue
 
 ---
 
-### tapagents-app
+### <project>
 - Phase: handed-off
 - Entered phase: 2026-05-05
 - Last activity: conductor (BL-034 feature-closed + cascade-rename-bl059 Phase 1) at 2026-05-14T12:14Z
 - Awaiting: Tier-2 ongoing impl; no Tier-1 blocker
 - Blockers: none
 - Priority: high
-- Next action: ongoing Tier-2 work — see workspace/tapagents-app/backlog.md
-- Workspace: workspace/tapagents-app/
+- Next action: ongoing Tier-2 work — see workspace/<project>/backlog.md
+- Workspace: workspace/<project>/
 
-**Cascade-rename-bl059 Phase 1 note (2026-05-14):** Slug consolidated from prior `claude-team-app` (Tier-1 planning) + `agent-dashboard` (Tier-2 impl) into single `tapagents-app` slug per BL-059 plan. Phase 1 (snapshot + workspace consolidation + metadata) executed; Steps 4-12 (filesystem rename + memory/protocol/script sweeps + Vercel + GitHub + backlog closure + verification smoke) sequenced as separate dispatches.
+**Cascade-rename-bl059 Phase 1 note (2026-05-14):** Slug consolidated from prior `claude-team-app` (Tier-1 planning) + `<project>` (Tier-2 impl) into single `<project>` slug per BL-059 plan. Phase 1 (snapshot + workspace consolidation + metadata) executed; Steps 4-12 (filesystem rename + memory/protocol/script sweeps + Vercel + GitHub + backlog closure + verification smoke) sequenced as separate dispatches.
 
 ---
 
@@ -90,7 +90,7 @@ Dual-purpose project: primary goal is a football GM simulation game (PGM3 / UFoo
 
 ## Superseded / Archaeology
 
-*(none — claude-team-app slot consolidated into tapagents-app via BL-059 cascade-rename Phase 1 on 2026-05-14)*
+*(none — claude-team-app slot consolidated into <project> via BL-059 cascade-rename Phase 1 on 2026-05-14)*
 
 ---
 

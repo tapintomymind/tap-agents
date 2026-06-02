@@ -2,7 +2,7 @@
  * test-changelog-format.ts
  *
  * Asserts every CHANGELOG.md version heading matches the canonical format the
- * consumer's awk extractor (in tapagents-app/.github/workflows/adopt-tap-agents.yml)
+ * consumer's awk extractor (in <project>/.github/workflows/adopt-tap-agents.yml)
  * expects. The auto-adoption pipeline's CHANGELOG-aggregation step depends on
  * this format being stable — if a heading drifts, the consumer silently emits
  * an empty CHANGELOG section in the adoption PR.
@@ -12,13 +12,13 @@
  *
  * Regex: /^## \[\d+\.\d+\.\d+\] — \d{4}-\d{2}-\d{2}( .+)?$/
  *
- * Per agent-dashboard PR #28 design CR-13 + NF-9. This file is run as a tsx
+ * Per <project> PR #28 design CR-13 + NF-9. This file is run as a tsx
  * script (tap-agents has no vitest); the test surface is node:assert.
  *
  * Wire-up: `npm run test:changelog-format` runs this; version-check.yml's CI
  * step invokes it on every PR touching CHANGELOG.md.
  *
- * Phase 2b deliverable per agent-dashboard PR #28.
+ * Phase 2b deliverable per <project> PR #28.
  */
 
 import { readFileSync } from "node:fs";

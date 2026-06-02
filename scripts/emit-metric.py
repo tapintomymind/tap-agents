@@ -29,9 +29,9 @@ USAGE FROM AN AGENT (Bash tool):
     python3 ~/path-to-framework/.claude/scripts/emit-metric.py \\
         --event agent.invoked \\
         --agent quality-engineer \\
-        --project tapagents-app \\
+        --project <project> \\
         --field trigger=scoping_phase \\
-        --field artifact=workspace/tapagents-app/test-plan.md
+        --field artifact=workspace/<project>/test-plan.md
 
 The script is intentionally minimal:
   - No external deps (Python stdlib only). Python 3 ships with macOS + Vercel
@@ -190,7 +190,7 @@ def main() -> int:
     parser.add_argument(
         "--project",
         required=False,
-        help="Project slug if event is project-scoped (e.g., tapagents-app).",
+        help="Project slug if event is project-scoped (e.g., <project>).",
     )
     parser.add_argument(
         "--field",

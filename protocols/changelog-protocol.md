@@ -30,14 +30,14 @@ The team operates two distinct changelogs at distinct scopes. They are **not** r
 
 ## 2. Project changelog — `<project>/.claude/memory/agent-changelog.md`
 
-**Location.** Project root: e.g., `tapagents-app/.claude/memory/agent-changelog.md` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`). One per project that has its own `.claude/` directory.
+**Location.** Project root: e.g., `<project>/.claude/memory/agent-changelog.md` (path reflects post-2026-05-14 BL-059 cascade-rename; was `<project>/`). One per project that has its own `.claude/` directory.
 
 **Scope.** Project-scoped agent activity.
 
 **What lands here:**
 - Which agents fired in this project
 - What artifacts they produced (smoke-report v2, design-review.md pass 3, security-audit final, etc.)
-- Project-specific outcomes (e.g., "QE produced smoke-report v2 for tapagents-app 2026-05-06 — 8 P1 backlog entries filed")
+- Project-specific outcomes (e.g., "QE produced smoke-report v2 for <project> 2026-05-06 — 8 P1 backlog entries filed")
 - Project-side consequences of framework changes (e.g., "v1.5 Phase 0 init landed in dashboard scaffold-source")
 - Project-specific risk acknowledgments, deviation rationale, and lessons that apply only here
 

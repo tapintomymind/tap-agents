@@ -10,7 +10,7 @@
 
 Hooks know things about the session that the orchestrator can't easily see — every dispatch-gate block, every prompt-router classification, every hook misfire. Without a structured trail, those signals stay invisible: the only way to know the orchestrator hit the dispatch wall five times today is to read every hook's stderr in order.
 
-The telemetry layer is the structured trail. Hooks emit JSON-line events to a shared per-workspace file. Other surfaces (Stop hooks, EA briefings, dashboards, the upstream `tapagents-app` product, formerly `agent-dashboard` pre-2026-05-14 BL-059) read the file. The schema is intentionally minimal and frozen — additive-only changes — so consumers written today still parse events written tomorrow.
+The telemetry layer is the structured trail. Hooks emit JSON-line events to a shared per-workspace file. Other surfaces (Stop hooks, EA briefings, dashboards, the upstream `<project>` product, formerly `<project>` pre-2026-05-14 BL-059) read the file. The schema is intentionally minimal and frozen — additive-only changes — so consumers written today still parse events written tomorrow.
 
 This is the **shape** layer. State (which milestone we're on, which agent is blocked, etc.) lives in `state.json`. Telemetry captures the events that move state forward, not state itself.
 
@@ -119,7 +119,7 @@ When a next-slice author lands a reserved triple, flip its status here; this sec
     "query_subject": "Next.js App Router middleware runtime",
     "library_id": "/vercel/next.js",
     "tokens_response_estimated": 1842,
-    "project_slug": "tapagents-football-gm"
+    "project_slug": "<project>"
   }
 }
 ```
@@ -306,7 +306,7 @@ Contract:
 
 ## §5 Consumer contract
 
-Consumers (Stop hooks, EA briefings, the upstream `tapagents-app` Vercel build) read `events.jsonl` defensively:
+Consumers (Stop hooks, EA briefings, the upstream `<project>` Vercel build) read `events.jsonl` defensively:
 
 1. **Unknown fields ignored.** If a future event has a new top-level key, parse the known fields and skip the rest.
 2. **Unknown values tolerated.** Pattern-match on `type` and `subtype` — never assume the full vocabulary is the v0.10.0 list.
