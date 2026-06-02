@@ -432,7 +432,10 @@ fi
 # tar -tzf lists members under the "package/" prefix (npm convention).
 TARBALL_CONTENTS=$(tar -tzf "$PROBE_TGZ")
 MISSING=()
-for required in $(node -p "require('./package.json').files.join('\n')"); do
+# Filter out npm negation entries (`!`-prefixed, e.g. `!docs/specs`, `!**/*.pyc`).
+# These are EXCLUSIONS — never present in the tarball — so checking them for
+# presence always spuriously "fails" (the v0.29.0/v0.29.1/v0.30.0 false-FAIL class).
+for required in $(node -p "require('./package.json').files.filter(f => !f.startsWith('!')).join('\n')"); do
   # Match either a directory ("playbooks/") or a top-level file ("settings.json")
   pattern="${required%/}/"
   if ! echo "$TARBALL_CONTENTS" | grep -q "^package/${pattern}\\|^package/${required}$"; then
