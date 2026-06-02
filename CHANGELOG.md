@@ -4,6 +4,28 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.30.2] — 2026-06-02 — `framework-private-data-gate.py`: runtime-derive operator home-path (no baked operator literal); exemptions removed
+
+**Patch release. Internal hardening of the private-data hook — behavior preserved, no consumer-visible change.** The `framework-private-data-gate.py` PreToolUse hook (shipped v0.30.0) previously carried the operator's framework-root home path as a **verbatim literal** in its detector-construction code, used to select the operator-home-path rule out of the manifest map. A hook whose job is to keep private identifiers out of the published mirror should not itself ship one. This release replaces that literal with a **runtime derivation** — `os.path.expanduser("~")` plus the framework root computed from the hook's own `__file__` — so the published hook carries ZERO operator path while still detecting and blocking the *current* operator's home path in synced files.
+
+**Behavior preserved.** At HQ the runtime derivation reproduces the operator's home (the old literal is a subset of the `expanduser("~")` form, so every input the old detector blocked is still blocked — verified by 5 functional block/allow tests). In an adopter checkout the hook continues to **fail open by design**: `scripts/` is not in `package.json#files`, so the manifest never loads downstream and the gate exits 0 — exactly as before. The operator-home detector therefore only functionally matters at HQ, where the derivation is exact.
+
+**Exemptions removed (cleaner posture).** Because the hook now carries only PROTECTED public strings (`@tapintomymind/tap-agents`, `tapintomymind/tap-agents`, `hq.tapintomymind.com` — all ship intact), it holds no private literal and no longer needs to be special-cased. It was **removed from the genericizer self-skip** (`scripts/sync-src/sync.ts → GENERICIZE_SELF_SKIP`) and the **no-re-leak gate self-skip** (`scripts/sync-src/verify-genericize.ts`), so it is now graded normally like every other `sanitize-passthrough` hook. Genericizing it is a verified no-op (the protected strings are immune; the operator path is gone), and `npm run verify-genericize` passes with the hook graded on its own merits. The hook keeps a narrow *runtime* `_SELF_SKIP` entry only so editing its own `_BRAND_DOMAIN` detector literal doesn't self-trip — a distinct authoring-gate self-protection, not a genericizer carve-out.
+
+**Downstream impact: none.** `scripts/sync-src/` is authoring/release machinery (not in the published `files[]`); the only published artifact that changed is `hooks/framework-private-data-gate.py`, whose runtime block/allow behavior is preserved (and which fails open in adopters regardless). Adopters at v0.30.1 continue to function unchanged.
+
+**Billing: Pool A.** Pure stdlib (`os.path.expanduser`, `pathlib`); no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Changed
+
+- **`hooks/framework-private-data-gate.py`** — the operator-home-path detector is now derived at runtime (`_operator_home_paths()` via `os.path.expanduser("~")` + the framework root from `__file__`) instead of matching a hardcoded `/Users/...` literal in `_build_detectors`. The published hook carries no verbatim operator path. Detection is behavior-preserved (HQ) and fails open (adopters). Docstring + `_SELF_SKIP` comment updated to the new posture.
+- **`scripts/sync-src/sync.ts`** — removed `hooks/framework-private-data-gate.py` from `GENERICIZE_SELF_SKIP`. The hook no longer holds a private literal, so it is genericized normally (a no-op against its protected-only strings) rather than self-skipped. Authoring/release machinery — not in the published `files[]`.
+- **`scripts/sync-src/verify-genericize.ts`** — removed the matching hook entry from the no-re-leak gate's `selfSkip`. The hook is now graded normally; the protected strings are allow-subtracted and the operator path is absent, so the gate passes the file on its own merits. Authoring/release machinery — not in the published `files[]`.
+
+### Provenance
+
+- Hardening authored 2026-06-02 in response to the operator-literal-in-the-private-data-hook observation (the hook should not bake the very identifier class it exists to suppress). HQ→mirror parity restored in the same pass. `npm run verify-genericize` PASS (16-pattern denylist, including the operator-home pattern the hook is no longer exempt from) is the proof; `tsc --noEmit` clean; `sync.test.ts` 47/47.
+
 ## [0.30.1] — 2026-06-02 — Gate 5 §4.5 Invariant-2: filter npm `!`-negation `files[]` entries (false-positive fix)
 
 **Patch release. Bug fix to the release machinery — no team-shape change, no consumer-visible behavior change.** Fixes a false-positive in the Gate 5 §4.5 "Invariant 2 — tarball completeness" check (per `protocols/versioning-protocol.md §4.5`). The check iterated every entry in `package.json#files` and verified each was PRESENT in the published tarball — but `package.json#files` also carries npm **negation** entries (`!docs/specs`, `!**/__pycache__`, `!**/*.pyc`, `!**/*.pyo`) which are EXCLUSIONS, by definition never in the tarball. The presence-check treated them as missing and raised a spurious FAIL ("missing required files-array entries: `!docs/specs …`" / "v0.11.0-regression class").

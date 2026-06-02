@@ -8,6 +8,12 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-06-02 — Framework v0.30.2 — Private-data hook: runtime-derive operator home-path (no baked literal)
+
+A patch hardening of the framework's private-data write-guard. The hook exists to keep real private identifiers — project names, infra hosts, operator machine paths — out of the public mirror, yet it was itself carrying the operator's home path as a hardcoded string (used to pick the right rule out of its detection map). A guard against leaking private data should not ship a private datum of its own. This release replaces that hardcoded path with a runtime derivation from the operator's home directory and the hook's own file location, so the published hook contains no operator path at all while still detecting and blocking that path when someone tries to write it into a file that would propagate publicly. Detection behavior is unchanged where it matters (the framework authoring root), and the guard continues to stand down harmlessly in downstream adopter checkouts, exactly as before. Because the hook now holds only the public, intentionally-shipped strings, it was also taken off the two "skip me, I carry detection patterns by construction" lists — it is now checked by the no-re-leak gate like any other file and passes on its own merits.
+
+Cross-reference: `CHANGELOG.md` v0.30.2 entry.
+
 ## 2026-06-02 — Framework v0.30.1 — Gate 5 §4.5 Invariant-2: filter npm `!`-negation `files[]` entries
 
 A patch fix to the release machinery. The Gate 5 §4.5 "tarball completeness" check — the safeguard that confirms a published npm tarball actually contains every path the package declares — was reading the package's `files` list literally and checking each entry for presence in the tarball. But that list mixes two kinds of entries: things to include, and npm negation patterns that *exclude* paths (build caches, compiled-Python artifacts, a docs subtree). The exclusions are never in the tarball by design, so checking them for presence guaranteed a "missing files" failure on every release that carried them. The check was effectively failing healthy releases on its own bug.
