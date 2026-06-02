@@ -202,7 +202,7 @@ async function main(): Promise<void> {
   //    We then `git init` the staging tree so sync.ts's preflight (.git check)
   //    + orphan detection (git ls-files) behave like a real run.
   const staging = await mkdtemp(join(tmpdir(), "tapagents-genericize-"));
-  console.log(`[1/3] Seeding staging from mirror HEAD (git-tracked only) at ${staging} …`);
+  console.log(`[1/4] Seeding staging from mirror HEAD (git-tracked only) at ${staging} …`);
   await exec("sh", ["-c", `git -C "${flags.target}" archive HEAD | tar -x -C "${staging}"`], {
     maxBuffer: 256 * 1024 * 1024,
   });
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   // 2. Run the real sync engine --apply into staging. Inherit stdio so the
   //    bare-codename lint FAIL (if any) is visible and the process exit code
   //    propagates.
-  console.log(`[2/3] Running sync --apply --target <staging> …`);
+  console.log(`[2/4] Running sync --apply --target <staging> …`);
   let syncFailed = false;
   try {
     const { stdout, stderr } = await exec(
@@ -252,7 +252,7 @@ async function main(): Promise<void> {
 
   // 3. Grep the staging tree for surviving codenames.
   console.log("");
-  console.log("[3/3] Grepping proposed output for surviving codenames …");
+  console.log("[3/4] Grepping proposed output for surviving codenames …");
   const { patterns, allow } = buildDenylist(map);
   const combined = patterns.join("|");
 
@@ -267,6 +267,8 @@ async function main(): Promise<void> {
         "--include=*.md",
         "--include=*.py",
         "--include=*.ts",
+        "--include=*.mjs",
+        "--include=*.js",
         "--include=*.json",
         "--include=*.json5",
         "--include=*.yml",
@@ -334,6 +336,78 @@ async function main(): Promise<void> {
     }
   }
 
+  // 4. Mirror-native shipped-tree scan. Step 3 only grades the SYNC set —
+  //    files propagated from HQ. But the published npm tarball also carries
+  //    MIRROR-NATIVE trees that are authored directly in tap-agents and never
+  //    flow through the genericizer (e.g. `cli/`, which exists only in the
+  //    mirror per the 2026-06-02 remediation design §line-155). Those reach the
+  //    registry via `package.json#files` yet are invisible to the staging pass
+  //    (not in the sync set → filtered by inSyncSet). A bare codename in a
+  //    mirror-native file (the v0.30.0 `cli/lib/device-flow.mjs` residual class)
+  //    would ship undetected. This pass greps the real mirror's git-tracked
+  //    files that are shipped-but-unsynced for the same denylist, closing the
+  //    published-tarball surface that Step 3 cannot see.
+  console.log("");
+  console.log("[4/4] Grepping mirror-native shipped trees (in tarball, not in sync set) …");
+  const nativeSurvivors: string[] = [];
+  try {
+    const { stdout: tracked } = await exec(
+      "git",
+      ["-C", flags.target, "ls-files"],
+      { maxBuffer: 64 * 1024 * 1024 },
+    );
+    const shipExt = /\.(md|py|ts|mjs|js|json|json5|yml|yaml)$/;
+    const re = new RegExp(combined);
+    const nativeFiles = tracked
+      .split("\n")
+      .map((f) => f.trim())
+      .filter((f) => f && shipExt.test(f))
+      // Already graded by Step 3 (sync set) — skip to avoid double-reporting.
+      .filter((f) => !inSyncSet(f, manifest))
+      // sync-src + private-data-hook carry codenames by construction; and any
+      // file the operator explicitly exempted from genericization.
+      .filter((f) => !selfSkip.some((s) => `/${f}`.includes(s)))
+      .filter((f) => !exemptions.some((s) => `/${f}`.includes(s)));
+
+    if (nativeFiles.length > 0) {
+      try {
+        const { stdout } = await exec(
+          "grep",
+          ["-EnH", combined, ...nativeFiles],
+          { cwd: flags.target, maxBuffer: 64 * 1024 * 1024 },
+        );
+        for (const line of stdout.split("\n")) {
+          if (!line.trim()) continue;
+          const firstColon = line.indexOf(":");
+          const secondColon = line.indexOf(":", firstColon + 1);
+          const content = secondColon >= 0 ? line.slice(secondColon + 1) : "";
+          let masked = content;
+          for (const a of allow) masked = masked.split(a).join(" ");
+          if (re.test(masked)) nativeSurvivors.push(`mirror:${line}`);
+        }
+      } catch (err) {
+        // grep exits 1 = no matches = success.
+        const e = err as { code?: number; stdout?: string };
+        if (e.code !== 1 && e.stdout) {
+          for (const line of e.stdout.split("\n")) {
+            if (!line.trim()) continue;
+            const firstColon = line.indexOf(":");
+            const secondColon = line.indexOf(":", firstColon + 1);
+            const content = secondColon >= 0 ? line.slice(secondColon + 1) : "";
+            let masked = content;
+            for (const a of allow) masked = masked.split(a).join(" ");
+            if (re.test(masked)) nativeSurvivors.push(`mirror:${line}`);
+          }
+        }
+      }
+    }
+  } catch {
+    // Target not a git repo (e.g. HQ-as-target dry-runs) — the mirror-native
+    // surface only exists in the published mirror, so skip silently elsewhere.
+    console.log("    (target is not a git checkout — mirror-native scan skipped)");
+  }
+  for (const s of nativeSurvivors) survivors.push(s);
+
   // Cleanup unless --keep.
   if (!flags.keep) {
     await rm(staging, { recursive: true, force: true });
@@ -356,7 +430,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("verify-genericize: PASS — ZERO codenames in the proposed output.");
+  console.log("verify-genericize: PASS — ZERO codenames in the proposed output AND the mirror-native shipped trees.");
   console.log(`Denylist patterns checked (${patterns.length}): ${patterns.join("  ")}`);
   console.log("Safe to run sync --apply against the real mirror.");
 }

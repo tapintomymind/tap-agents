@@ -4,6 +4,29 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.30.0] — 2026-06-02 — Private-data-safe publish pipeline: mechanical genericizer + no-re-leak guardrails
+
+**Minor release. Additive — new hook + new scripts + a new sync lint; no existing capability removed.** Makes the HQ→public-mirror publish pipeline mechanically private-data-safe so no future sync can re-leak the private identifiers that the manual PR#13 privacy sweep removed by hand. The PR#13 sweep was fragile: the next raw-codename sync would have re-leaked it. This release replaces that fragility with three mechanical guards (a sync-time `bare-codename` lint, a `verify-genericize` no-re-leak grep gate, and an authoring-time `framework-private-data-gate.py` PreToolUse hook) plus a strict author-clean doctrine in `CLAUDE.md`/`AGENTS.md`. It also closes the one residual the genericizer's grep could not see — a bare project-codename in `cli/lib/device-flow.mjs` — and extends the gate so the published-tarball surface (including mirror-native trees like `cli/` and `.mjs`/`.js` files) is graded, not just the synced subset.
+
+**Downstream impact: none.** The genericizer pipeline (`scripts/sync-src/`) is not in the published `files[]` — it is authoring/release machinery. The one consumer-visible addition is `hooks/framework-private-data-gate.py` (a new PreToolUse hook, fail-open, wired as layer 5). Adopters at v0.29.1 continue to function unchanged. This is the prevention build (`feat(sync)`) committed 2026-06-02, published here with the `cli/` residual fix folded in.
+
+### Added
+
+- **`hooks/framework-private-data-gate.py`** — PreToolUse layer 5. BLOCKS a `Write`/`Edit`/`NotebookEdit` that would write a real private identifier (project slug, Neon endpoint, prod host, operator home-path, repo path, or credential shape) into a framework file that propagates to the public mirror. Reuses the genericizer map (`scripts/sync-src/manifest.json5 → genericize`) + a secret-pattern subset as the single source of truth; protected names (`@tapintomymind/tap-agents`, the brand domain), excluded files (`memory/*`, `workspace/<slug>/*`), the sync-src self-skip set, and `genericize_exemptions` are never blocked; fail-open. The authoring-time complement to the sync-time `bare-codename` lint + `verify-genericize` gate.
+- **`scripts/sync-src/verify-genericize.ts` + `npm run verify-genericize`** — the no-re-leak gate. Seeds a staging copy of the mirror HEAD, dry-runs the real sync engine `--apply` into it, then greps the proposed output for every codename on the denylist — FAIL if any survives. As of this release a fourth pass also greps the **mirror-native shipped trees** (git-tracked files in `package.json#files` that are not in the sync set, e.g. `cli/`) and `.mjs`/`.js` extensions, closing the published-tarball surface the staging pass cannot see.
+- **`scripts/sync-src/manifest.json5` — `genericize` map** — single source of truth for 14 private-identifier classes (project slugs + compound slug-prefixed identifiers + prod Vercel host + Neon endpoint IDs + repo paths + operator home-path/username + rename-provenance clauses), with a PROTECT-mask so `@tapintomymind/tap-agents` + `hq.tapintomymind.com` are never rewritten. Ordered: protect-mask → rename_clauses → compound → hosts → repo_paths → project_slugs → neon → operator → unmask.
+
+### Changed
+
+- **`scripts/sync-src/sync.ts`** — new `genericizeBody()` engine (generalizes the prior changelog-only genericizer) wired into `plan()`'s copy + sanitize branches via a scope-gate (`.md`/`.py`/`.ts`/`.json`/`.json5`/`.yml`; fixture + self-skip trees excluded). New `bare-codename` lint that aborts the sync if any known codename survives — the no-re-leak floor PR#13 lacked. Also fixes a latent `package.json` version-**downgrade** bug: under the filesystem-only HQ topology the HQ `package.json` froze at an old version, so `mergePackageJson` now never-downgrades via `compareSemver` (the genericizer never touches the version field).
+- **`cli/lib/device-flow.mjs`** — scrubbed a bare project-codename in a header comment (replaced with the `<project>` placeholder consistent with the genericizer design). This file is mirror-native (`cli/` exists only in the published mirror, not at HQ) and `.mjs`, so it was invisible to the genericizer's grep until the gate extension above.
+- **`CLAUDE.md` + `AGENTS.md`** — added the strict "Private-data discipline" rule: author clean, never rely on the genericizer (it is a safety net for the known identifier set, not a license to type real private data).
+- **`scripts/build-src/verify.ts`** — delivers the previously-deferred `checkCliVersionMatchesPackage()` CLI-version guard (asserts the `tapagents` bin's exported `VERSION` matches `package.json`).
+
+### Provenance
+
+- Design: `workspace/_global/architect-designs/2026-06-02-sync-genericizer-remediation.md`. Prevention build committed `feat(sync): mechanical genericizer + no-re-leak guardrails` (2026-06-02); `cli/` residual fix + gate mirror-native-scan extension folded into this release commit. Historical low-severity identifiers in pre-existing CHANGELOG entries are accepted as-is per operator decision (no deprecation, no history rewrite; no credentials at stake).
+
 ## [0.27.0] — 2026-05-29 — Credential-file read in `_telemetry.py`: onboarding-enablement (M-D Slice A0)
 
 **Minor release. Held/unpublished** (no tag/push/npm-publish — operator distribution decision, same posture as the held v0.25.0 + v0.26.0). The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
