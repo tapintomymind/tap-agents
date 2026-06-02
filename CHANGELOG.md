@@ -42,6 +42,12 @@ The deferred v0.23.1 brand-integrity sweep, bundled into this release. Genericiz
 - `.github/workflows/notify-adopters.yml` — downstream consumer repo moved from hardcoded slug to `vars.ADOPTER_REPO` repository variable.
 - `README.md` — stale project-slug reference genericized.
 
+### Packaging fix — keep compiled-Python bytecode out of the tarball
+
+#### Fixed
+
+- **`package.json` `files` allowlist** — added `!**/__pycache__`, `!**/*.pyc`, and `!**/*.pyo` negation entries so stale Python bytecode caches never ship in the published tarball. `npm pack` packs from the working tree (not git), and the allowlist admitted `hooks`/`scripts` as whole directories, so any `__pycache__/*.pyc` present at pack time was swept in (e.g. `hooks/__pycache__/*.cpython-314.pyc`) even though those caches are gitignored. A root `.npmignore` does **not** override the `files` allowlist for paths inside allowlisted directories (verified — it left the bytecode in the tarball), so the load-bearing fix is the `files`-array negations, which take precedence. Verified via `npm pack --dry-run`: the six leaking `.pyc` files are gone (tarball 225 → 219 files) while every legit file (the four `cli/*` files, all `hooks/*.py` + `hooks/README.md`, `scripts/*.py`, `agents/`, etc.) remains. Durable — the rule holds even after the caches regenerate on the next Python-hook run. No version bump (folded into the unpublished 0.28.0).
+
 ### SemVer classification: MINOR
 
 Per `protocols/versioning-protocol.md §3.2`: the package gains a net-new `bin` export surface (`tapagents`) + a new `cli/` source tree + a new test script. Every existing consumer at v0.27.0 continues to function unchanged — no agent/command/protocol/template/hook removed or renamed, no `settings.json` change, no programmatic export (`dist/index.mjs`) shape change, no `live_events` schema change. The `bin` is purely additional capability, which is the MINOR trigger. The bundled privacy-sweep doc changes (project-slug genericization + agent-changelog backfill) are PATCH-grade per §3.1 (pure text-content corrections in existing files) and are absorbed into this MINOR rather than cut as a separate PATCH, because they shipped in the same session as the bin and no separate release window opened.
