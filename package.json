@@ -6,6 +6,9 @@
   "main": "./dist/index.mjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "tapagents": "./cli/tapagents.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -22,6 +25,7 @@
   "files": [
     "dist",
     "agents",
+    "cli",
     "commands",
     "protocols",
     "templates",
@@ -46,6 +50,7 @@
     "sync:apply": "tsx scripts/sync-src/sync.ts --apply",
     "verify-sync": "tsx scripts/sync-src/verify-sync.ts",
     "test:changelog-format": "tsx scripts/test-changelog-format.ts",
+    "test:cli": "node --test scripts/test-tapagents-cli.mjs",
     "audit:version-parity": "tsx scripts/version-parity-audit.ts",
     "prepublishOnly": "npm run build && npm run verify"
   },
