@@ -32,7 +32,7 @@ Deferred from v0.23.0 entry's "brand-integrity sweep planned within ~48h as v0.2
 
 ## [0.27.0] — 2026-05-29 — Credential-file read in `_telemetry.py`: onboarding-enablement (M-D Slice A0)
 
-**Minor release. Held/unpublished** (no tag/push/npm-publish — operator distribution decision, same posture as the held v0.25.0 + v0.26.0). The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
+**Minor release.** The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
 
 **The change in one sentence.** `emit_event_http()`'s token + ingest-URL resolution now reads FRESH on every flush from a precedence chain — **env (`TAPAGENTS_LIVE_TOKEN` / `TAPAGENTS_LIVE_INGEST_URL`) → credential file `~/.config/tapagents/credentials.json` → built-in default URL** — instead of from the environment alone.
 
@@ -71,7 +71,7 @@ The HQ copy `.claude/hooks/_telemetry.py` was mirrored surgically in the same ch
 
 ## [0.26.0] — 2026-05-29 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
 
-**Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2), held/unpublished alongside v0.25.0. Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from the held v0.25.0 rather than a retroactive widening of that release's scope.
+**Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2). Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from v0.25.0 rather than a retroactive widening of that release's scope.
 
 **The new stream.** A new `session-work-output` / `summary` / `seal` event triple, flipped from reserved → **LIVE** in `protocols/telemetry-events.md §2.4` and fully documented in the new **§2.6**. The producer is `hooks/session-tracking-seal.py` (`_emit_work_output`) — the same Stop hook that already emits the session-lifecycle events — using the exact S1/slice-A dual-emit shape: local `emit_event()` (source of truth) then best-effort cloud-mirror `emit_event_http()` (fail-open, no-op without `TAPAGENTS_LIVE_TOKEN`).
 
@@ -105,7 +105,7 @@ Per `protocols/versioning-protocol.md §3.2`:
 
 ## [0.25.0] — 2026-05-29 — Telemetry cloud-mirror: phase-transitions (M-D slice S1) + session lifecycle (M-D slice A)
 
-**Minor release.** Two same-theme slices of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md`), bundled into one release because both are additive, cloud-mirror-only work on the frozen telemetry schema and this version was unpublished when slice A landed:
+**Minor release.** Two same-theme slices of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md`), bundled into one release because both are additive, cloud-mirror-only work on the frozen telemetry schema:
 
 1. **Slice S1 — state-machine phase-transition Stop hook.** A Stop hook that emits the `state-machine` / `transition` / `<from>-<to>` event triple reserved in `protocols/telemetry-events.md §2.4`. This is the live feed the dashboard's 12-step PhaseIndicatorTrack consumes.
 2. **Slice A — session-lifecycle cloud-mirror.** The three existing BL-055 session-tracking hooks (`session-tracking-register.py` SessionStart, `session-tracking-files.py` PreToolUse, `session-tracking-seal.py` Stop) now mirror their existing `fire`-type events to the dashboard via `emit_event_http()` alongside each existing local `emit_event()` call — the exact dual-emit pattern S1 introduced. These are **existing reserved events, newly mirrored**: no new `source`/`type`/`subtype` surface is invented.
