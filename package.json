@@ -30,7 +30,6 @@
     "protocols",
     "templates",
     "hooks",
-    "scripts",
     ".claude-plugin",
     "AGENTS.md",
     "CHANGELOG.md",
@@ -41,6 +40,7 @@
     "docs",
     "runtime-adapters",
     "settings.json",
+    "!docs/specs",
     "!**/__pycache__",
     "!**/*.pyc",
     "!**/*.pyo"

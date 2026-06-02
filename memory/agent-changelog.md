@@ -785,7 +785,7 @@ Why these 7: balance of CEO-facing (Intake + EA) and backstage (Conductor + prod
 
 Why these 5 stubs: post-shipping roles (GTM, Growth, Feedback) and depth-on-demand specialists (Researchers). Intentionally NOT building until first project triggers their activation.
 
-Design spec: `docs/specs/2026-05-04-claude-team-design.md`
+Design spec: `docs/specs/2026-05-04-framework-design.md`
 
 ---
 

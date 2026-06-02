@@ -1041,7 +1041,7 @@ All three channel-version fields update atomically: `package.json` `version` `0.
 
 - **`agents/_planned/README.md`** — updated to reflect roster post-PMM activation + rename of gtm-strategist → gtm-launch-strategist.
 - **`agents/conductor.md`**, **`agents/executive-assistant.md`**, **`agents/quality-engineer.md`** — wording tweaks; roster-awareness updates after PMM lands. `fires_when` / authority / output contracts unchanged → PATCH-level edits folded into this MINOR.
-- **`docs/specs/2026-05-04-claude-team-design.md`** — doc edit reflecting PMM activation.
+- **`docs/specs/2026-05-04-framework-design.md`** — doc edit reflecting PMM activation.
 - **`.github/workflows/publish.yml`** — internally caught up to v0.8.3 Trusted Publishing migration (was stale internally; previously only landed in public).
 - **`.github/dependabot.yml`** (NEW internally) — caught up from v0.8.2 (existed only in public until v0.12.0).
 - **`package.json`** — adds `sync`, `sync:dry-run`, `sync:apply`, `verify-sync` npm scripts. Adds `json5@^2.2.3` runtime dependency (manifest parser).
@@ -1230,7 +1230,7 @@ Per `protocols/versioning-protocol.md §6`, all three channel-version fields are
 
 ### Changed
 
-- **`package.json`** `files` field — added `"docs"` so `docs/managed-agents-comparison.md`, `docs/specs/2026-05-04-claude-team-design.md`, and any other `docs/` content the framework carries now ship in the published tarball. `<project>`'s `scaffold-overlay/docs/` directory becomes redundant after this release and can be retired in a follow-up dashboard commit.
+- **`package.json`** `files` field — added `"docs"` so `docs/managed-agents-comparison.md`, `docs/specs/2026-05-04-framework-design.md`, and any other `docs/` content the framework carries now ship in the published tarball. `<project>`'s `scaffold-overlay/docs/` directory becomes redundant after this release and can be retired in a follow-up dashboard commit.
 - **`package.json`** `exports` field — added `"./docs/*"` so consumers can resolve `docs/*` paths via `import` / `require.resolve`.
 - **`.github/workflows/publish.yml`** — removed the `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` env binding from the "Publish to npm" step. The npm CLI auto-detects the GitHub Actions OIDC context via the existing `id-token: write` permission and authenticates against npm without a long-lived token. The `NPM_TOKEN` repo secret remains in place for the migration cutover; after the first successful Trusted Publishing publish, it can be deleted from both `tap-agents` and `tap-agents-internal` repos.
 
@@ -2215,4 +2215,4 @@ All four changes trace to `memory/incidents.md` 2026-05-05 — Scaffold path fai
 - Capability-request reportback type — Tier 2 can request new agents mid-build via Org Designer's normal proposal flow
 
 ### Design references
-- `docs/specs/2026-05-04-claude-team-design.md` — founding design spec
+- `docs/specs/2026-05-04-framework-design.md` — founding design spec
