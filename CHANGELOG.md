@@ -41,6 +41,7 @@ The deferred v0.23.1 brand-integrity sweep, bundled into this release. Genericiz
 - `CHANGELOG.md` — five previously-missing entries (v0.22.0, v0.23.0, v0.25.0, v0.26.0, v0.27.0) back-synced from the published mirror to the authoring root; stale "Held/unpublished" annotations updated to reflect published status.
 - `.github/workflows/notify-adopters.yml` — downstream consumer repo moved from hardcoded slug to `vars.ADOPTER_REPO` repository variable.
 - `README.md` — stale project-slug reference genericized.
+- `CHANGELOG.md` + `memory/agent-changelog.md` — scrubbed internal infra identifiers from changelog history: Neon endpoint IDs (prod/dev/local branches → `<prod-neon-branch>`/`<dev-neon-branch>`/`<local-neon-branch>` placeholders, incl. the full pooler host), the production Vercel alias (→ `<prod-vercel-alias>`), and a residual internal project slug/codename in narrative prose. Also genericized two operator home-path code comments (`scripts/sync-src/secret-patterns.ts`, `scripts/sync-src/sync.ts`) to `/Users/<user>/`. Narrative-only; no functional logic changed. (The `changelog_project_slugs` sanitizer denylist in `scripts/sync-src/manifest.json5` intentionally retains historical slugs — that list is the source of truth the sync genericizer matches against.)
 
 ### Packaging fix — keep compiled-Python bytecode out of the tarball
 
@@ -692,7 +693,7 @@ No new file paths added to the framework root. `protocols/destructive-data-ops.m
 ### Provenance
 
 - BL-056 P1 Tier 2 (`<project>`) — full audit chain in `<project>/.claude/audits/destructive-ops.log` + `<project>/.claude/scope/migration-auto-sync.md`.
-- Two-class same-day recurrence: 2026-05-11 BL-034 preview redispatch warning ignored → 2026-05-12 /dashboard outage. Cleared 2026-05-12 by manual SQL against the Neon "dev" branch (`ep-broad-moon-apiaksv1`).
+- Two-class same-day recurrence: 2026-05-11 BL-034 preview redispatch warning ignored → 2026-05-12 /dashboard outage. Cleared 2026-05-12 by manual SQL against the dev Neon branch (`<dev-neon-branch>`).
 - Critic-reviewed twice (REWORK→REWORK→ship-ready); Org-Designer-ratified with ten conditions, all operationally enforced as of this release.
 
 ---
@@ -2018,7 +2019,7 @@ User explicitly asked whether this work was operating "in the flow specified" (i
 
 ### Provenance
 
-Triggered by 2026-05-06 multi-account incident on production prod-alias `agents-dashboard-olive.vercel.app`. The fix doesn't unblock multi-user end-to-end (that requires BL-013) — it just makes the existing single-user failure mode self-explanatory so future testers don't get stuck without a breadcrumb. The full structural fix (BL-013) is queued P1.
+Triggered by 2026-05-06 multi-account incident on the production Vercel alias (`<prod-vercel-alias>`). The fix doesn't unblock multi-user end-to-end (that requires BL-013) — it just makes the existing single-user failure mode self-explanatory so future testers don't get stuck without a breadcrumb. The full structural fix (BL-013) is queued P1.
 
 ---
 
@@ -2037,10 +2038,10 @@ Triggered by 2026-05-06 multi-account incident on production prod-alias `agents-
 
 These are operational changes recorded here for audit traceability; no code commits in <project> repo.
 
-- **Vercel Production scope `DATABASE_URL`** rotated → `production` Neon branch (`ep-aged-brook-apg2g57j-pooler...`).
-- **Vercel Preview scope `DATABASE_URL`** rotated → `dev` Neon branch (`ep-broad-moon-apiaksv1-pooler...`). Required empty-string git-branch arg (`vercel env add DATABASE_URL preview ""`) to bind "all preview branches."
-- **`.env.local`** updated → `local` Neon branch (`ep-aged-wildflower-aprg1xfd-pooler...`); `NEON_BRANCH` annotation flipped from `dev` → `local`. Backup saved at `.env.local.bak.1778042003`.
-- **Production redeploy** triggered via `vercel redeploy <latest-prod-deployment> --target=production`. Build completed in 47s; aliased to `agents-dashboard-olive.vercel.app`. New env vars live on deployed app.
+- **Vercel Production scope `DATABASE_URL`** rotated → `production` Neon branch (`<prod-neon-branch>`).
+- **Vercel Preview scope `DATABASE_URL`** rotated → `dev` Neon branch (`<dev-neon-branch>`). Required empty-string git-branch arg (`vercel env add DATABASE_URL preview ""`) to bind "all preview branches."
+- **`.env.local`** updated → `local` Neon branch (`<local-neon-branch>`); `NEON_BRANCH` annotation flipped from `dev` → `local`. Backup saved at `.env.local.bak.1778042003`.
+- **Production redeploy** triggered via `vercel redeploy <latest-prod-deployment> --target=production`. Build completed in 47s; aliased to the production Vercel alias (`<prod-vercel-alias>`). New env vars live on deployed app.
 
 ### Verified — 3-branch isolation confirmed
 

@@ -1,6 +1,6 @@
 ---
 name: designer
-description: Designer. Translates PRD requirements into UX patterns, design system (colors/typography/spacing/motion/components), interaction flows. Bridges between Strategist's "what to build" and Tier 2's actual UI implementation. Activated 2026-05-05 from _planned/ for the claude-team-app project.
+description: Designer. Translates PRD requirements into UX patterns, design system (colors/typography/spacing/motion/components), interaction flows. Bridges between Strategist's "what to build" and Tier 2's actual UI implementation. Activated 2026-05-05 from _planned/ for the first Tier 2 project that required a v1 design system.
 department: Design
 role_title: Head of UX & Design System
 status: active
