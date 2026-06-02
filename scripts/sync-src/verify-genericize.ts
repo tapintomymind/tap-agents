@@ -301,10 +301,11 @@ async function main(): Promise<void> {
     "/scripts/sync-src/verify-genericize.ts",
     "/scripts/sync-src/secret-patterns.ts",
     "/scripts/sync-src/sync-codex.ts",
-    // The private-data hook carries the detection literals by construction
-    // (mirror of sync.ts GENERICIZE_SELF_SKIP) — its `/Users/tapandesai/App
-    // Development` literal is a DETECTOR target, not a leak.
-    "/hooks/framework-private-data-gate.py",
+    // NOTE: /hooks/framework-private-data-gate.py was REMOVED from this self-skip
+    // (v0.30.2, 2026-06-02). The hook no longer bakes the operator home-path
+    // literal (it derives it at runtime via expanduser + __file__), so it holds
+    // no private data — only the protected public strings, which are allow-
+    // subtracted below. It is now graded NORMALLY by this no-re-leak gate.
   ];
   const exemptions = (manifest.genericize_exemptions ?? []).map((p) => `/${p}`);
 

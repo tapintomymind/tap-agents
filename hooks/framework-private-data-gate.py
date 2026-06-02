@@ -17,9 +17,22 @@ What it scans for (reuses the genericizer map as the single source of truth,
   - prod hosts (hosts, e.g. *.vercel.app)      → use `<deploy-url>`
   - Neon endpoint IDs (neon_endpoints)         → use `<neon-endpoint>`
   - private repo paths (repo_paths)            → use `<org>/<project>`
-  - operator home path (operator home-path)    → use `<framework-root>`
+  - operator home path (runtime-derived)       → use `<framework-root>`
   - credential shapes (secret-patterns.ts)     → never commit a secret
   - the brand domain hq.tapintomymind.com is on the denylist as defense-in-depth
+
+The operator home-path detector is DERIVED AT RUNTIME — `os.path.expanduser("~")`
+plus the framework root computed from this file's own location (`__file__`). The
+hook therefore carries NO verbatim operator path: at HQ the derivation reproduces
+the operator's home (detection is behavior-preserved); in an adopter checkout the
+manifest is not shipped (scripts/ is not in package.json#files) so the hook
+fails open by design. Every other identifier is read from the manifest map at
+runtime — so this hook bakes ONLY the public, protected strings
+(`@tapintomymind/tap-agents`, `tapintomymind/tap-agents`, `hq.tapintomymind.com`),
+all of which ship intact. Because it holds no private literal, the hook is graded
+NORMALLY by the publish pipeline (no genericizer self-skip, no verify-genericize
+self-skip) — the protected strings are allow-subtracted, the operator path is no
+longer present, so the no-re-leak gate passes the file on its own merits.
 
 NEVER blocks (false-positive guards):
   - the protected public package/repo name `@tapintomymind/tap-agents` /
@@ -31,6 +44,10 @@ NEVER blocks (false-positive guards):
     operator's private working surface (e.g. memory/*, workspace/<slug>/*)
   - paths on manifest.genericize_exemptions
   - any file outside the framework HQ tree (Tier-2 project trees, etc.)
+  - this hook editing ITSELF — it still carries the brand-domain DETECTOR literal
+    (`_BRAND_DOMAIN`) by construction, so it stays on its own `_SELF_SKIP` so a
+    self-edit does not trip the brand-domain detector. (This is the authoring-gate
+    self-protection, distinct from the now-removed genericizer self-skip.)
 
 Scope of FILE TYPES guarded: the genericizer scope set (.md/.py/.ts/.json/
 .json5/.yml/.yaml).
@@ -80,10 +97,14 @@ _SELF_SKIP = {
     "scripts/sync-src/verify-genericize.ts",
     "scripts/sync-src/sync-codex.ts",
     "scripts/sync-src/manifest.json5",
-    # This hook itself carries the detection literals (the operator home-path
-    # string, secret-pattern regexes) by construction — editing it means typing
-    # those literals, which must not self-trip. Mirror of sync.ts
-    # GENERICIZE_SELF_SKIP.
+    # This hook itself still carries DETECTOR literals by construction — the
+    # brand-domain string (`_BRAND_DOMAIN`, which the authoring gate deliberately
+    # does NOT protect-mask) and the secret-pattern regexes — so editing the hook
+    # must not self-trip them. The operator home-path is no longer baked (it is
+    # runtime-derived), so this entry is now an AUTHORING-GATE self-protection,
+    # NOT a mirror of sync.ts GENERICIZE_SELF_SKIP: the hook was removed from the
+    # genericizer self-skip (it holds no private literal) and is graded normally
+    # by the publish pipeline. The other entries above DO mirror sync.ts.
     "hooks/framework-private-data-gate.py",
 }
 
@@ -252,7 +273,42 @@ def _rel_posix(abs_path: Path, framework_root: Path) -> str | None:
     return rel.as_posix()
 
 
-def _build_detectors(manifest: dict) -> tuple[list[tuple[re.Pattern, str, str]], list[str]]:
+def _operator_home_paths(framework_root: Path | None) -> list[str]:
+    """Derive the operator's home-path leak vectors AT RUNTIME — never a baked
+    literal. Returns the absolute paths whose appearance in a synced file is the
+    real operator-home leak. Two complementary derivations:
+
+      1. The framework-root absolute path (from `__file__`, threaded in as
+         `framework_root`). At HQ this resolves to exactly the value the manifest
+         records as the operator home-path rule, so detection is behavior-
+         preserved without the hook carrying the verbatim string.
+      2. `os.path.expanduser("~")` — the current operator's home directory. This
+         generalizes the detector to whichever user is authoring (operator at HQ,
+         adopter in their own checkout) and stays correct if HQ ever moves.
+
+    De-duplicated; empty/`/`-only candidates dropped (a degenerate `~` must never
+    turn the detector into a match-everything regex)."""
+    candidates: list[str] = []
+    if framework_root is not None:
+        candidates.append(str(framework_root))
+    try:
+        home = os.path.expanduser("~")
+        if home and home != "~":
+            candidates.append(home)
+    except Exception:  # noqa: BLE001 — expanduser is best-effort; fail-open
+        pass
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in candidates:
+        c = c.rstrip("/")
+        if not c or c == "" or seen.__contains__(c):
+            continue
+        seen.add(c)
+        out.append(c)
+    return out
+
+
+def _build_detectors(manifest: dict, framework_root: Path | None) -> tuple[list[tuple[re.Pattern, str, str]], list[str]]:
     """Return (detectors, protect). Each detector is (compiled_regex, label,
     placeholder-hint). protect is the list of substrings to mask before scan."""
     g = manifest.get("genericize", {}) or {}
@@ -269,12 +325,15 @@ def _build_detectors(manifest: dict) -> tuple[list[tuple[re.Pattern, str, str]],
         detectors.append((re.compile(re.escape(r["find"])), f"neon endpoint '{r['find']}'", "<neon-endpoint>"))
     for r in g.get("repo_paths", []) or []:
         detectors.append((re.compile(re.escape(r["find"])), f"private repo path '{r['find']}'", "<org>/<project>"))
-    # Operator home-path (literal). The bare-username form is too noisy to block
-    # at authoring time (it appears in author fields legitimately), so the gate
-    # blocks the home-PATH form, which is the real leak vector.
-    for r in g.get("operator", []) or []:
-        if r.get("find") == "/Users/tapandesai/App Development":
-            detectors.append((re.compile(re.escape(r["find"])), "operator home path", "<framework-root>"))
+    # Operator home-path. Derived at RUNTIME (framework-root-from-`__file__` +
+    # expanduser("~")) — the hook carries NO verbatim operator path. Behavior is
+    # preserved at HQ (the `__file__`-derived framework root equals the manifest's
+    # operator home-path rule) and generalizes to the current operator. The bare-
+    # username form stays unblocked at authoring time (it appears in author fields
+    # legitimately); the home-PATH form is the real leak vector. See the manifest
+    # `operator` rule for the publish-time genericizer counterpart.
+    for home in _operator_home_paths(framework_root):
+        detectors.append((re.compile(re.escape(home)), "operator home path", "<framework-root>"))
     # Brand domain — defense-in-depth (matches the verify gate denylist).
     detectors.append((re.compile(re.escape(_BRAND_DOMAIN)), f"brand domain '{_BRAND_DOMAIN}'", "(omit — ships only in the polished public README)"))
 
@@ -387,7 +446,7 @@ def main() -> None:
     if not content:
         sys.exit(0)
 
-    detectors, protect = _build_detectors(manifest)
+    detectors, protect = _build_detectors(manifest, framework_root)
 
     # Mask protected substrings so they never trip a detector.
     scan = content

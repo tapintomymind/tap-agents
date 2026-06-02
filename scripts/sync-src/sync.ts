@@ -720,13 +720,16 @@ const GENERICIZE_SELF_SKIP = new Set([
   "scripts/sync-src/verify-genericize.ts",
   "scripts/sync-src/sync-codex.ts",
   "scripts/sync-src/manifest.json5",
-  // The private-data PRE-WRITE hook CARRIES the detection literals (the
-  // operator home-path string, the brand domain, the secret-pattern regexes)
-  // by construction — exactly like secret-patterns.ts + manifest.json5 carry
-  // the patterns/codenames they detect. Genericizing it would rewrite its own
-  // detection literal (`/Users/tapandesai/App Development` → `<framework-root>`)
-  // and silently break the operator-path detector in the published mirror.
-  "hooks/framework-private-data-gate.py",
+  // NOTE: hooks/framework-private-data-gate.py was REMOVED from this self-skip
+  // set (v0.30.2, 2026-06-02). It previously baked the operator home-path literal
+  // and so had to ship verbatim. The hook now DERIVES the operator home-path at
+  // runtime (expanduser("~") + framework-root-from-__file__) and carries ONLY
+  // protected public strings (@tapintomymind/tap-agents, hq.tapintomymind.com),
+  // which genericizeBody leaves intact. Genericizing it is therefore a no-op, so
+  // it is graded normally (like every other sanitize-passthrough hook) rather
+  // than self-skipped. The hook keeps its OWN runtime `_SELF_SKIP` entry (a
+  // distinct authoring-gate self-protection for its `_BRAND_DOMAIN` detector
+  // literal) — see hooks/framework-private-data-gate.py.
 ]);
 // Public example-fixture trees. These DEMONSTRATE the full Tier-1 artifact set
 // using a FICTIONAL slug (e.g. `example-tools-cli`) whose concrete value is
