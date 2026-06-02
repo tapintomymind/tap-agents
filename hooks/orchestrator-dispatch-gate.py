@@ -25,7 +25,7 @@ Allowed on main thread (read-only / status):
   - Bash for: git status/log/diff/branch/show, ls, cat, find, grep,
     npm/pnpm/yarn run-scripts (test, lint, build), tsc, etc.
   - Edit/Write on Claude Code's user auto-memory directory
-    (`~/.claude/projects/<encoded-project>/memory/*.md`) — documented
+    (`~/.claude/projects/<project>/memory/*.md`) — documented
     inline-write surface per Claude Code OS instructions.
 
 Wired in: ../.claude/settings.json -> hooks.PreToolUse[1] (after
@@ -92,12 +92,12 @@ MUTATING_BASH_PATTERNS: list[tuple[re.Pattern, str]] = [
 FILE_MUTATING_TOOLS = {"Edit", "Write", "NotebookEdit"}
 
 # Allowlist: Claude Code's user auto-memory directory.
-# Path shape: ~/.claude/projects/<encoded-project>/memory/*.md
+# Path shape: ~/.claude/projects/<project>/memory/*.md
 # Claude Code's OS-level instructions tell Claude to write/edit memory files
 # directly via Write/Edit. Forcing those through a subagent burns context
 # and adds latency for zero audit value (memory files are user-state, not
 # project artifacts). The pattern is intentionally tight — only matches
-# the `~/.claude/projects/<segment>/memory/` shape that Claude Code itself
+# the `~/.claude/projects/<project>/memory/` shape that Claude Code itself
 # owns; does NOT match framework `.claude/` paths (App Development/.claude/...)
 # or Tier 2 `.claude/` paths (App Development/<project>/.claude/...).
 AUTO_MEMORY_PATH_RE = re.compile(r"/\.claude/projects/[^/]+/memory/")
@@ -186,7 +186,7 @@ def main() -> int:
     if tool_name in FILE_MUTATING_TOOLS:
         file_path = tool_input.get("file_path") or "(unknown)"
         # Allowlist: Claude Code's user auto-memory directory. Match the path
-        # shape `~/.claude/projects/<segment>/memory/` regardless of leading
+        # shape `~/.claude/projects/<project>/memory/` regardless of leading
         # $HOME prefix. Emit a passthrough event so the bypass is observable.
         if AUTO_MEMORY_PATH_RE.search(file_path):
             emit_event(

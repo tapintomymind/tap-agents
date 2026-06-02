@@ -125,6 +125,28 @@ include[]/exclude[] globs). See file header for full flag documentation.`);
 // Manifest types
 // ----------------------------------------------------------------------------
 
+// A single find/replace genericize rule. `find` is a string source compiled
+// to a global RegExp by genericizeBody; `replace` is the literal substitution.
+interface GenericizeRule {
+  find: string;
+  replace: string;
+}
+
+// The publish-time identifier-rewrite map (2026-06-02 remediation). See the
+// `genericize` comment block in manifest.json5 for the full order-of-operations
+// contract + protect-list rationale. All rule arrays are optional and default
+// to [] in readManifest so a legacy manifest without the block is a no-op.
+interface GenericizeMap {
+  rename_clauses: GenericizeRule[];
+  compound: GenericizeRule[];
+  hosts: GenericizeRule[];
+  project_slugs: string[];
+  repo_paths: GenericizeRule[];
+  neon_endpoints: GenericizeRule[];
+  operator: GenericizeRule[];
+  protect: string[];
+}
+
 interface Manifest {
   version: string;
   include: string[];
@@ -140,7 +162,25 @@ interface Manifest {
   // See manifest.json5 for the canonical comment block + when-to-add policy.
   // Optional in the parsed manifest; defaults to {} when absent.
   lint_exemptions: Record<string, string[]>;
+  // Publish-time identifier-rewrite map. Optional; defaults to an all-empty
+  // GenericizeMap when absent (legacy manifests → genericizer is a no-op).
+  genericize: GenericizeMap;
+  // File-scoped genericize bypass list (exact relative-POSIX paths). The whole
+  // genericize transform AND the bare-codename lint skip these paths. Optional;
+  // defaults to [].
+  genericize_exemptions: string[];
 }
+
+const EMPTY_GENERICIZE_MAP: GenericizeMap = {
+  rename_clauses: [],
+  compound: [],
+  hosts: [],
+  project_slugs: [],
+  repo_paths: [],
+  neon_endpoints: [],
+  operator: [],
+  protect: [],
+};
 
 async function readManifest(sourceRoot: string): Promise<Manifest> {
   const path = join(sourceRoot, "scripts", "sync-src", "manifest.json5");
@@ -167,7 +207,7 @@ async function readManifest(sourceRoot: string): Promise<Manifest> {
   // lint_exemptions may be absent in legacy manifests; default to {}.
   // Shape validation: object whose values are string[]. Fail loud on shape
   // drift (caught early at manifest load, not deep in lintPropagatedBody).
-  const rawExemptions = (parsed as Record<string, unknown>).lint_exemptions;
+  const rawExemptions = (parsed as unknown as Record<string, unknown>).lint_exemptions;
   if (rawExemptions === undefined) {
     (parsed as Manifest).lint_exemptions = {};
   } else if (typeof rawExemptions !== "object" || rawExemptions === null || Array.isArray(rawExemptions)) {
@@ -185,6 +225,61 @@ async function readManifest(sourceRoot: string): Promise<Manifest> {
     }
     (parsed as Manifest).lint_exemptions = rawExemptions as Record<string, string[]>;
   }
+
+  // genericize block (2026-06-02). Absent → all-empty map (no-op). When
+  // present, validate each array is the right shape so malformed rules fail
+  // loud at load, not deep in genericizeBody. Each rule array is independently
+  // optional (a manifest may carry only `project_slugs`, etc.).
+  const rawGenericize = (parsed as unknown as Record<string, unknown>).genericize;
+  if (rawGenericize === undefined) {
+    (parsed as Manifest).genericize = { ...EMPTY_GENERICIZE_MAP };
+  } else if (typeof rawGenericize !== "object" || rawGenericize === null || Array.isArray(rawGenericize)) {
+    throw new Error("manifest genericize must be an object");
+  } else {
+    const g = rawGenericize as Record<string, unknown>;
+    const ruleArrayKeys = ["rename_clauses", "compound", "hosts", "repo_paths", "neon_endpoints", "operator"] as const;
+    const out: GenericizeMap = { ...EMPTY_GENERICIZE_MAP };
+    for (const k of ruleArrayKeys) {
+      const v = g[k];
+      if (v === undefined) continue;
+      if (!Array.isArray(v)) throw new Error(`manifest genericize.${k} must be an array of {find,replace} rules`);
+      for (const r of v) {
+        if (typeof r !== "object" || r === null || typeof (r as GenericizeRule).find !== "string" || typeof (r as GenericizeRule).replace !== "string") {
+          throw new Error(`manifest genericize.${k} entries must be objects with string 'find' and 'replace'`);
+        }
+      }
+      (out as unknown as Record<string, GenericizeRule[]>)[k] = v as GenericizeRule[];
+    }
+    if (g.project_slugs !== undefined) {
+      if (!Array.isArray(g.project_slugs)) throw new Error("manifest genericize.project_slugs must be an array of strings");
+      for (const s of g.project_slugs) {
+        if (typeof s !== "string") throw new Error("manifest genericize.project_slugs entries must be strings");
+      }
+      out.project_slugs = g.project_slugs as string[];
+    }
+    if (g.protect !== undefined) {
+      if (!Array.isArray(g.protect)) throw new Error("manifest genericize.protect must be an array of strings");
+      for (const s of g.protect) {
+        if (typeof s !== "string") throw new Error("manifest genericize.protect entries must be strings");
+      }
+      out.protect = g.protect as string[];
+    }
+    (parsed as Manifest).genericize = out;
+  }
+
+  // genericize_exemptions — file-scoped bypass list. Absent → [].
+  const rawGenExempt = (parsed as unknown as Record<string, unknown>).genericize_exemptions;
+  if (rawGenExempt === undefined) {
+    (parsed as Manifest).genericize_exemptions = [];
+  } else if (!Array.isArray(rawGenExempt)) {
+    throw new Error("manifest genericize_exemptions must be an array of relative POSIX paths");
+  } else {
+    for (const p of rawGenExempt) {
+      if (typeof p !== "string") throw new Error("manifest genericize_exemptions entries must be strings");
+    }
+    (parsed as Manifest).genericize_exemptions = rawGenExempt as string[];
+  }
+
   return parsed;
 }
 
@@ -439,31 +534,138 @@ interface TransformerCtx {
 
 type Transformer = (sourceBody: string, ctx: TransformerCtx) => { body: string; skip: boolean; reason?: string };
 
-/**
- * genericizeChangelogBody — rewrite project-slug references in CHANGELOG
- * narration so the public copy keeps narrative continuity without leaking
- * Tier-1-private project identity.
- *
- * Two passes:
- *   1. Path-shaped genericization: any `workspace/<slug>/...` where <slug>
- *      matches the lowercase-dash project-slug pattern AND is NOT in the
- *      allowed-workspace-prefix set (workspace/_global/, workspace/_examples/,
- *      etc.) gets rewritten to `workspace/<project>/...`.
- *   2. Bare-label genericization: standalone occurrences of a known slug
- *      from `manifest.changelog_project_slugs` get rewritten to `<project>`.
- *      Word-boundary anchored to avoid matching inside other identifiers.
- *
- * The list-driven bare-label pass is intentionally specific (only the
- * documented slugs) — a regex-only sweep would over-match common words.
- * The path-shaped pass IS regex-only because the `workspace/<slug>/` shape
- * is structural and won't collide with prose.
- */
-function genericizeChangelogBody(sourceBody: string, slugs: string[]): string {
-  let body = sourceBody;
+// ----------------------------------------------------------------------------
+// Genericizer (2026-06-02 remediation) — the general HQ→mirror identifier
+// rewrite engine. Single source of truth for the rule SET is
+// `manifest.genericize`; this is the engine that applies it. See the
+// `genericize` comment block in manifest.json5 for the full contract.
+// ----------------------------------------------------------------------------
 
-  // Pass 1: workspace/<slug>/... -> workspace/<project>/...
-  // Allowed prefixes (kept as-is) match ALLOWED_WORKSPACE_PREFIXES used by lint.
-  body = body.replace(/\bworkspace\/([a-z][a-z0-9-]+)\//g, (match, slug) => {
+// Sentinel template for protect-masking. Chosen to be vanishingly unlikely to
+// appear in source AND to survive every downstream rule untouched (no slug
+// substring, no `/`, no `.vercel.app`, no `ep-` prefix, no `tapandesai`). The
+// numeric index keeps each protected substring's sentinel unique so unmask
+// restores the right original (collision would restore all to the last one).
+const PROTECT_SENTINEL = (i: number) => `xPROTECTEDx${i}xPROTECTEDx`;
+
+interface CompiledGenericize {
+  protect: string[];
+  // Ordered, compiled passes. Each is a [RegExp, replacement] applied in order.
+  passes: Array<[RegExp, string]>;
+}
+
+let _compiledGenericize: CompiledGenericize | null = null;
+let _compiledFromMapRef: GenericizeMap | null = null;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * compileGenericize — build the ordered, compiled pass list from the manifest
+ * genericize map ONCE (memoized on the map object identity). Order is the
+ * contract documented in manifest.json5:
+ *   rename_clauses → compound → hosts → project_slugs → repo_paths →
+ *   neon_endpoints → operator.
+ * (protect-mask + unmask happen in genericizeBody around these passes.)
+ *
+ * `find` strings in rule arrays are treated as REGEX SOURCE (so the manifest
+ * can anchor `\\.` / `\\b` etc.). The bare `project_slugs` strings are
+ * word-boundary-wrapped here and sorted LONGEST-FIRST so a longer slug
+ * (`claude-team-app`) is consumed before a shorter prefix (`claude-team`)
+ * would partially match it.
+ */
+function compileGenericize(map: GenericizeMap): CompiledGenericize {
+  if (_compiledGenericize && _compiledFromMapRef === map) return _compiledGenericize;
+
+  const passes: Array<[RegExp, string]> = [];
+
+  for (const r of map.rename_clauses) passes.push([new RegExp(r.find, "g"), r.replace]);
+  for (const r of map.compound) passes.push([new RegExp(r.find, "g"), r.replace]);
+  for (const r of map.hosts) passes.push([new RegExp(r.find, "g"), r.replace]);
+
+  // repo_paths BEFORE project_slugs. A repo path like `tapintomymind/claude-team`
+  // contains the bare slug `claude-team`; if the bare-slug pass ran first it
+  // would rewrite the slug component to `tapintomymind/<project>` and the
+  // repo_paths rule (`<org>/<project>`) would never match. Running the
+  // longer/more-specific owner/repo rule first preserves the `<org>/<project>`
+  // shape. repo_paths `find` values are LITERAL (escaped).
+  for (const r of map.repo_paths) passes.push([new RegExp(escapeRegExp(r.find), "g"), r.replace]);
+
+  // Bare project slugs, longest-first, word-boundary anchored. Negative
+  // lookbehind `(?<!\/)` is intentionally NOT used — the path form
+  // `workspace/<slug>/` SHOULD also be rewritten to `workspace/<project>/`
+  // (the `<project>` placeholder is the legitimate post-genericization shape
+  // the lint allows). A bare `\b…\b` handles both the prose label and the path
+  // segment in one rule. Longest-first so `claude-team-app` matches before the
+  // shorter `claude-team` prefix.
+  const sortedSlugs = [...map.project_slugs].sort((a, b) => b.length - a.length);
+  for (const slug of sortedSlugs) {
+    passes.push([new RegExp(`\\b${escapeRegExp(slug)}\\b`, "g"), "<project>"]);
+  }
+
+  for (const r of map.neon_endpoints) passes.push([new RegExp(escapeRegExp(r.find), "g"), r.replace]);
+
+  // Operator rules. The bare-username form (`\btapandesai\b`) must NOT fire
+  // inside `tapintomymind/...` — but `@tapintomymind/tap-agents` and
+  // `tapintomymind/tap-agents` are already protect-masked, and other
+  // `tapintomymind/<repo>` forms are rewritten by repo_paths BEFORE operator
+  // runs, so by the time operator runs there is no `tapintomymind/` substring
+  // for the username to sit inside. We still add a negative lookbehind for
+  // `tapintomymind/` defensively, in case a future repo path isn't in
+  // repo_paths. Rules whose `find` already encodes a lookbehind/boundary
+  // (operator entries author their own `find`) are passed through as regex
+  // source.
+  for (const r of map.operator) {
+    // `\btapandesai\b` → guard against the tapintomymind/ owner segment.
+    const src = r.find === "\\btapandesai\\b" ? "(?<!tapintomymind/)\\btapandesai\\b" : r.find;
+    passes.push([new RegExp(src, "g"), r.replace]);
+  }
+
+  _compiledGenericize = { protect: [...map.protect], passes };
+  _compiledFromMapRef = map;
+  return _compiledGenericize;
+}
+
+/**
+ * genericizeBody — the general engine. Rewrites every private identifier in
+ * `body` per `manifest.genericize`, with the protect-list immune to all rules.
+ *
+ * Algorithm:
+ *   1. Protect-mask: replace each protect[] substring with a unique sentinel.
+ *      Longest-first so `@tapintomymind/tap-agents` masks before
+ *      `tapintomymind/tap-agents` (which is a substring of it).
+ *   2. Apply the compiled ordered passes (rename_clauses → … → operator).
+ *   3. Unmask: restore the sentinels to their original protected substrings.
+ *
+ * Pure function (the only mutable state is the module-scope compile memo, which
+ * is keyed on the map identity and produces identical output regardless).
+ */
+function genericizeBody(body: string, manifest: Manifest): string {
+  const compiled = compileGenericize(manifest.genericize);
+  let out = body;
+
+  // 1. Protect-mask. Sort protect substrings longest-first so a substring
+  //    protect (tapintomymind/tap-agents) doesn't pre-empt its superstring
+  //    (@tapintomymind/tap-agents).
+  const protectSorted = compiled.protect
+    .map((s, i) => ({ s, i }))
+    .sort((a, b) => b.s.length - a.s.length);
+  const sentinelByOrig = new Map<string, string>();
+  for (const { s, i } of protectSorted) {
+    const sentinel = PROTECT_SENTINEL(i);
+    sentinelByOrig.set(sentinel, s);
+    out = out.split(s).join(sentinel);
+  }
+
+  // 2a. Built-in STRUCTURAL passes (path-shaped, safe everywhere — formerly
+  //     CHANGELOG-only, promoted to the engine per design §2.4). These run
+  //     before the manifest passes so a `workspace/<slug>/` path collapses to
+  //     `workspace/<project>/` structurally (the trailing-slash form) and the
+  //     bare-slug manifest pass then mops up any remaining bare label.
+  //
+  //   Structural pass 1: workspace/<slug>/... -> workspace/<project>/...
+  out = out.replace(/\bworkspace\/([a-z][a-z0-9-]+)\//g, (match, slug) => {
     const fullPrefix = `workspace/${slug}/`;
     const allowed =
       fullPrefix.startsWith("workspace/_global/") ||
@@ -473,30 +675,78 @@ function genericizeChangelogBody(sourceBody: string, slugs: string[]): string {
       fullPrefix === "workspace/.gitkeep/";
     return allowed ? match : "workspace/<project>/";
   });
-
-  // Pass 2: user-specific auto-memory path collapse.
-  // CHANGELOG narration sometimes cites Claude Code's per-project auto-memory
-  // path (e.g., `~/.claude/projects/-Users-<user>-.../memory/foo.md`) as a
-  // provenance pointer. The literal path is user-machine-specific. Collapse
-  // it to the generic `~/.claude/projects/<project>/memory/` shape so the
-  // public CHANGELOG keeps narrative continuity without leaking the encoded
-  // user-home segment.
-  body = body.replace(
+  //   Structural pass 2: user-specific auto-memory path collapse.
+  out = out.replace(
     /(?:\/Users\/[^/\s'"`)]+|\$HOME|~)\/\.claude\/projects\/[^\s'"`)]+\/memory\//g,
     "~/.claude/projects/<project>/memory/",
   );
 
-  // Pass 3: bare-label rewrites for known slugs.
-  // Word-boundary on the left; right side allows `/`, `.`, `'`, end-of-word, or
-  // common surrounding punctuation. Skipping `workspace/<slug>/` already-handled
-  // forms via negative lookbehind `(?<!workspace\/)` so we don't double-rewrite.
-  for (const slug of slugs) {
-    const escaped = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`(?<!workspace\\/)\\b${escaped}\\b`, "g");
-    body = body.replace(re, "<project>");
+  // 2b. Ordered manifest passes.
+  for (const [re, replacement] of compiled.passes) {
+    re.lastIndex = 0;
+    out = out.replace(re, replacement);
   }
 
-  return body;
+  // 3. Unmask.
+  for (const [sentinel, orig] of sentinelByOrig) {
+    out = out.split(sentinel).join(orig);
+  }
+
+  return out;
+}
+
+/**
+ * maybeGenericize — scope-gate wrapper for the copy + sanitize branches in
+ * plan(). Returns the body UNCHANGED when:
+ *   - the path is genericize-exempt (manifest.genericize_exemptions), OR
+ *   - the path is out of genericize scope (extension not in the rewrite set, or
+ *     a sync-src self-skip file whose fixtures are tautological).
+ * Otherwise returns genericizeBody(body, manifest).
+ *
+ * Scope (design §2.1): `.md`, `.py`, `.ts`, `.json`, `.json5`, `.yml`/`.yaml`.
+ * Self-skips: scripts/sync-src/{secret-patterns,sync,sync.test,verify-sync}.ts
+ * and manifest.json5 — these CARRY the codenames/rules by construction (the
+ * manifest IS the rule list; sync.ts IS the engine) and must ship verbatim so
+ * the public tree can run the same sync. CHANGELOG.md is NOT routed here (it
+ * has the dedicated template-changelog transformer, which calls genericizeBody
+ * itself as its engine).
+ */
+const GENERICIZE_SCOPE_EXT = /\.(md|py|ts|json|json5|yml|yaml)$/;
+const GENERICIZE_SELF_SKIP = new Set([
+  "scripts/sync-src/secret-patterns.ts",
+  "scripts/sync-src/sync.ts",
+  "scripts/sync-src/sync.test.ts",
+  "scripts/sync-src/verify-sync.ts",
+  "scripts/sync-src/verify-genericize.ts",
+  "scripts/sync-src/sync-codex.ts",
+  "scripts/sync-src/manifest.json5",
+  // The private-data PRE-WRITE hook CARRIES the detection literals (the
+  // operator home-path string, the brand domain, the secret-pattern regexes)
+  // by construction — exactly like secret-patterns.ts + manifest.json5 carry
+  // the patterns/codenames they detect. Genericizing it would rewrite its own
+  // detection literal (`/Users/tapandesai/App Development` → `<framework-root>`)
+  // and silently break the operator-path detector in the published mirror.
+  "hooks/framework-private-data-gate.py",
+]);
+// Public example-fixture trees. These DEMONSTRATE the full Tier-1 artifact set
+// using a FICTIONAL slug (e.g. `example-tools-cli`) whose concrete value is
+// load-bearing — a reader traces the example end-to-end via the slug. The
+// structural `workspace/<slug>/` pass would rewrite that fictional slug to
+// `<project>` and break the demonstration. These trees carry NO real private
+// data (fictional slug + `/Users/example/...` placeholder paths), so skipping
+// genericization is safe. Mirrors the existing `workspace/_examples/`
+// suppression in lintPropagatedBody (project-slug-ref / private-memory-ref).
+const GENERICIZE_FIXTURE_PREFIXES = ["workspace/_examples/", "memory/_examples/"];
+
+function maybeGenericize(relPath: string, body: string, manifest: Manifest): string {
+  if (manifest.genericize_exemptions.includes(relPath)) {
+    console.error(`[sync] genericize exemption: skipped for ${relPath}`);
+    return body;
+  }
+  if (GENERICIZE_SELF_SKIP.has(relPath)) return body;
+  if (GENERICIZE_FIXTURE_PREFIXES.some((p) => relPath.startsWith(p))) return body;
+  if (!GENERICIZE_SCOPE_EXT.test(relPath)) return body;
+  return genericizeBody(body, manifest);
 }
 
 /**
@@ -515,6 +765,34 @@ function genericizeChangelogBody(sourceBody: string, slugs: string[]): string {
  * Pure function — no I/O, no console output. Errors surface as caller
  * decides; this function assumes both inputs already parsed cleanly.
  */
+/**
+ * compareSemver — minimal numeric semver compare (major.minor.patch; ignores
+ * pre-release/build metadata after the first three segments). Returns 1 if a>b,
+ * -1 if a<b, 0 if equal. Used only for the never-downgrade version guard in
+ * mergePackageJson; intentionally tiny (no semver dep). Non-numeric segments
+ * coerce to 0.
+ */
+function compareSemver(a: string, b: string): number {
+  const parse = (v: string): number[] => {
+    const core = v.split(/[-+]/)[0] ?? "0";
+    const parts = core.split(".").map((p) => {
+      const n = parseInt(p, 10);
+      return Number.isNaN(n) ? 0 : n;
+    });
+    while (parts.length < 3) parts.push(0);
+    return parts.slice(0, 3);
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x > y) return 1;
+    if (x < y) return -1;
+  }
+  return 0;
+}
+
 function mergePackageJson(
   source: Record<string, unknown>,
   target: Record<string, unknown>,
@@ -537,6 +815,21 @@ function mergePackageJson(
       const srcFiles = Array.isArray(source.files) ? (source.files as unknown[]).filter((x): x is string => typeof x === "string") : [];
       const tgtFiles = Array.isArray(target.files) ? (target.files as unknown[]).filter((x): x is string => typeof x === "string") : [];
       merged.files = unionStringArray(srcFiles, tgtFiles);
+    } else if (key === "version") {
+      // NEVER-DOWNGRADE (2026-06-02). Pre-2026-05-17 the rule was "internal
+      // wins on version" — correct when HQ drove releases. But under the §10
+      // filesystem-only topology, the audit trail + every version bump moved
+      // entirely into the MIRROR (releases cut via /release in tap-agents/);
+      // HQ's package.json froze (0.19.0 while the mirror is 0.29.x). A blind
+      // "internal wins" would DOWNGRADE the mirror's version on every apply,
+      // breaking the release pipeline + verify(). So version takes the HIGHER
+      // semver of {source, target}. When HQ is stale (the steady state today)
+      // the mirror's newer version is preserved; if HQ ever leads again, its
+      // version still propagates. Pure-safety: it can only move version
+      // forward, never back.
+      const srcV = typeof source.version === "string" ? source.version : "0.0.0";
+      const tgtV = typeof target.version === "string" ? target.version : "0.0.0";
+      merged.version = compareSemver(srcV, tgtV) >= 0 ? srcV : tgtV;
     } else {
       // All other internal-defined keys: internal wins.
       merged[key] = source[key];
@@ -594,7 +887,13 @@ const TRANSFORMERS: Record<string, Transformer> = {
   //   README.md         — DO NOT OVERWRITE unless --include-readme
 
   "template-changelog": (sourceBody, { manifest }) => {
-    const transformed = genericizeChangelogBody(sourceBody, manifest.changelog_project_slugs);
+    // The CHANGELOG transformer now uses genericizeBody as its engine (design
+    // §2.4 consolidation). The engine already runs the structural workspace-
+    // path + auto-memory passes (formerly CHANGELOG-only) plus the full
+    // manifest rule set (project_slugs, hosts, neon_endpoints, operator, …),
+    // so the residual CHANGELOG leak the dry-run exposed (ep-aged-wildflower…,
+    // tapagents-app.vercel.app) is closed here for free — same map, one engine.
+    const transformed = genericizeBody(sourceBody, manifest);
     return { body: transformed, skip: false };
   },
   /**
@@ -774,6 +1073,7 @@ async function lintPropagatedBody(
   relPath: string,
   body: string,
   exemptions: Record<string, string[]> = {},
+  manifest?: Manifest,
 ): Promise<LintIssue[]> {
   const issues: LintIssue[] = [];
   const isMarkdown = relPath.endsWith(".md");
@@ -880,6 +1180,100 @@ async function lintPropagatedBody(
           lineNo: i + 1,
           message: `references /Users/<name> path — strip user-machine specifics`,
         });
+      }
+    }
+  }
+
+  // bare-codename — the no-re-leak self-check (2026-06-02 remediation, design
+  // §5.2). The mechanical floor PR#13's manual sweep lacked: if a genericize
+  // rule is missing/mis-ordered and a bare codename SURVIVES into a propagated
+  // body, ABORT the sync instead of silently re-leaking. Complements the
+  // path-only `project-slug-ref` rule by catching bare-LABEL prose
+  // ("agent-dashboard" the word) + neon endpoints + vercel hosts that the
+  // path rule never sees.
+  //
+  // Scope: same as the genericizer (.md/.py/.ts/.json/.json5/.yml). Skips the
+  // genericize self-skip set (manifest.json5 + sync-src/*.ts CARRY the codenames
+  // by construction) and any path on genericize_exemptions. Subtracts the
+  // protect[] substrings (so `@tapintomymind/tap-agents` etc. never fire) by
+  // masking them out of the scanned copy first.
+  if (manifest) {
+    const inGenericizeScope = /\.(md|py|ts|json|json5|yml|yaml)$/.test(relPath);
+    const isGenericizeSelfSkip = GENERICIZE_SELF_SKIP.has(relPath);
+    const isGenericizeExempt = manifest.genericize_exemptions.includes(relPath);
+    const isFixtureTree = GENERICIZE_FIXTURE_PREFIXES.some((p) => relPath.startsWith(p));
+    if (inGenericizeScope && !isGenericizeSelfSkip && !isGenericizeExempt && !isFixtureTree) {
+      // Build the surviving-codename detector set from the manifest map.
+      const g = manifest.genericize;
+      const lines = body.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        // Mask protected substrings on this line so they can't trip a rule.
+        let line = lines[i];
+        for (const p of g.protect) line = line.split(p).join(" ");
+        // Bare project slugs — word-boundary anchored, longest-first irrelevant
+        // here (we only need to KNOW one survived, not which).
+        for (const slug of g.project_slugs) {
+          const re = new RegExp(`\\b${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+          if (re.test(line)) {
+            issues.push({
+              level: "FAIL",
+              code: "bare-codename",
+              path: relPath,
+              lineNo: i + 1,
+              message: `bare project codename survived genericization: '${slug}' (genericizer rule missing or mis-ordered)`,
+            });
+          }
+        }
+        // Compound slug-prefixed identifiers (the un-genericized HQ form).
+        for (const r of g.compound) {
+          // r.find is a literal compound (e.g. ip-protection-mcp-execution-model).
+          if (line.includes(r.find)) {
+            issues.push({
+              level: "FAIL",
+              code: "bare-codename",
+              path: relPath,
+              lineNo: i + 1,
+              message: `compound codename survived genericization: '${r.find}'`,
+            });
+          }
+        }
+        // Vercel hosts (find is regex source).
+        for (const r of g.hosts) {
+          if (new RegExp(r.find).test(line)) {
+            issues.push({
+              level: "FAIL",
+              code: "bare-codename",
+              path: relPath,
+              lineNo: i + 1,
+              message: `prod host survived genericization: matches /${r.find}/`,
+            });
+          }
+        }
+        // Neon endpoint IDs (literal).
+        for (const r of g.neon_endpoints) {
+          if (line.includes(r.find)) {
+            issues.push({
+              level: "FAIL",
+              code: "bare-codename",
+              path: relPath,
+              lineNo: i + 1,
+              message: `neon endpoint id survived genericization: '${r.find}'`,
+            });
+          }
+        }
+        // Repo paths (literal owner/repo — after protect-mask removes the
+        // tap-agents form). e.g. tapintomymind/claude-team.
+        for (const r of g.repo_paths) {
+          if (line.includes(r.find)) {
+            issues.push({
+              level: "FAIL",
+              code: "bare-codename",
+              path: relPath,
+              lineNo: i + 1,
+              message: `repo path survived genericization: '${r.find}'`,
+            });
+          }
+        }
       }
     }
   }
@@ -1078,8 +1472,15 @@ async function plan(flags: CliFlags, manifest: Manifest, syncSet: FileEntry[]): 
       reason = result.reason;
     } else if (entry.category === "sanitize") {
       nextBody = runSanitizer(entry.sanitizerName!, sourceBody, { relPath: entry.relPath });
+      // Genericize AFTER the sanitizer so sanitize-passthrough hook files
+      // (e.g. hooks/prompt-router.py, which carries a `tapagents-app (formerly
+      // …)` docstring) are also genericized. Scope-gated by maybeGenericize.
+      nextBody = maybeGenericize(entry.relPath, nextBody, manifest);
     } else {
-      nextBody = sourceBody;
+      // copy branch — the bulk .md/script set. This is the path that re-leaked
+      // (no transform pre-2026-06-02). maybeGenericize scope-gates by extension
+      // + self-skip + exemption list.
+      nextBody = maybeGenericize(entry.relPath, sourceBody, manifest);
     }
 
     if (skip) {
@@ -1138,7 +1539,7 @@ async function lintActions(actions: PlannedAction[], manifest: Manifest): Promis
       body = a.targetBody;
     }
     if (body === undefined || body === "") continue;
-    issues.push(...(await lintPropagatedBody(a.relPath, body, manifest.lint_exemptions)));
+    issues.push(...(await lintPropagatedBody(a.relPath, body, manifest.lint_exemptions, manifest)));
   }
   return issues;
 }

@@ -117,7 +117,7 @@ export const PATTERNS: readonly SecretPattern[] = [
   },
 
   // Operator-identity paths (added 2026-05-12 in response to v0.12.0 post-release
-  // audit finding `/Users/<user>/.claude/projects/.../memory` baked into
+  // audit finding `/Users/tapandesai/.claude/projects/.../memory` baked into
   // hooks/stop-dispatch-monitor.py:61). The first-class secret patterns above
   // are tuned for credential-shape strings; these patterns close the second
   // class: operator-identifying absolute paths to Claude Code's per-project

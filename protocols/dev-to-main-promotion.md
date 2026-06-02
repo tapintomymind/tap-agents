@@ -29,7 +29,7 @@ Promotion-from-dev-to-main fires this protocol when **any** of:
 - The promotion includes one or more new schema migrations (additive, destructive, or rename)
 - The promotion includes more than 5 commits since the last main merge
 - The promotion touches env vars (`.env.*` files, Vercel env, secrets manager scopes — any platform's prod-env surface)
-- The user explicitly invokes the protocol's tool (e.g., `./scripts/promote-to-prod.sh` in the <project> founding example, formerly <project-legacy>)
+- The user explicitly invokes the protocol's tool (e.g., `./scripts/promote-to-prod.sh` in the <project> founding example
 
 A trivial UI-only one-commit hotfix MAY skip the protocol — but defaulting to running it costs nothing.
 
@@ -260,4 +260,4 @@ These five items are the explicit follow-up surface for the next promotion-tooli
 
 ---
 
-*This protocol is load-bearing for any Tier 2 project on the dev→main strategy. Founding implementation lives in <project>'s scripts directory (formerly <project-legacy>); future projects on different stacks substitute the introspection + deploy-poll mechanics while keeping the doctrine, ordering, gates, and audit routing.*
+*This protocol is load-bearing for any Tier 2 project on the dev→main strategy. Founding implementation lives in <project>'s scripts directory; future projects on different stacks substitute the introspection + deploy-poll mechanics while keeping the doctrine, ordering, gates, and audit routing.*

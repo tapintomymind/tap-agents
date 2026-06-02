@@ -4,83 +4,9 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
-## [0.29.1] — 2026-06-02 — CLI version-lag fix: `tapagents --version` reads `package.json` at runtime
-
-**Patch release.** Fixes a version-lag bug in the `tapagents` CLI bin shipped in v0.29.0: the CLI's reported version was a hardcoded `0.28.0` literal that never tracked the published `package.json` version. The shipped v0.29.0 tarball's `tapagents --version` printed `0.28.0`, and the device-flow telemetry `client` / `User-Agent` label sent `tapagents-cli/0.28.0` — both lagging the real package version. This patch replaces both hardcoded literals with a **fail-soft runtime read** of `version` from the package's own `package.json` (resolved via `import.meta.url`, so the read is cwd-independent), so the CLI's reported version can never again drift from what was published.
-
-PATCH-grade per `protocols/versioning-protocol.md §3.1`: no agent / command / protocol / template added, removed, or renamed; no `settings.json` schema change; the package's `bin` entry, its path, and the CLI's external command surface are all unchanged. The only behavioral change is that `tapagents --version` (and the telemetry client label) now report the correct, current version instead of a stale literal — a fix that is safe to auto-merge by Dependabot in a downstream build.
-
-### Changed
-
-- **`cli/tapagents.mjs`** — replaced the hardcoded `const VERSION = "0.28.0"` with a `resolveVersion()` helper that reads `version` from `../package.json` at runtime via `import.meta.url`. Fail-soft: returns a literal `"0.0.0"` fallback and never throws if the file is somehow unreadable, so `--version` always answers. De-staled the file-header comment that pinned `v0.28.0`.
-- **`cli/lib/device-flow.mjs`** — replaced the hardcoded `const CLIENT_VERSION = "0.28.0"` (the device-flow `client` / `User-Agent` telemetry label) with the same fail-soft runtime read of `../../package.json`, so the audit label tracks the published version.
-- **`scripts/test-tapagents-cli.mjs`** — both version assertions now assert dynamically against the live `package.json` version rather than a hardcoded `0.28.0` literal: the `--version` output check (was `/^0\.28\.0$/m`) and the device-flow client-label check (was `/tapagents-cli\/0\.28\.0/`). Guards against the version-lag regressing again (a re-hardcoded literal would now fail the suite).
-
-### Provenance
-
-CLI version-lag fix cut directly on `release/v0.29.1` off `origin/main`. Mirror-native change (the CLI lives only in the `tap-agents/` publish mirror, not HQ `.claude/`); no `sync.ts` propagation involved. Bundled verify-guard against this lag class is deferred to a separate follow-on remediation.
-
-## [0.29.0] — 2026-06-02 — `tapagents login` CLI bin (M-D Slice U2) + public-mirror privacy sweep
-
-**Minor release.** Ships the `tapagents login` device-auth CLI (OAuth 2.0 Device Authorization Grant, RFC 8628). The MINOR classification is driven by the package's **first `bin` entry** (a net-new export surface — `protocols/versioning-protocol.md §3.2`); the bundled privacy-sweep doc changes, PATCH-grade on their own, are absorbed into this MINOR. **Prod-activation note on the CLI:** its device-flow endpoints (`POST /api/auth/device/code`, `POST /api/auth/device/token`) are **live on the dev environment** (PR #82 merged + deployed to dev in `tapagents-app`: a `device_codes` table + 3 endpoints + the `/device` approve page); **prod activation is gated on a separate operator endpoint-promotion.** Until that promotion, `tapagents login` against the default (prod) host returns a clean error — the CLI ships dormant-but-graceful on prod, by design and with operator sign-off. ops-security reviewed and approved (combined review of PR #82 + PR #80); the SEC-1/OD-L2 `framework_events` multi-tenant user-scoping fix is merged (PR #80 → dev). See `workspace/_global/tapagents-login-device-auth-contract-2026-06-02.md` (the frozen wire contract this implements) §4–§5.
-
-Two same-session changes land together: the device-auth CLI (the feature that earns the minor bump) and a public-mirror documentation sweep.
-
-### `tapagents login` CLI bin — one-time device-flow onboarding (M-D Slice U2)
-
-**The change in one sentence.** The framework package gains its **first `bin` entry** — a `tapagents` CLI whose `tapagents login` runs the OAuth 2.0 Device Authorization Grant (RFC 8628) client, then writes the credential file (`${XDG_CONFIG_HOME:-~/.config}/tapagents/credentials.json`, 0600) that the **already-live** v0.27.0 telemetry read-path (`hooks/_telemetry.py:_resolve_credentials()`) consumes fresh on every flush — closing the operator's "clients shouldn't run any command to sync telemetry" requirement with a one-time `gh auth login`-style step and zero further commands thereafter.
-
-**The round-trip is verified against the live A0 reader.** A credential file written by the CLI's writer is resolved byte-for-byte by the actual `_resolve_credentials()` function: the `token` + `ingest_url` keys match exactly, the provenance keys (`account`/`issued_at`/`machine`) are ignored as designed, and the 0700-dir / 0600-file / atomic-rename posture holds. After `tapagents login` the next hook fire mirrors telemetry to the cloud with no `export`, no restart, no further command.
-
-**First `bin` ⇒ new export surface ⇒ MINOR.** `tap-agents` had no `bin` key through v0.27.0; adding one is a net-new capability of the npm package with no removal of any existing capability — MINOR per `protocols/versioning-protocol.md §3.2`. The bin points at a committed raw `cli/tapagents.mjs` (with a `#!/usr/bin/env node` shebang), mirroring how `hooks/*.py` ship as raw runnable files — it does **not** depend on the `dist/` build output (which `build.ts` wipes + regenerates on every run), so the CLI is runnable straight from the published tarball with no build step.
-
-**Billing: Pool A.** Every CLI↔endpoint call is plain HTTPS to `tapagents.ai` via Node stdlib (`node:https`/`node:http`). No `claude` invocation, no `@anthropic-ai/sdk` import, no `api.anthropic.com`. Confirmed against the contract §6.
-
-#### Added
-
-- **`package.json` — first `bin` entry** `{ "tapagents": "./cli/tapagents.mjs" }`, plus `cli` added to the `files` allowlist (so the directory ships) and a `test:cli` script (`node --test scripts/test-tapagents-cli.mjs`). No new runtime or dev dependency — the CLI and its tests are pure Node stdlib (the test suite uses Node's built-in `node:test` runner, consistent with the package's zero-new-devDeps discipline).
-- **`cli/tapagents.mjs`** — the bin entry. Subcommands (contract §3.3): `login [--url <ingest>]` (run the device flow, write the 0600 credential file; `--url` writes a non-default `ingest_url` for self-host/preview), `logout [--revoke]` (delete the local credential file — stops emission immediately; `--revoke` additionally opens the dashboard tokens page since server-side revoke is cookie-session-only by design), `whoami` (print `account`/`machine`/`issued_at`/`ingest` from the local file, no network), `token list` / `token revoke <id>` (open the dashboard tokens page — list/revoke are privileged browser-session actions, not bearer-callable), `--version`, `--help`. IO + side-effects are threaded through a `ctx` object so the whole CLI is unit-testable without patching globals. Auto-runs `main()` only when invoked as the entry point (import-safe for the test harness).
-- **`cli/lib/device-flow.mjs`** — the RFC-8628 device-flow client: E1 `POST /api/auth/device/code` → print `Open <verification_uri> and enter code: <user_code>` (+ optional `verification_uri_complete`) → poll E3 `POST /api/auth/device/token` at the server `interval`, honoring `authorization_pending` (keep polling), `slow_down`/429 (interval += 5s per §1.5), `expired_token`/`access_denied`/`invalid_grant` (terminal with contract-exact messages), `rate_limited` (honor `retry_after_seconds`), and a defensive client-side ceiling at `expires_in` + 15s grace. The clock/sleep/http/out are injectable for deterministic testing.
-- **`cli/lib/credentials.mjs`** — the credential writer/reader/deleter. `writeCredentials()` creates the config dir **0700** (honoring `XDG_CONFIG_HOME`, else `~/.config`), writes a same-dir temp file created **0600**-from-birth, then **atomically renames** it onto `credentials.json` so a concurrent reader never sees a partial or world-readable file (contract §3.1). Shape: `{token, ingest_url, account, issued_at, machine}` — `token`+`ingest_url` are the load-bearing keys the Python reader pulls; `ingest_url` defaults to the byte-identical `_DEFAULT_INGEST_URL`. `readCredentials()` is fail-soft (null on absent/malformed). `deleteCredentials()` is idempotent.
-- **`cli/lib/http.mjs`** — a minimal stdlib JSON-POST helper (`node:https`/`node:http`) that returns `{status, json, raw}` for ANY completed response (including the 400s carrying the RFC error vocabulary), rejecting only on transport failure. Supports `http://` for the localhost mock-server tests and `https://` for production.
-- **`scripts/test-tapagents-cli.mjs`** — 26 `node:test` cases against a **mock** E1/E3 server implementing the frozen contract (no live-endpoint dependency): happy path; `authorization_pending`/`slow_down`/`expired_token`/`access_denied`/`invalid_grant`; `rate_limited` on E1 and E3; client-side timeout ceiling; the credential file's 0600/0700 perms + exact §3.1 shape + the `token`/`ingest_url` round-trip key contract; server-echoed-vs-`--url` ingest precedence; the bound-account display (§2.8 session-fixation mitigation); and `whoami`/`logout`/`logout --revoke`/`token` browser-routing. Deterministic (fake clock — full suite runs in ~150ms).
-- **`.claude-plugin/marketplace.json`** — plugin description extended to note the v0.29.0 `tapagents` CLI bin + one-time `tapagents login` device flow.
-
-### Public-mirror privacy sweep + agent-changelog backfill
-
-The deferred v0.23.1 brand-integrity sweep, bundled into this release. Genericizes private project slugs (`<project>` placeholders) across all public narrative and framework-doc files: 17 protocols, 14 agent definitions, commands, templates, playbooks, scripts (comment/docstring lines only), and CI workflow comments. Removes personal-username and home-directory path segments from CHANGELOG and agent-changelog narrative prose. `notify-adopters.yml` refactored to read the downstream consumer repo from a repository variable (`vars.ADOPTER_REPO`) rather than a hardcoded org/slug — private project name no longer embedded in public source. Additionally backfills the previously-missing v0.26.0 and v0.27.0 narrative entries in `memory/agent-changelog.md`, and de-annotates the now-stale "Held/unpublished" markers on the v0.25.0–v0.27.0 entries.
-
-#### Changed
-
-- 17 protocol files, 14 agent definition files, 3 command files, 5 script files, 1 hook, 1 template, 1 playbook, 1 spec doc — project-slug genericization (comment and narrative text only; no functional logic changed).
-- `memory/agent-changelog.md` — v0.26.0 and v0.27.0 narratives backfilled; older narrative prose genericized; stale held/unpublished annotations removed.
-- `CHANGELOG.md` — five previously-missing entries (v0.22.0, v0.23.0, v0.25.0, v0.26.0, v0.27.0) back-synced from the published mirror to the authoring root; stale "Held/unpublished" annotations updated to reflect published status.
-- `.github/workflows/notify-adopters.yml` — downstream consumer repo moved from hardcoded slug to `vars.ADOPTER_REPO` repository variable.
-- `README.md` — stale project-slug reference genericized.
-- `CHANGELOG.md` + `memory/agent-changelog.md` — scrubbed internal infra identifiers from changelog history: Neon endpoint IDs (prod/dev/local branches → `<prod-neon-branch>`/`<dev-neon-branch>`/`<local-neon-branch>` placeholders, incl. the full pooler host), the production Vercel alias (→ `<prod-vercel-alias>`), and a residual internal project slug/codename in narrative prose. Also genericized two operator home-path code comments (`scripts/sync-src/secret-patterns.ts`, `scripts/sync-src/sync.ts`) to `/Users/<user>/`. Narrative-only; no functional logic changed. (The `changelog_project_slugs` sanitizer denylist in `scripts/sync-src/manifest.json5` intentionally retains historical slugs — that list is the source of truth the sync genericizer matches against.)
-
-### Packaging fix — keep compiled-Python bytecode out of the tarball
-
-#### Fixed
-
-- **`package.json` `files` allowlist** — added `!**/__pycache__`, `!**/*.pyc`, and `!**/*.pyo` negation entries so stale Python bytecode caches never ship in the published tarball. `npm pack` packs from the working tree (not git), and the allowlist admitted `hooks`/`scripts` as whole directories, so any `__pycache__/*.pyc` present at pack time was swept in (e.g. `hooks/__pycache__/*.cpython-314.pyc`) even though those caches are gitignored. A root `.npmignore` does **not** override the `files` allowlist for paths inside allowlisted directories (verified — it left the bytecode in the tarball), so the load-bearing fix is the `files`-array negations, which take precedence. Verified via `npm pack --dry-run`: the six leaking `.pyc` files are gone (tarball 225 → 219 files) while every legit file (the four `cli/*` files, all `hooks/*.py` + `hooks/README.md`, `scripts/*.py`, `agents/`, etc.) remains. Durable — the rule holds even after the caches regenerate on the next Python-hook run. No separate version bump (folded into this 0.29.0 release).
-
-### SemVer classification: MINOR
-
-Per `protocols/versioning-protocol.md §3.2`: the package gains a net-new `bin` export surface (`tapagents`) + a new `cli/` source tree + a new test script. Every existing consumer at v0.27.0 continues to function unchanged — no agent/command/protocol/template/hook removed or renamed, no `settings.json` change, no programmatic export (`dist/index.mjs`) shape change, no `live_events` schema change. The `bin` is purely additional capability, which is the MINOR trigger. The bundled privacy-sweep doc changes (project-slug genericization + agent-changelog backfill) are PATCH-grade per §3.1 (pure text-content corrections in existing files) and are absorbed into this MINOR rather than cut as a separate PATCH, because they shipped in the same session as the bin and no separate release window opened.
-
-### Provenance + cross-references
-
-- CLI: frozen wire contract `workspace/_global/tapagents-login-device-auth-contract-2026-06-02.md` (§1 endpoint/polling contract, §2.8 bound-account display mitigation, §3 credential write, §4 release sequencing, §6 Pool A); builds directly on the v0.27.0 A0 credential read-path (`hooks/_telemetry.py:_resolve_credentials()`) — the CLI is the writer for that already-live reader; companion app-side unit (NOT in this repo) is U1 (`device_codes` table + E1/E2/E3 + `/device` approve page) in `tapagents-app`, merged + deployed to dev (PR #82) and ops-security-approved; the SEC-1/OD-L2 `framework_events` user-scoping multi-tenant gate is closed (PR #80 → dev). Prod activation of the device-flow endpoints remains a separate operator endpoint-promotion. See the matching v0.29.0 narrative in `memory/agent-changelog.md`.
-- Privacy sweep: deferred from the v0.23.0 entry's "brand-integrity sweep planned within ~48h as v0.23.1."
-
-### Prod-activation note (device-flow endpoints)
-
-This release is **published as 0.29.0** (all three version channels — `package.json` + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` — at 0.29.0). The device-flow endpoints (U1: `device_codes` table + E1/E2/E3 + `/device` approve page) are **live on the dev environment** (PR #82 merged + deployed) and **ops-security-approved**; the SEC-1/OD-L2 `framework_events` multi-tenant user-scoping gate is **closed** (PR #80 → dev). **Prod activation is a separate operator endpoint-promotion** — until then, `tapagents login` against the default (prod) host returns a clean error rather than calling a live endpoint (dormant-but-graceful on prod, with operator sign-off). Dev integration is deliberately deferred to prod-validation at go-live (operator's explicit choice; Vercel preview-protection blocked the dev CLI round-trip). Adoption into `tapagents-app` flows through the dedicated `sync-tapagents` branch per `protocols/sync-tapagents-protocol.md` (NOT directly through `dev`).
-
 ## [0.27.0] — 2026-05-29 — Credential-file read in `_telemetry.py`: onboarding-enablement (M-D Slice A0)
 
-**Minor release.** The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
+**Minor release. Held/unpublished** (no tag/push/npm-publish — operator distribution decision, same posture as the held v0.25.0 + v0.26.0). The onboarding-enablement prerequisite that sits *just before* the cloud-mirror Slice A: the credential model defined in `workspace/_global/frictionless-telemetry-sync-onboarding-2026-05-29.md` (folded into the M-D track as **Slice A0**), responding to the operator directive *"if this is live to clients, they shouldn't need to run commands just to sync it to the dashboard."*
 
 **The change in one sentence.** `emit_event_http()`'s token + ingest-URL resolution now reads FRESH on every flush from a precedence chain — **env (`TAPAGENTS_LIVE_TOKEN` / `TAPAGENTS_LIVE_INGEST_URL`) → credential file `~/.config/tapagents/credentials.json` → built-in default URL** — instead of from the environment alone.
 
@@ -119,7 +45,7 @@ The HQ copy `.claude/hooks/_telemetry.py` was mirrored surgically in the same ch
 
 ## [0.26.0] — 2026-05-29 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
 
-**Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2). Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from v0.25.0 rather than a retroactive widening of that release's scope.
+**Minor release.** The third slice of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md` Addendum Rev 2), held/unpublished alongside v0.25.0. Where v0.25.0 *mirrored existing events* (phase-transitions + session lifecycle), this slice *captures NEW data* — what a session actually **produced**: product files touched + lines-of-code — and emits it at session seal. It is a distinct capability, so it is a clean semantic version split from the held v0.25.0 rather than a retroactive widening of that release's scope.
 
 **The new stream.** A new `session-work-output` / `summary` / `seal` event triple, flipped from reserved → **LIVE** in `protocols/telemetry-events.md §2.4` and fully documented in the new **§2.6**. The producer is `hooks/session-tracking-seal.py` (`_emit_work_output`) — the same Stop hook that already emits the session-lifecycle events — using the exact S1/slice-A dual-emit shape: local `emit_event()` (source of truth) then best-effort cloud-mirror `emit_event_http()` (fail-open, no-op without `TAPAGENTS_LIVE_TOKEN`).
 
@@ -153,7 +79,7 @@ Per `protocols/versioning-protocol.md §3.2`:
 
 ## [0.25.0] — 2026-05-29 — Telemetry cloud-mirror: phase-transitions (M-D slice S1) + session lifecycle (M-D slice A)
 
-**Minor release.** Two same-theme slices of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md`), bundled into one release because both are additive, cloud-mirror-only work on the frozen telemetry schema:
+**Minor release.** Two same-theme slices of the M-D telemetry track (`workspace/_global/m-d-track-scope-sequencing-2026-05-28.md`), bundled into one release because both are additive, cloud-mirror-only work on the frozen telemetry schema and this version was unpublished when slice A landed:
 
 1. **Slice S1 — state-machine phase-transition Stop hook.** A Stop hook that emits the `state-machine` / `transition` / `<from>-<to>` event triple reserved in `protocols/telemetry-events.md §2.4`. This is the live feed the dashboard's 12-step PhaseIndicatorTrack consumes.
 2. **Slice A — session-lifecycle cloud-mirror.** The three existing BL-055 session-tracking hooks (`session-tracking-register.py` SessionStart, `session-tracking-files.py` PreToolUse, `session-tracking-seal.py` Stop) now mirror their existing `fire`-type events to the dashboard via `emit_event_http()` alongside each existing local `emit_event()` call — the exact dual-emit pattern S1 introduced. These are **existing reserved events, newly mirrored**: no new `source`/`type`/`subtype` surface is invented.
@@ -187,7 +113,7 @@ Dispatch-outcome (`subagent-dispatch` / `outcome` / `<verdict>`, the other §2.4
 
 The v0.24.0 publish was incidentally ancestrally correct (tag = main HEAD), so no operational harm. But Layer A's first live run did not actually exercise the ancestry check it exists to enforce — the prose match silently bypassed it. Any future release commit similarly documenting the override syntax would bypass Layer A again.
 
-This patch closes the defect with two complementary tightenings, applied symmetrically in CI (`.github/workflows/publish.yml`) and operator hook (`hooks/version-gate.py` invariant 4):
+This patch closes the defect with two complementary tightenings, applied symmetrically in CI (`tap-agents/.github/workflows/publish.yml`) and operator hook (`hooks/version-gate.py` invariant 4):
 
 1. **Always compute ancestry; never early-exit on override.** The ancestry check ALWAYS runs. Override presence no longer skips the check; instead it skips the check's *failure*. The two computations (override extraction + ancestry check) run independently, and the joint outcome decides the verdict (silent pass / "override unused" warning / "override allows publish" warning with reason / hard error). Prose false-positives surface as informational warnings, not silent bypasses.
 
@@ -197,7 +123,7 @@ Both fixes verified against the actual v0.24.0 release commit message: replayed 
 
 ### Changed
 
-- **`.github/workflows/publish.yml` — Layer A control-flow restructure** — `Validate tagged commit is an ancestor of origin/main` step rewritten around the always-compute pattern. New trailer-extraction bash uses awk to find the last blank-line index, tail to slice the trailer block, grep with the tightened whole-line-anchored regex `^[[:space:]]*\[trunk-discipline-override:[[:space:]]*[^]<>]+\][[:space:]]*$`, then a case-folded placeholder-reason denylist. The hard ancestry check (`git merge-base --is-ancestor`) always runs; override status is consulted only to decide the verdict when ancestry fails. The duplicate-fork diagnostic and the full remediation error block are preserved verbatim, now only emitted on the genuine hard-error path. New cross-reference to `workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md` in the step comments.
+- **`tap-agents/.github/workflows/publish.yml` — Layer A control-flow restructure** — `Validate tagged commit is an ancestor of origin/main` step rewritten around the always-compute pattern. New trailer-extraction bash uses awk to find the last blank-line index, tail to slice the trailer block, grep with the tightened whole-line-anchored regex `^[[:space:]]*\[trunk-discipline-override:[[:space:]]*[^]<>]+\][[:space:]]*$`, then a case-folded placeholder-reason denylist. The hard ancestry check (`git merge-base --is-ancestor`) always runs; override status is consulted only to decide the verdict when ancestry fails. The duplicate-fork diagnostic and the full remediation error block are preserved verbatim, now only emitted on the genuine hard-error path. New cross-reference to `workspace/_global/v0.24.1-layer-a-regex-fix-2026-05-19.md` in the step comments.
 
 - **`hooks/version-gate.py` — invariant 4 trailer-only restriction** — `TRUNK_OVERRIDE_PATTERN` regex rewritten with whole-line anchoring + `[^\]<>]+` reason character class. New `_has_trailer_override()` helper locates the trailer block (last blank line + everything after; one-line fallback for messages without blank lines) and runs the regex per-line against `.match()`. New `_PLACEHOLDER_REASONS` denylist rejects bare placeholder words case-insensitively. `_extract_trunk_override_reason()` preserved as a back-compat shim delegating to `_has_trailer_override()` — `_check_tag()` call sites unchanged. Module-level docstring and `_check_tag()` inline comment updated to document the trailer-only constraint + cross-reference the v0.24.1 spec.
 
@@ -228,6 +154,7 @@ CHANGELOG entries discussing the override mechanism should refer to the token *b
 All modified files fall under existing `package.json#files` entries — no new top-level entry required:
 
 - `hooks/version-gate.py` — under `hooks/`
+- `commands/release.md` — unchanged in this patch (Layer B operator flow narrative was already correct; trailer placement is documented via the protocol cross-reference)
 - `protocols/versioning-protocol.md` — under `protocols/`
 - `memory/agent-changelog.md` — under `memory/`
 - `.github/workflows/publish.yml` — NOT in files (workflow ships in repo, not in tarball)
@@ -242,55 +169,48 @@ Both themes are additive and backwards-compatible; no agent removed, no command 
 
 #### Trunk-discipline mechanical floor
 
-- **`.github/workflows/publish.yml` — Layer A ancestry guard** — new step `Validate tagged commit is an ancestor of origin/main` slots between the existing `Validate tag matches package.json version` step and the `Publish to npm` step. Resolves the tagged commit SHA via `git rev-parse "${GITHUB_REF_NAME}^{commit}"` (invariant to lightweight vs annotated tags), fetches `origin/main` (without `--depth`; the checkout step uses `fetch-depth: 0` so the repo is already unshallow), then runs `git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"`. Failure short-circuits the workflow non-zero **before** `npm publish` runs — orphan-trunk releases become impossible by construction. Includes a diagnostic that detects the **duplicate-fork pattern** (main HEAD has tree-identical content under a different SHA, the v0.23.0 incident shape) and prints a distinct remediation hint covering both the linear-merge and tag-move recovery paths. Override token `[trunk-discipline-override: <reason>]` in the release commit message bypasses the check with a logged warning; reason must be non-empty after whitespace strip. (Workflow file is NOT in `package.json#files` — operator-side change only; consumers see no behavioral change.)
+- **`tap-agents/.github/workflows/publish.yml` — Layer A ancestry guard** — new step `Validate tagged commit is an ancestor of origin/main` slots between the existing `Validate tag matches package.json version` step and the `Publish to npm` step. Resolves the tagged commit SHA via `git rev-parse "${GITHUB_REF_NAME}^{commit}"` (invariant to lightweight vs annotated tags; Critic W2), fetches `origin/main` (without `--depth`; Critic W3), then runs `git merge-base --is-ancestor "${TAG_SHA}" "${MAIN_SHA}"`. Failure short-circuits the workflow non-zero **before** `npm publish` runs — orphan-trunk releases become impossible by construction. Includes a diagnostic that detects the **duplicate-fork pattern** (main HEAD has tree-identical content under a different SHA, the v0.23.0 incident shape) and prints a distinct remediation hint covering both linear-merge and tag-move recovery paths. Override token `[trunk-discipline-override: <reason>]` in the release commit message bypasses the check with a logged warning; reason must be non-empty after whitespace strip. (Workflow file is NOT in `package.json#files` — operator-side change only; consumers see no behavioral change.)
+
+- **`commands/release.md` — Layer B release-branch flow rewrite** — restructures the post-approval flow from a single Step 6 (tag-and-push from working branch) into Steps 5.5 / 6 / 7 / 8 / 9. Step 5.5 asserts content exists to release (per Critic W1 — guards against creating an empty release branch). Step 6 creates `release/v${NEW_VERSION}` from `origin/main` and lands the release commit there (with explicit comment block + Pattern A/B guidance for staging the source bundle, per Critic F1). Step 7 opens a PR to main and merges via `--squash --delete-branch` (per Critic F2 — squashed merge means main HEAD IS the release commit, so the grep check in Step 8 works correctly). Step 8 tags the merged-main HEAD and pushes the tag. Step 9a-9f is the existing Gate 5 verification (formerly Step 6a-6f, renumbered). Layer A passes by construction because the tag is on main by Step 8's design.
+
+- **`hooks/version-gate.py` — invariant 4 (branch-discipline)** — `_check_tag()` now refuses `git tag v<X>.<Y>.<Z>` when the current branch is not `main`, unless the HEAD commit message contains a non-empty `[trunk-discipline-override: <reason>]` token. Override regex shape matches `hooks/sync-discipline-gate.py` `OVERRIDE_PATTERN` exactly (Critic W4 — standardized override regex across Layer A bash and Layer B python). New helper `_extract_trunk_override_reason()` enforces non-empty-after-strip semantics. `_block_subtype()` discriminator gains a `branch-discipline` subtype for telemetry classification.
+
+- **`scripts/version-parity-audit.ts` — fifth channel (main-ancestry)** — the daily parity audit now reads a fifth channel: for every npm-published version, `git merge-base --is-ancestor v<v> origin/main`. Versions whose tag is NOT an ancestor of `origin/main` surface as `missing from [main-ancestry]` — Layer A's CI gate fires at publish-time; the fifth channel is the portfolio-wide periodic catch for post-publish ancestry breaks (force-push class). Per Critic F4, the ~24 additional git ops add ~1-1.5s total latency — negligible. New `readMainAncestry()` function. Pre-v0.24.0 versions that only fail the fifth channel are dynamically annotated as `pre-trunk-discipline-era artifact` rather than failing the audit (the audit's authority on ancestry starts at v0.24.0; earlier versions are historical state). `Divergence`, `ChannelPresence`, and `Channel` types extended; remediation hints extended with main-ancestry-specific guidance.
+
+- **`agents/_planned/release-coordinator.md` — NEW planned stub** — Org Designer proposal `workspace/_global/release-coordinator-proposal-2026-05-19.md` (Option Y staged) seeded as a stub-in-`_planned/` per user-approved STUB-IN-V0.24.0 path (Critic W5 resolution). Owns `/release` execution, parallel-session coordination, trunk-state attestation, Gate 5 failure routing, KNOWN_ORPHANS map governance, and override-justification authority — the judgment layer that surrounds the v0.24.0 mechanical floor. **Not yet activated.** Activation criteria documented in the stub.
+
+- **`agents/_planned/README.md`** — stub count updated (10 → 11); release-coordinator entry added under new "Framework operations" section; "Why These N Specifically" section updated (9 → 11) with release-coordinator rationale.
 
 #### emit_event_http() cloud-mirror helper
 
-- **`hooks/_telemetry.py` — `emit_event_http()` sibling helper** (+255 lines). New all-keyword Python function that mirrors the `emit_event()` argument surface (with two additive optional fields: `event_type`/`event_subtype` in place of `type`/`subtype`, plus `project_slug` and `ts`) and emits events to a configurable HTTP endpoint instead of (in addition to) the local `events.jsonl`. Behaviors:
+- **`hooks/_telemetry.py` — `emit_event_http()` sibling helper** (+255 lines). New all-keyword Python function that mirrors the `emit_event()` argument surface (with two additive optional fields: `event_type`/`event_subtype` in place of `type`/`subtype`, plus `project_slug` and `ts`) and emits events to a configurable HTTP endpoint instead of (in addition to) the local `events.jsonl`. Configurable via two environment variables (`TAPAGENTS_LIVE_TOKEN` required; `TAPAGENTS_LIVE_INGEST_URL` optional, defaults to `https://tapagents.ai/api/account/tapagents-live/ingest`). In-process batching (threadsafe `threading.Lock`; flushes at 20-event size threshold OR 5-second time threshold OR `atexit` drain). Public `flush_pending()` companion API for test harnesses + graceful-shutdown paths. **Fail-open on every code path** — network error, 4xx, 5xx, timeout, missing env var, internal exception all swallowed silently; the local `emit_event()` write path is never affected. Pure stdlib (`urllib.request`, 5-second default timeout); zero new runtime dependencies.
 
-  - **Configurable via two environment variables** (read at flush time, not import time, so operators can set them after process start):
-    - `TAPAGENTS_LIVE_TOKEN` — per-machine bearer token. Required; if absent, every call is a silent no-op (one stderr warning per process, never per call).
-    - `TAPAGENTS_LIVE_INGEST_URL` — endpoint URL. Optional; defaults to `https://tapagents.ai/api/account/tapagents-live/ingest`.
+- **`scripts/test-emit-event-http.py`** — stdlib `unittest` coverage (9 tests, `urllib.request.urlopen` monkey-patched) for size-threshold flush, time-threshold flush, explicit `flush_pending()`, auth header propagation, default URL fallback, missing-env-var no-op (with single-warn semantics), HTTP-5xx fail-open, network-unreachable fail-open, and local-`emit_event()`-still-fires when the HTTP mirror fails. No devDeps added; runs via `python3 scripts/test-emit-event-http.py`.
 
-  - **In-process batching** (threadsafe via `threading.Lock`):
-    - Accumulates events in a module-level list.
-    - Flushes on whichever fires first: every 20 events OR every 5 seconds since the first event in the current batch.
-    - On process exit, an `atexit` hook drains any remaining batch (registered lazily on first use so importing the module remains side-effect-free for consumers who never call the new helper).
+### Changed
 
-  - **`flush_pending()` companion** — public synchronous-drain API for test harnesses and graceful-shutdown paths that need explicit drain semantics rather than waiting for the timer or size threshold.
+- **`protocols/versioning-protocol.md §4.2`** — Gate 2 enforcement chain extended from three invariants to four. Invariant 4 (branch-discipline) documented inline, referencing `hooks/version-gate.py` `_check_tag()` and the override-token semantics.
 
-  - **Fail-open on every code path** — network error, 4xx, 5xx, timeout, missing env var, internal exception: all swallowed silently. The local `emit_event()` write path is never affected by HTTP failures; the local file remains the source of truth and the HTTP path is a best-effort cloud mirror.
+- **`protocols/versioning-protocol.md §4.6`** — cross-channel parity audit extended from four channels to five. Fifth channel (main-ancestry) documented inline with the `git merge-base --is-ancestor` mechanic, the pre-trunk-discipline-era annotation behavior, and the cross-reference to the architect spec.
 
-  - **Pure stdlib** — uses `urllib.request` with a 5-second default timeout. Zero new runtime dependencies; works in every framework consumer regardless of their installed packages.
-
-- **`scripts/test-emit-event-http.py`** — stdlib `unittest` coverage (`urllib.request.urlopen` monkey-patched) for size-threshold flush, time-threshold flush, explicit `flush_pending()`, auth header propagation, default URL fallback, missing-env-var no-op (with single-warn semantics), HTTP-5xx fail-open, network-unreachable fail-open, and local-`emit_event()`-still-fires when the HTTP mirror fails. Mirrors the runner pattern of `scripts/test-permission-denial-telemetry.py`: no devDeps added, runs via `python3 scripts/test-emit-event-http.py`.
+- **`protocols/versioning-protocol.md §5`** — "the release commit" amended with the tag-on-main requirement. Documents the Layer B release-branch flow (release/v<v> → PR → squash-merge → tag main HEAD) as the canonical mechanism; cross-references `commands/release.md` Steps 5.5/6/7/8/9; cross-references `hooks/version-gate.py` invariant 4 as the operator-side ceiling. Override token semantics mentioned for hotfix scenarios.
 
 ### Migration notes
 
 **No breaking changes.**
 
-- **Trunk-discipline** is enforced at publish-time, not consumer-time. Adopters scaffolding the framework into their projects see no consumer-visible change — the workflow file ships in the `tap-agents/` repo but NOT in the npm tarball (`.github/` is not in `package.json#files`). The corresponding operator-side `/release` flow + `hooks/version-gate.py` invariant 4 + parity-audit fifth channel ship via the HQ-side framework (consumer-visible in the HQ `.claude/` tree but not in the npm tarball's `commands/release.md` exec path — operator-only).
+- **Trunk-discipline** is enforced at publish-time, not consumer-time. Adopters scaffolding the framework into their projects see no consumer-visible change — the workflow file ships in the `tap-agents/` repo but NOT in the npm tarball (`.github/` is not in `package.json#files`). The corresponding operator-side `/release` flow + `hooks/version-gate.py` invariant 4 + parity-audit fifth channel ship via the HQ-side framework — consumer-visible only insofar as the new flow is what `/release` runs going forward.
 
 - **`emit_event_http()`** is purely additive. Existing `emit_event()` callers continue to work unchanged. Consumers who do not set `TAPAGENTS_LIVE_TOKEN` see no behavior change at all; the new helper, if called, becomes a silent no-op.
-
-To opt into the cloud mirror:
-
-1. Obtain a per-machine bearer token from the cloud surface the consumer chooses to target (the framework does not bundle a token-issuance UI; that lives in the consumer-side surface).
-2. Set `TAPAGENTS_LIVE_TOKEN=<token>` and optionally `TAPAGENTS_LIVE_INGEST_URL=<override>` in the shell environment the hooks run under.
-3. Hooks that wish to mirror local emits to the cloud call `emit_event_http()` after their existing `emit_event()` call. Local-first ordering ensures the cloud mirror failing never affects the on-disk audit trail.
-
-To use the trunk-discipline override token:
-
-1. Land the release commit on a non-main branch carrying message `release: v<version> — ... [trunk-discipline-override: <reason>]`. Reason must be non-empty after whitespace strip (an empty bracket like `[]` or `[ ]` falls through to the hard ancestry check).
-2. Tag the commit and push. Layer A logs `::warning::Trunk-discipline override present: <reason>` and proceeds with publish; the reason is recorded in the workflow log AND visible in `gh release view` because the release body includes the commit message via `softprops/action-gh-release@v2`.
 
 ### SemVer classification: MINOR
 
 Per `protocols/versioning-protocol.md §3.2`:
 
 - **`hooks/_telemetry.py` `emit_event_http()` + `flush_pending()` additions** → MINOR: new public functions added to an active framework module; additive to existing behavior, no prior function removed or narrowed.
-- **`commands/release.md` Layer B rewrite + `hooks/version-gate.py` invariant 4 + `scripts/version-parity-audit.ts` fifth channel** → MINOR: additive branch-discipline contract; existing /release flow continues to work via `[trunk-discipline-override:]` token for hotfix scenarios. The version-gate hook adds an invariant (additional check), not a narrowed contract. The parity-audit adds a channel (additional check). No prior caller of `/release` relied on tagging from a non-main branch (the case was unmodelled, not supported).
-- **`.github/workflows/publish.yml` Layer A insertion** → operator-only; not tarball-shipped; alone this would be PATCH. Bundled with Layer B, the bundle floor is MINOR.
+- **`commands/release.md` Layer B rewrite + `hooks/version-gate.py` invariant 4 + `scripts/version-parity-audit.ts` fifth channel** → MINOR: additive branch-discipline contract; existing /release flow continues to work via `[trunk-discipline-override:]` token for hotfix scenarios. The version-gate hook adds an invariant (additional check), not a narrowed contract. The parity-audit adds a channel (additional check). No prior caller of `/release` relied on tagging from a non-main branch.
+- **`.github/workflows/publish.yml` Layer A insertion** → operator-only; not tarball-shipped; alone would be PATCH. Bundled with Layer B, the bundle floor is MINOR.
+- **`agents/_planned/release-coordinator.md`** → new file in `_planned/` (NOT in `agents/` active dir). Per `protocols/versioning-protocol.md §3.2`, `_planned/` stubs are documentation surface, not active-roster additions; they ship at MINOR alongside other additive changes but don't independently floor MAJOR.
 
 MAJOR rejected: no function removed, no module removed, no signature changed, no existing `/release` caller's contract narrowed. The override token preserves prior workflows for genuine hotfix scenarios.
 
@@ -300,17 +220,21 @@ All modified files fall under existing `package.json#files` entries — no new t
 
 - `hooks/_telemetry.py` — under `hooks/`
 - `scripts/test-emit-event-http.py` — under `scripts/`
+- `commands/release.md` — under `commands/`
+- `hooks/version-gate.py` — under `hooks/`
+- `scripts/version-parity-audit.ts` — under `scripts/`
+- `protocols/versioning-protocol.md` — under `protocols/`
+- `agents/_planned/release-coordinator.md` + `agents/_planned/README.md` — under `agents/` (which includes `_planned/`)
+- `memory/agent-changelog.md` — under `memory/`
 - `.github/workflows/publish.yml` — NOT in files (workflow ships in repo, not in tarball; precedent: `publish.yml` and `notify-adopters.yml`)
-- HQ-side files (`commands/release.md`, `hooks/version-gate.py`, `scripts/version-parity-audit.ts`, `protocols/versioning-protocol.md`, `agents/_planned/release-coordinator.md`, `memory/agent-changelog.md`) — sync from HQ `.claude/` to `tap-agents/` via `scripts/sync-src/sync.ts`; each lives under an existing files-array entry on the consumer side.
 
 ### Provenance + cross-references
 
-- Trunk-discipline tech-strategy: `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` (architect spec; sealed pending Critic + user approval).
+- Trunk-discipline tech-strategy: `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` (architect spec).
 - Critic review (CLEAR-WITH-REVISIONS, 5 warnings + 4 FYIs all folded in): `workspace/_global/critic-trunk-discipline-2026-05-19.md`.
-- Release-coordinator agent stubbed at `agents/_planned/release-coordinator.md` per org-designer proposal `workspace/_global/release-coordinator-proposal-2026-05-19.md` with staged activation post-v0.24.0 (W5 of Critic).
-- Memory note `feedback_trunk_must_reflect_published_state.md` (originally caught 2026-05-13 during auto-adoption Phase 2b base verification) now annotated as **codified as Layer A + B in tap-agents v0.24.0** — historical reference, with mechanical floor authoritative.
+- Release-coordinator agent proposal: `workspace/_global/release-coordinator-proposal-2026-05-19.md` (Option Y staged, post-v0.24.0 activation).
+- Memory note `feedback_trunk_must_reflect_published_state.md` (originally caught 2026-05-13 during auto-adoption Phase 2b base verification) now annotated as **codified as Layer A + B in tap-agents v0.24.0** — historical reference; mechanical floor is authoritative.
 - Recurrence record: v0.15.0 (2026-05-13) — tag-never-pushed-to-origin; v0.23.0 (2026-05-19) — tag-pushed-from-feature-branch-and-main-never-back-merged. Both incident classes covered by Layer A's ancestry check.
-
 
 ## [0.23.0] — 2026-05-19 — Framework expansion: Context7 + four new protocols + two new Tier 1 agents + multi-host architecture
 
@@ -709,7 +633,7 @@ No new file paths added to the framework root. `protocols/destructive-data-ops.m
 ### Provenance
 
 - BL-056 P1 Tier 2 (`<project>`) — full audit chain in `<project>/.claude/audits/destructive-ops.log` + `<project>/.claude/scope/migration-auto-sync.md`.
-- Two-class same-day recurrence: 2026-05-11 BL-034 preview redispatch warning ignored → 2026-05-12 /dashboard outage. Cleared 2026-05-12 by manual SQL against the dev Neon branch (`<dev-neon-branch>`).
+- Two-class same-day recurrence: 2026-05-11 BL-034 preview redispatch warning ignored → 2026-05-12 /dashboard outage. Cleared 2026-05-12 by manual SQL against the Neon "dev" branch (`<neon-endpoint>`).
 - Critic-reviewed twice (REWORK→REWORK→ship-ready); Org-Designer-ratified with ten conditions, all operationally enforced as of this release.
 
 ---
@@ -1057,7 +981,7 @@ All three channel-version fields update atomically: `package.json` `version` `0.
 
 - **`agents/_planned/README.md`** — updated to reflect roster post-PMM activation + rename of gtm-strategist → gtm-launch-strategist.
 - **`agents/conductor.md`**, **`agents/executive-assistant.md`**, **`agents/quality-engineer.md`** — wording tweaks; roster-awareness updates after PMM lands. `fires_when` / authority / output contracts unchanged → PATCH-level edits folded into this MINOR.
-- **`docs/specs/2026-05-04-framework-design.md`** — doc edit reflecting PMM activation.
+- **`docs/specs/2026-05-04-<project>-design.md`** — doc edit reflecting PMM activation.
 - **`.github/workflows/publish.yml`** — internally caught up to v0.8.3 Trusted Publishing migration (was stale internally; previously only landed in public).
 - **`.github/dependabot.yml`** (NEW internally) — caught up from v0.8.2 (existed only in public until v0.12.0).
 - **`package.json`** — adds `sync`, `sync:dry-run`, `sync:apply`, `verify-sync` npm scripts. Adds `json5@^2.2.3` runtime dependency (manifest parser).
@@ -1223,7 +1147,7 @@ Phase 1 (canary on `<project>`), Phase 2 (framework `.claude/`), and Phase 3 (Ta
 
 ### Fixed
 
-- **Unquoted hook-path bug — affects all `settings.json` files across the framework.** Hook commands were registered as bare `$CLAUDE_PROJECT_DIR/hooks/foo.py` and invoked via `/bin/sh -c "<command>"`. When the project path contains a space (e.g. `~/App Development/`), the shell split on the space and tried to execute the first word as the command, failing with `exit 127 — No such file or directory`. Every hook command across `settings.json` is now wrapped in escaped double-quotes — `"\"$CLAUDE_PROJECT_DIR/.claude/hooks/foo.py\""` — so the path survives shell word-splitting. Surfaced when `claude -p` with `--include-hook-events --output-format=stream-json` produced `hook_response` entries with `exit_code:127, outcome:error`. Pre-existing since project inception; silently broke every hook on any operator with a space-containing project path. Per `protocols/versioning-protocol.md §3.1`, this is PATCH-class on its own (an internal hook-wiring fix that "was supposed to work but didn't"), bundled into this MINOR release per §3.2's dominant-class rule.
+- **Unquoted hook-path bug — affects all `settings.json` files across the framework.** Hook commands were registered as bare `$CLAUDE_PROJECT_DIR/hooks/foo.py` and invoked via `/bin/sh -c "<command>"`. When the project path contains a space (e.g. `<framework-root>/`), the shell split on the space and tried to execute the first word as the command, failing with `exit 127 — No such file or directory`. Every hook command across `settings.json` is now wrapped in escaped double-quotes — `"\"$CLAUDE_PROJECT_DIR/.claude/hooks/foo.py\""` — so the path survives shell word-splitting. Surfaced when `claude -p` with `--include-hook-events --output-format=stream-json` produced `hook_response` entries with `exit_code:127, outcome:error`. Pre-existing since project inception; silently broke every hook on any operator with a space-containing project path. Per `protocols/versioning-protocol.md §3.1`, this is PATCH-class on its own (an internal hook-wiring fix that "was supposed to work but didn't"), bundled into this MINOR release per §3.2's dominant-class rule.
 - **Wrong hook-path bug — affects framework-level `settings.json` only.** Framework `.claude/settings.json` (and `tap-agents/`, `<project>/scaffold-source/`) referenced `$CLAUDE_PROJECT_DIR/hooks/...` but framework hooks live at `<root>/.claude/hooks/...`. `$CLAUDE_PROJECT_DIR` resolves to the directory *containing* `.claude/` (the parent), not to `.claude/` itself, so the path never resolved to the hook files. All framework-level hook commands now use `$CLAUDE_PROJECT_DIR/.claude/hooks/foo.py` with the explicit `.claude/` prefix. Tier 2 scaffolded projects (e.g. `<project>`) were unaffected because their `hooks/` directory sits at the project root, not inside `.claude/` — so `$CLAUDE_PROJECT_DIR/hooks/...` resolved correctly there. Pre-existing since hook adoption; silently broke every framework-level hook on every operator. Per `protocols/versioning-protocol.md §3.1`, PATCH-class on its own; bundled into this MINOR release.
 
 ### SemVer classification
@@ -1246,7 +1170,7 @@ Per `protocols/versioning-protocol.md §6`, all three channel-version fields are
 
 ### Changed
 
-- **`package.json`** `files` field — added `"docs"` so `docs/managed-agents-comparison.md`, `docs/specs/2026-05-04-framework-design.md`, and any other `docs/` content the framework carries now ship in the published tarball. `<project>`'s `scaffold-overlay/docs/` directory becomes redundant after this release and can be retired in a follow-up dashboard commit.
+- **`package.json`** `files` field — added `"docs"` so `docs/managed-agents-comparison.md`, `docs/specs/2026-05-04-<project>-design.md`, and any other `docs/` content the framework carries now ship in the published tarball. `<project>`'s `scaffold-overlay/docs/` directory becomes redundant after this release and can be retired in a follow-up dashboard commit.
 - **`package.json`** `exports` field — added `"./docs/*"` so consumers can resolve `docs/*` paths via `import` / `require.resolve`.
 - **`.github/workflows/publish.yml`** — removed the `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` env binding from the "Publish to npm" step. The npm CLI auto-detects the GitHub Actions OIDC context via the existing `id-token: write` permission and authenticates against npm without a long-lived token. The `NPM_TOKEN` repo secret remains in place for the migration cutover; after the first successful Trusted Publishing publish, it can be deleted from both `tap-agents` and `tap-agents-internal` repos.
 
@@ -1772,7 +1696,7 @@ Final refinement pass on UI/UX Reviewer activation, landing the seven P1 quality
 
 **P1-D — Founding-project exception sunset criteria.** Single-line addition to the founding-project exception at L85. Prior text said "This exception applies once per project. After first pass, the design-spec must own the list" — implicit but not codified. Now explicit: *"Sunset criteria: the exception lapses on the next pass once `design-spec.md` exists with a §7 default-coverage block — Reviewer reads the block from spec on that pass, no further exploratory routing."* Closes the bounded-criteria gap Critic flagged at note ⚠ "Founding-project exception clause not yet defined for the contract."
 
-**P1-E — Failure Modes for runtime-infrastructure failures.** New four-class failure-mode block addressing what happens when the review can't proceed. (a) **Deployed URL unreachable / 502 / connection refused** — abort, write `§What couldn't be reviewed`, signal Conductor `blocked` (NOT a P0 visual finding — infrastructure block). (b) **Playwright browser crash / navigation timeout** — retry once with extended 30→90s timeout; on second failure, log to `§What couldn't be reviewed`, do NOT proceed to checklist on missing screenshots (hollow review > blocked review). (c) **Redirect loop** — classify as routing bug; route via `WRONG_AGENT: → Quality Engineer`, no P0 against the surface that never rendered. (d) **Auth-bypass not set** — detection: >50% of default-coverage routes resolving to same auth path. Cross-references QE's `TEST_AUTH_BYPASS` pattern at `agents/quality-engineer.md:90-100` (Auth-Protected Test Gap section). Required env: `TEST_AUTH_BYPASS=1` plus `TEST_AUTH_USERNAME` (default `<operator>`), guarded by `NODE_ENV !== 'production'`. If unset, abort and signal Conductor `blocked` rather than file findings against the auth page. Closes Critic's note ⚠ "Failure mode missing: dev server not running when /design-review fires."
+**P1-E — Failure Modes for runtime-infrastructure failures.** New four-class failure-mode block addressing what happens when the review can't proceed. (a) **Deployed URL unreachable / 502 / connection refused** — abort, write `§What couldn't be reviewed`, signal Conductor `blocked` (NOT a P0 visual finding — infrastructure block). (b) **Playwright browser crash / navigation timeout** — retry once with extended 30→90s timeout; on second failure, log to `§What couldn't be reviewed`, do NOT proceed to checklist on missing screenshots (hollow review > blocked review). (c) **Redirect loop** — classify as routing bug; route via `WRONG_AGENT: → Quality Engineer`, no P0 against the surface that never rendered. (d) **Auth-bypass not set** — detection: >50% of default-coverage routes resolving to same auth path. Cross-references QE's `TEST_AUTH_BYPASS` pattern at `agents/quality-engineer.md:90-100` (Auth-Protected Test Gap section). Required env: `TEST_AUTH_BYPASS=1` plus `TEST_AUTH_USERNAME` (default `tapintomymind`), guarded by `NODE_ENV !== 'production'`. If unset, abort and signal Conductor `blocked` rather than file findings against the auth page. Closes Critic's note ⚠ "Failure mode missing: dev server not running when /design-review fires."
 
 **P1-F — Future-Growth Lens section.** Mirrors `agents/quality-engineer.md:166-174` precedent. New `## Future-Growth Lens` section documents fragmentation triggers at 5x team size or 10 shipped projects across multiple project types: likely split into Visual Reviewer / IA Strategist / Pattern Researcher (the three sub-roles the originating proposal §"Risk this proposal is wrong" already named); sub-role spawns for Accessibility Tester / Mobile-First Reviewer / Brand-System Auditor; Tier 2 mirror pattern (per-project Visual Reviewer, HQ Reviewer becomes cross-project pattern keeper); memory-artifact compounding (`ui-patterns.md` / `ui-anti-patterns.md` become load-bearing); merge-with-Designer assessment (unlikely — author/judge separation is load-bearing); industry-portability binding per `project_team_industry_portability.md`.
 
@@ -2022,7 +1946,7 @@ Surfaces the structural work needed to take any GitHub-App-based Tier 2 project 
 
 ### Cross-tier shipped (<project> repo on `dev` branch — committed 2026-05-06)
 
-Two small UI patches to make the GitHub-App-account-mismatch failure mode self-explanatory before users can be hurt by it. Triggered by user incident: same dashboard works on Mac (signed into `<account>`) but returned a 404 on Windows (signed into a different GitHub account). Root cause documented in `<project>/.claude/docs/github-app-setup.md §3.8` ("Only on this account"); the fix is a UX guardrail until the prod App ships.
+Two small UI patches to make the GitHub-App-account-mismatch failure mode self-explanatory before users can be hurt by it. Triggered by user incident: same dashboard works on Mac (signed into `tapintomymind`) but returned a 404 on Windows (signed into a different GitHub account). Root cause documented in `<project>/.claude/docs/github-app-setup.md §3.8` ("Only on this account"); the fix is a UX guardrail until the prod App ships.
 
 - **`src/app/page.tsx`** — added a help-text block under the "Connect GitHub" button telling the user to sign into the right account at `github.com` first, with explicit copy that names the 404-on-consent-screen failure mode.
 - **`src/app/auth/error/page.tsx`** — added `REASON_MESSAGES` map translating raw reason codes (`missing_code`, `state_mismatch`, `access_denied`, `exchange_failed:*`, `user_lookup_failed:*`, `unknown`) to user-actionable sentences. Raw reason now lives under a `<details>` "Technical details" disclosure (preserved for support/debugging without burdening end users). Added a fixed "Common cause: wrong GitHub account" hint block that catches the post-GitHub-redirect-back case where the 404 came from `github.com` itself.
@@ -2035,7 +1959,7 @@ User explicitly asked whether this work was operating "in the flow specified" (i
 
 ### Provenance
 
-Triggered by 2026-05-06 multi-account incident on the production Vercel alias (`<prod-vercel-alias>`). The fix doesn't unblock multi-user end-to-end (that requires BL-013) — it just makes the existing single-user failure mode self-explanatory so future testers don't get stuck without a breadcrumb. The full structural fix (BL-013) is queued P1.
+Triggered by 2026-05-06 multi-account incident on production prod-alias `agents-dashboard-olive.vercel.app`. The fix doesn't unblock multi-user end-to-end (that requires BL-013) — it just makes the existing single-user failure mode self-explanatory so future testers don't get stuck without a breadcrumb. The full structural fix (BL-013) is queued P1.
 
 ---
 
@@ -2054,10 +1978,10 @@ Triggered by 2026-05-06 multi-account incident on the production Vercel alias (`
 
 These are operational changes recorded here for audit traceability; no code commits in <project> repo.
 
-- **Vercel Production scope `DATABASE_URL`** rotated → `production` Neon branch (`<prod-neon-branch>`).
-- **Vercel Preview scope `DATABASE_URL`** rotated → `dev` Neon branch (`<dev-neon-branch>`). Required empty-string git-branch arg (`vercel env add DATABASE_URL preview ""`) to bind "all preview branches."
-- **`.env.local`** updated → `local` Neon branch (`<local-neon-branch>`); `NEON_BRANCH` annotation flipped from `dev` → `local`. Backup saved at `.env.local.bak.1778042003`.
-- **Production redeploy** triggered via `vercel redeploy <latest-prod-deployment> --target=production`. Build completed in 47s; aliased to the production Vercel alias (`<prod-vercel-alias>`). New env vars live on deployed app.
+- **Vercel Production scope `DATABASE_URL`** rotated → `production` Neon branch (`ep-aged-brook-apg2g57j-pooler...`).
+- **Vercel Preview scope `DATABASE_URL`** rotated → `dev` Neon branch (`<neon-endpoint>-pooler...`). Required empty-string git-branch arg (`vercel env add DATABASE_URL preview ""`) to bind "all preview branches."
+- **`.env.local`** updated → `local` Neon branch (`<neon-endpoint>-pooler...`); `NEON_BRANCH` annotation flipped from `dev` → `local`. Backup saved at `.env.local.bak.1778042003`.
+- **Production redeploy** triggered via `vercel redeploy <latest-prod-deployment> --target=production`. Build completed in 47s; aliased to `agents-dashboard-olive.vercel.app`. New env vars live on deployed app.
 
 ### Verified — 3-branch isolation confirmed
 
@@ -2231,4 +2155,4 @@ All four changes trace to `memory/incidents.md` 2026-05-05 — Scaffold path fai
 - Capability-request reportback type — Tier 2 can request new agents mid-build via Org Designer's normal proposal flow
 
 ### Design references
-- `docs/specs/2026-05-04-framework-design.md` — founding design spec
+- `docs/specs/2026-05-04-<project>-design.md` — founding design spec

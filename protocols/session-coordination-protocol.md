@@ -279,12 +279,12 @@ Track activation via the backlog; revisit if collision friction persists despite
 
 ## Cross-references
 
-- Atomic-cadence rule: `~/.claude/projects/.../memory/feedback_changelog_proactive.md`
+- Atomic-cadence rule: `~/.claude/projects/<project>/memory/feedback_changelog_proactive.md`
 - Changelog scope split: `.claude/protocols/changelog-protocol.md`
 - Conflict resolution within a single project: `.claude/protocols/conflict-resolution.md`
 - Consistency check at transitions: `.claude/protocols/consistency-check.md`
 - EA briefing protocol: `.claude/protocols/ea-protocol.md`
-- Industry portability: `~/.claude/projects/.../memory/project_team_industry_portability.md`
+- Industry portability: `~/.claude/projects/<project>/memory/project_team_industry_portability.md`
 - Conductor routing: `.claude/agents/conductor.md`
 - Update settings.json (for hooks): the `update-config` skill
 

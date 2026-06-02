@@ -11,7 +11,7 @@ tools: [Read, Grep, Glob, Bash, Write, Edit]
 activation_trigger: |
   At least one of:
   (1) First project crosses a phase-transition cadence boundary with >=5 Decision Packets
-      accumulated (today: <project>, formerly <project-legacy>, is
+      accumulated (today: <project>, is
       approaching this with ~6 packets in workspace/<project>/).
   (2) User explicitly invokes `/knowledge-curate <slug>` and expects a curation pass to
       happen — that invocation IS the trigger.
@@ -133,7 +133,7 @@ in both contracts at activation. OD audits the seam quarterly.
 Promote on the FIRST of:
 
 1. **First project crosses a phase-transition cadence boundary with >=5 Decision Packets
-   accumulated.** Today: `<project>` (formerly <project-legacy>) is approaching this with ~6 packets already.
+   accumulated.** Today: `<project>` is approaching this with ~6 packets already.
 2. **User explicitly invokes `/knowledge-curate <slug>`** — the invocation IS the trigger.
 3. **A second active Tier 2 project ships its first artifact** — knowledge-base across two
    projects becomes net-valuable for cross-project comparison.

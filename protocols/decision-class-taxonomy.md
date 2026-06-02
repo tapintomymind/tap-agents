@@ -20,8 +20,8 @@ Every OQ surfaced by Strategist or Architect carries a `decision_class` field. T
 
 | Class | Resolver | Default routing | Example |
 |---|---|---|---|
-| `operational` | Operator | User-required; may block dispatch | Worktree placement, schema-deploy ack, async-queue mechanism pick `[framework-feedback-2026-05-18 §3 paragraph 4]` |
-| `strategic` | Operator | User-required; may block dispatch; multi-quarter direction signal | Project class, GTM-order, MVP cut, design-partner outreach (founder-led sales) `[framework-feedback-2026-05-18 §3 paragraph 4; OQ-CP3 worked example]` |
+| `operational` | Operator (Tapan) | User-required; may block dispatch | Worktree placement, schema-deploy ack, async-queue mechanism pick `[framework-feedback-2026-05-18 §3 paragraph 4]` |
+| `strategic` | Operator (Tapan) | User-required; may block dispatch; multi-quarter direction signal | Project class, GTM-order, MVP cut, design-partner outreach (founder-led sales) `[framework-feedback-2026-05-18 §3 paragraph 4; OQ-CP3 worked example]` |
 | `commercial` | **C-level / authorized commercial role** — operator is NOT the resolver | ESCALATED status + workaround-recommendation block; does NOT gate engineering dispatch | Pricing tiers, contract structure, channel partnerships with revenue split `[framework-feedback-2026-05-18 §3 paragraph 5; OQ-CP1 worked example]` |
 | `clinical` | **Clinical / medical-advisory** — operator is NOT the resolver | ESCALATED status + workaround-recommendation block; does NOT gate engineering dispatch | CPT-code list for a clinical template, PHI-handling threshold change, FDA-regulated workflow decisions (Eligibilities-Hub-specific surface, generalizes to any regulated vertical) `[framework-feedback-2026-05-18 §3 paragraph 6]` |
 | `legal` | **Legal / compliance** — operator is NOT the resolver | ESCALATED status + workaround-recommendation block; does NOT gate engineering dispatch | BAA scope, multi-jurisdiction data residency, content licensing `[framework-feedback-2026-05-18 §3 paragraph 7]` |
@@ -126,10 +126,10 @@ Engineering proceeds. The OQ stays open under ESCALATED; C-level resolves on the
 ### Example 2: OQ-CP3 design-partner outreach — `strategic`
 
 ```markdown
-### OQ-CP3: Operator owns design-partner outreach OR contractor?
+### OQ-CP3: Tapan owns design-partner outreach OR contractor?
 - **Decision class:** `strategic`
 - **Resolver:** Operator
-- **Recommendation:** Operator owns first 3 design partners (founder-led sales preserves customer signal); contractor evaluated after first 3.
+- **Recommendation:** Tapan owns first 3 design partners (founder-led sales preserves customer signal); contractor evaluated after first 3.
 - **Blocks:** First-partner-outreach scheduling.
 - **Decision class reasoning:** Founder-led sales decision affects multi-quarter GTM direction; operator owns, but the answer shapes more than one quarter — `strategic` not `operational` `[framework-feedback-2026-05-18 §3 paragraph "second instance"]`.
 ```

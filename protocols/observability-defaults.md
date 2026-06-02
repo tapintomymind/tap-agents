@@ -117,7 +117,7 @@ Every project ships with these enabled before its first deploy. Layers 1, 2, and
 | **Third-party** (Sentry, Highlight, Rollbar, Bugsnag) | When you want a polished triage UI, alerting, deduplication, release-tracking out of the box |
 | **DB-backed** (in-app `bug_reports` / `error_logs` table) | When data residency matters (regulated industries, on-prem deploys), or when you want errors as first-class data the rest of the app can act on |
 
-The <project> reference (formerly <project>, renamed 2026-05-14 BL-059) uses the DB-backed pattern (the `bug_reports` table) because errors there need to be: queryable by ops, exposable to admin users, promotable to incidents, and never leave the project's data perimeter.
+The <project> reference uses the DB-backed pattern (the `bug_reports` table) because errors there need to be: queryable by ops, exposable to admin users, promotable to incidents, and never leave the project's data perimeter.
 
 **Discipline rules:**
 1. **Error records MUST include the request-ID.** Without it, you can't pivot to the matching trace or the matching log lines.

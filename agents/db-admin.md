@@ -61,7 +61,7 @@ You are the **canonical owner** of `protocols/destructive-data-ops.md`. Every ot
 
 ## Per-project URL ↔ branch register
 
-For every project you operate on, you maintain (or instantiate) a register at `<tier-2-claude-dir>/db-register.md` (parameterized per project; the founding implementation lives at the <project> project's `.claude/db-register.md` path, formerly <project-legacy>). The register has the format:
+For every project you operate on, you maintain (or instantiate) a register at `<tier-2-claude-dir>/db-register.md` (parameterized per project; the founding implementation lives at the <project> project's `.claude/db-register.md` path. The register has the format:
 
 ```yaml
 # DB URL ↔ Branch Register
@@ -209,7 +209,7 @@ When the activation ritual queries PITR retention for a target branch:
 - `protocols/autonomous-ops-permissions.md` (Tier A/B/C definitions)
 - `protocols/verification-before-completion.md` (parent principle)
 - `agents/conductor.md` (routes destructive-op tasks to you)
-- `<tier-2-claude-dir>/agents/db-*` (Tier 2 db-* agents — defer to db-admin for destructive ops). Founding implementation: `<project>/.claude/agents/db-agent.md` (formerly <project-legacy>).
+- `<tier-2-claude-dir>/agents/db-*` (Tier 2 db-* agents — defer to db-admin for destructive ops). Founding implementation: `<project>/.claude/agents/db-agent.md`.
 - `memory/incidents.md` (2026-05-06 cross-branch wipe — the originating incident)
 - `memory/lessons-learned.md` #9 (incident lesson)
 

@@ -68,7 +68,7 @@
     ],
     "PreToolUse": [
       {
-        "_purpose": "Five-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). (4) sync-discipline-gate.py: enforces protocols/sync-tapagents-protocol.md — blocks framework-sync commits/pushes on dev/main; canonical destination is sync-tapagents branch. Bypasses via `[sync-protocol-override: <reason>]` token in commit message. Added 2026-05-14 in response to v0.20.0 rider-commit incident. (5) session-tracking-files.py: BL-055 v0.15.0; observational, NEVER blocks. Order: safety first, version-gate second, routing-discipline third, sync-discipline fourth, manifest-tracking last.",
+        "_purpose": "Six-layer gate. (1) pre-tool-gate.py: classic safety — block direct edits to .env, seed.md, [CONTESTED] artifacts, dangerous bash patterns. (2) version-gate.py: framework version-bump discipline. (3) orchestrator-dispatch-gate.py: enforces orchestrator-dispatches-doesn't-implement — hard-blocks Edit/Write/NotebookEdit and mutating-Bash on the main thread (subagents bypass via agent_id/agent_type payload). (4) sync-discipline-gate.py: enforces protocols/sync-tapagents-protocol.md — blocks framework-sync commits/pushes on dev/main; canonical destination is sync-tapagents branch. Bypasses via `[sync-protocol-override: <reason>]` token in commit message. Added 2026-05-14 in response to v0.20.0 rider-commit incident. (5) framework-private-data-gate.py: BLOCKS a Write/Edit/NotebookEdit that would write a real private identifier (project slug, Neon endpoint, prod host, operator home path, repo path, or credential shape) into a framework file that propagates to the public mirror. Reuses the genericizer map (scripts/sync-src/manifest.json5 → genericize) + a secret-pattern subset as the source of truth; protected names (@tapintomymind/tap-agents, the brand-domain protect entry) + excluded files (memory/*, workspace/<slug>/*) + the sync-src self-skip set + genericize_exemptions are never blocked; fail-open. Added 2026-06-02 in response to the sync-genericizer remediation (PR#13 re-leak class). The authoring-time complement to the sync-time bare-codename lint + verify-genericize gate. (6) session-tracking-files.py: BL-055 v0.15.0; observational, NEVER blocks. Order: safety first, version-gate second, routing-discipline third, sync-discipline fourth, private-data fifth, manifest-tracking last.",
         "matcher": "Write|Edit|Bash|NotebookEdit",
         "hooks": [
           {
@@ -89,6 +89,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/sync-discipline-gate.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/framework-private-data-gate.py\"",
             "timeout": 10
           },
           {

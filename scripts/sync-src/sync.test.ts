@@ -753,6 +753,294 @@ test("BL-052: neither side has 'private' — output omits 'private' (no spurious
 });
 
 // ----------------------------------------------------------------------------
+// 2026-06-02 remediation — genericizer fixtures (design §5.1)
+// ----------------------------------------------------------------------------
+//
+// Why we don't import genericizeBody directly: same rationale as the
+// mergePackageJson tests above — sync.ts auto-runs main() at module load, so
+// importing it would kick off a real sync. We reproduce the engine faithfully
+// here and load the REAL rule SET from manifest.json5 (not a hand-copy), so a
+// fixture failure means either the engine reproduction OR the manifest map
+// drifted. The full end-to-end integration proof is `npm run verify-genericize`
+// (which drives the REAL engine over the live tree).
+//
+// Positive fixtures: every identifier class from design §1.1 (rows 1–14) must
+// be fully rewritten. Negative fixtures: the protected package/repo name + the
+// brand domain + benign `ep-*` prose ("step-by-step", "deep-research") must be
+// byte-identical after genericization.
+
+import JSON5 from "json5";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+interface GR { find: string; replace: string }
+interface GMap {
+  rename_clauses: GR[]; compound: GR[]; hosts: GR[]; project_slugs: string[];
+  repo_paths: GR[]; neon_endpoints: GR[]; operator: GR[]; protect: string[];
+}
+
+function loadGenericizeMap(): GMap {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const raw = readFileSync(join(here, "manifest.json5"), "utf8");
+  const m = JSON5.parse<{ genericize: GMap }>(raw);
+  return m.genericize;
+}
+
+function escRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Faithful reproduction of sync.ts:genericizeBody. SOURCE OF TRUTH is sync.ts;
+ * any drift between this and sync.ts is caught by `npm run verify-genericize`.
+ */
+function genericizeBodyRepro(body: string, map: GMap): string {
+  let out = body;
+
+  // 1. protect-mask (longest-first).
+  const protectSorted = map.protect.map((s, i) => ({ s, i })).sort((a, b) => b.s.length - a.s.length);
+  const sentinelByOrig = new Map<string, string>();
+  for (const { s, i } of protectSorted) {
+    const sentinel = `xPROTECTEDx${i}xPROTECTEDx`;
+    sentinelByOrig.set(sentinel, s);
+    out = out.split(s).join(sentinel);
+  }
+
+  // 2a. structural passes.
+  out = out.replace(/\bworkspace\/([a-z][a-z0-9-]+)\//g, (match, slug) => {
+    const fp = `workspace/${slug}/`;
+    const allowed = fp.startsWith("workspace/_global/") || fp.startsWith("workspace/_examples/") ||
+      fp.startsWith("workspace/_inbox/") || fp === "workspace/_registry/" || fp === "workspace/.gitkeep/";
+    return allowed ? match : "workspace/<project>/";
+  });
+  out = out.replace(
+    /(?:\/Users\/[^/\s'"`)]+|\$HOME|~)\/\.claude\/projects\/[^\s'"`)]+\/memory\//g,
+    "~/.claude/projects/<project>/memory/",
+  );
+
+  // 2b. ordered manifest passes.
+  const passes: Array<[RegExp, string]> = [];
+  for (const r of map.rename_clauses) passes.push([new RegExp(r.find, "g"), r.replace]);
+  for (const r of map.compound) passes.push([new RegExp(r.find, "g"), r.replace]);
+  for (const r of map.hosts) passes.push([new RegExp(r.find, "g"), r.replace]);
+  // repo_paths BEFORE project_slugs (see sync.ts compileGenericize comment).
+  for (const r of map.repo_paths) passes.push([new RegExp(escRe(r.find), "g"), r.replace]);
+  for (const slug of [...map.project_slugs].sort((a, b) => b.length - a.length)) {
+    passes.push([new RegExp(`\\b${escRe(slug)}\\b`, "g"), "<project>"]);
+  }
+  for (const r of map.neon_endpoints) passes.push([new RegExp(escRe(r.find), "g"), r.replace]);
+  for (const r of map.operator) {
+    const src = r.find === "\\btapandesai\\b" ? "(?<!tapintomymind/)\\btapandesai\\b" : r.find;
+    passes.push([new RegExp(src, "g"), r.replace]);
+  }
+  for (const [re, rep] of passes) { re.lastIndex = 0; out = out.replace(re, rep); }
+
+  // 3. unmask.
+  for (const [sentinel, orig] of sentinelByOrig) out = out.split(sentinel).join(orig);
+  return out;
+}
+
+const GMAP = loadGenericizeMap();
+
+test("genericize positive: bare project slugs (rows 1-3,5-6) → <project>", () => {
+  const input = "agent-dashboard and tapagents-app and tapagents-football-gm and ip-protection and claude-team-app are slugs.";
+  const out = genericizeBodyRepro(input, GMAP);
+  for (const slug of ["agent-dashboard", "tapagents-app", "tapagents-football-gm", "claude-team-app"]) {
+    assert.ok(!new RegExp(`\\b${escRe(slug)}\\b`).test(out), `slug '${slug}' must be fully rewritten; got: ${out}`);
+  }
+  // bare ip-protection → <project> (compound variant tested separately).
+  assert.ok(!/\bip-protection\b/.test(out), `bare ip-protection must rewrite; got: ${out}`);
+  assert.ok(out.includes("<project>"), "output must contain <project> placeholder");
+});
+
+test("genericize positive: compound ip-protection-mcp-execution-model (row 4) keeps suffix", () => {
+  const input = "The `ip-protection-mcp-execution-model` planning cycle produced artifacts.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("<project>-mcp-execution-model"), `compound must become <project>-mcp-execution-model; got: ${out}`);
+  assert.ok(!out.includes("ip-protection-mcp-execution-model"), "raw compound must not survive");
+});
+
+test("genericize positive: workspace/<slug>/ path (rows 1-3) → workspace/<project>/", () => {
+  const input = "See `workspace/tapagents-app/prd.md` and `workspace/agent-dashboard/scope.md`.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("workspace/<project>/"), `path form must collapse; got: ${out}`);
+  assert.ok(!out.includes("workspace/tapagents-app/"), "raw path slug must not survive");
+  assert.ok(!out.includes("workspace/agent-dashboard/"), "raw path slug must not survive");
+});
+
+test("genericize positive: vercel host (row 8) → <project>.vercel.app", () => {
+  const input = "Prod runs at tapagents-app.vercel.app today.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("<project>.vercel.app"), `vercel host must rewrite; got: ${out}`);
+  assert.ok(!out.includes("tapagents-app.vercel.app"), "raw vercel host must not survive");
+});
+
+test("genericize positive: github repo paths (row 9) → <org>/<project>", () => {
+  const input = "Repo tapintomymind/claude-team and tapintomymind/tapagents-app and tapintomymind/claude-team-app.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(!out.includes("tapintomymind/claude-team-app"), "raw repo path must not survive");
+  assert.ok(!/tapintomymind\/claude-team\b/.test(out), "raw claude-team repo path must not survive");
+  assert.ok(!out.includes("tapintomymind/tapagents-app"), "raw repo path must not survive");
+  assert.ok(out.includes("<org>/<project>"), `repo path must become <org>/<project>; got: ${out}`);
+});
+
+test("genericize positive: neon endpoint ids (row 10) → <neon-endpoint>", () => {
+  const input = "host ep-broad-moon-apiaksv1-pooler.c-7.us-east-1.aws.neon.tech and ep-aged-wildflower-aprg1xfd.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("<neon-endpoint>"), `neon id must rewrite; got: ${out}`);
+  assert.ok(!out.includes("ep-broad-moon-apiaksv1"), "raw neon id must not survive");
+  assert.ok(!out.includes("ep-aged-wildflower-aprg1xfd"), "raw neon id must not survive");
+});
+
+test("genericize positive: operator home path (row 11) → <framework-root>", () => {
+  const input = "the path /Users/tapandesai/App Development/.claude/foo broke on a space.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("<framework-root>"), `operator home path must collapse; got: ${out}`);
+  assert.ok(!out.includes("/Users/tapandesai/App Development"), "raw operator home path must not survive");
+});
+
+test("genericize positive: bare operator username (row 12) → <operator>", () => {
+  const input = "admin view gated to tapandesai only.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("<operator>"), `bare username must rewrite; got: ${out}`);
+  assert.ok(!/\btapandesai\b/.test(out), "raw username must not survive");
+});
+
+test("genericize positive: rename-provenance parenthetical (row 14) is stripped", () => {
+  const input = "downstream consumers (currently tapagents-app, formerly agent-dashboard pre-2026-05-14 BL-059 cascade-rename; future projects).";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(!out.includes("formerly agent-dashboard"), `rename clause must be stripped; got: ${out}`);
+  assert.ok(!out.includes("BL-059"), `BL-059 provenance must be stripped with the clause; got: ${out}`);
+  // The leading tapagents-app still genericizes to <project>.
+  assert.ok(out.includes("<project>"), "the surrounding slug still genericizes");
+});
+
+test("genericize NEGATIVE: protected @tapintomymind/tap-agents is byte-identical", () => {
+  const input = "Bump `@tapintomymind/tap-agents` to v0.29.1; repo tapintomymind/tap-agents stays.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.equal(out, input, `protected package/repo name must survive untouched; got: ${out}`);
+});
+
+test("genericize NEGATIVE: brand domain hq.tapintomymind.com is byte-identical", () => {
+  const input = "Custom domain hq.tapintomymind.com queued (DNS pending).";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.equal(out, input, `brand domain must survive untouched; got: ${out}`);
+});
+
+test("genericize NEGATIVE: benign ep-* prose is untouched (no ep-\\w+ over-match)", () => {
+  const input = "A step-by-step deep-research keep-alive recipe; the endpoint helper.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.equal(out, input, `benign ep-*/-ep prose must not be eaten by neon rule; got: ${out}`);
+});
+
+test("genericize NEGATIVE: 'Claude Team' brand prose preserved (only slug/repo form genericized)", () => {
+  // Operator decision: keep the "Claude Team" brand; genericize only the
+  // slug (claude-team) + repo-path (tapintomymind/claude-team) forms. Brand
+  // prose with a capital-T space form is NOT a slug and must survive.
+  const input = "The Claude Team design spec defines the founding roster.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.equal(out, input, `'Claude Team' brand prose must survive (not a slug); got: ${out}`);
+});
+
+test("genericize NEGATIVE: username inside protected package name does not double-rewrite", () => {
+  // tapintomymind/tap-agents contains no 'tapandesai', but assert the operator
+  // username rule + protect-mask compose without corrupting the package name.
+  const input = "author tapandesai ships @tapintomymind/tap-agents.";
+  const out = genericizeBodyRepro(input, GMAP);
+  assert.ok(out.includes("@tapintomymind/tap-agents"), "package name intact");
+  assert.ok(out.includes("<operator>"), "bare username rewritten");
+  assert.ok(!/\btapandesai\b/.test(out), "raw username gone");
+});
+
+// ----------------------------------------------------------------------------
+// bare-codename lint — the no-re-leak self-check (design §5.2)
+// ----------------------------------------------------------------------------
+//
+// Reproduction of sync.ts:lintPropagatedBody's bare-codename rule. SOURCE OF
+// TRUTH is sync.ts. The full integration (this rule firing inside a real sync
+// + aborting it) is exercised by `npm run verify-genericize`. Here we lock in
+// the rule's contract: a SURVIVING codename in a propagated body is a FAIL; a
+// fully-genericized body (or a body containing only protected names / benign
+// ep-* prose) is clean.
+
+interface BareLintIssue { code: string; lineNo: number; message: string }
+
+function bareCodenameLintRepro(relPath: string, body: string, map: GMap, exemptions: string[]): BareLintIssue[] {
+  const issues: BareLintIssue[] = [];
+  const inScope = /\.(md|py|ts|json|json5|yml|yaml)$/.test(relPath);
+  const selfSkip = new Set([
+    "scripts/sync-src/secret-patterns.ts", "scripts/sync-src/sync.ts",
+    "scripts/sync-src/sync.test.ts", "scripts/sync-src/verify-sync.ts",
+    "scripts/sync-src/sync-codex.ts", "scripts/sync-src/manifest.json5",
+  ]);
+  if (!inScope || selfSkip.has(relPath) || exemptions.includes(relPath)) return issues;
+  const lines = body.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i] ?? "";
+    for (const p of map.protect) line = line.split(p).join(" ");
+    for (const slug of map.project_slugs) {
+      if (new RegExp(`\\b${escRe(slug)}\\b`).test(line)) issues.push({ code: "bare-codename", lineNo: i + 1, message: `slug '${slug}'` });
+    }
+    for (const r of map.compound) if (line.includes(r.find)) issues.push({ code: "bare-codename", lineNo: i + 1, message: `compound '${r.find}'` });
+    for (const r of map.hosts) if (new RegExp(r.find).test(line)) issues.push({ code: "bare-codename", lineNo: i + 1, message: `host /${r.find}/` });
+    for (const r of map.neon_endpoints) if (line.includes(r.find)) issues.push({ code: "bare-codename", lineNo: i + 1, message: `neon '${r.find}'` });
+    for (const r of map.repo_paths) if (line.includes(r.find)) issues.push({ code: "bare-codename", lineNo: i + 1, message: `repo '${r.find}'` });
+  }
+  return issues;
+}
+
+test("bare-codename lint: FAILS on a surviving bare slug (the re-leak it catches)", () => {
+  // Simulates a propagated body where genericization MISSED a slug.
+  const leaked = "This agent activates for agent-dashboard's buyer surface.";
+  const issues = bareCodenameLintRepro("agents/foo.md", leaked, GMAP, []);
+  assert.ok(issues.length >= 1, "surviving bare slug must FAIL the lint");
+  assert.equal(issues[0]?.code, "bare-codename");
+});
+
+test("bare-codename lint: FAILS on a surviving neon endpoint id", () => {
+  const leaked = "host ep-broad-moon-apiaksv1-pooler.c-7.us-east-1.aws.neon.tech";
+  const issues = bareCodenameLintRepro("protocols/x.md", leaked, GMAP, []);
+  assert.ok(issues.length >= 1, "surviving neon id must FAIL");
+});
+
+test("bare-codename lint: FAILS on a surviving vercel host", () => {
+  const issues = bareCodenameLintRepro("protocols/x.md", "runs at tapagents-app.vercel.app", GMAP, []);
+  assert.ok(issues.length >= 1, "surviving vercel host must FAIL");
+});
+
+test("bare-codename lint: PASSES on a fully-genericized body", () => {
+  const clean = genericizeBodyRepro("agent-dashboard at tapagents-app.vercel.app, ip-protection-mcp-execution-model", GMAP);
+  const issues = bareCodenameLintRepro("agents/foo.md", clean, GMAP, []);
+  assert.equal(issues.length, 0, `genericized body must be clean; survivors: ${JSON.stringify(issues)}`);
+});
+
+test("bare-codename lint: does NOT fire on the protected package name", () => {
+  const issues = bareCodenameLintRepro("scripts/build-src/verify.ts".replace("build-src", "build-src"), "@tapintomymind/tap-agents@0.29.1", GMAP, []);
+  assert.equal(issues.length, 0, "protected package name must be subtracted (no FAIL)");
+});
+
+test("bare-codename lint: does NOT fire on benign ep-* prose", () => {
+  const issues = bareCodenameLintRepro("docs/x.md", "a step-by-step deep-research keep-alive recipe", GMAP, []);
+  assert.equal(issues.length, 0, "benign ep-* prose must not FAIL");
+});
+
+test("bare-codename lint: SKIPS self-skip files (manifest carries codenames by construction)", () => {
+  const issues = bareCodenameLintRepro("scripts/sync-src/manifest.json5", "agent-dashboard tapagents-app", GMAP, []);
+  assert.equal(issues.length, 0, "manifest.json5 must be self-skipped");
+});
+
+test("bare-codename lint: SKIPS genericize_exemptions paths", () => {
+  const issues = bareCodenameLintRepro("workspace/_registry.md", "agent-dashboard", GMAP, ["workspace/_registry.md"]);
+  assert.equal(issues.length, 0, "exempted path must be skipped");
+});
+
+test("bare-codename lint: out-of-scope extension is not graded", () => {
+  const issues = bareCodenameLintRepro("assets/logo.svg", "agent-dashboard", GMAP, []);
+  assert.equal(issues.length, 0, ".svg is out of genericize scope");
+});
+
+// ----------------------------------------------------------------------------
 // Run
 // ----------------------------------------------------------------------------
 

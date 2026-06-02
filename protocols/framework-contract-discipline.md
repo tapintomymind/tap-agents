@@ -136,8 +136,8 @@ The contract-discipline rules in §1–§3 above apply when *writing or editing 
 
 - Founding audit: `workspace/_global/org-designer-proposals/20260506-project-leakage-audit.md`
 - Round 2 amendment + execution: same file §8 ("Round 2 Amendments")
-- Atomic-cadence rule: `~/.claude/projects/.../memory/feedback_changelog_proactive.md`
-- Industry portability: `~/.claude/projects/.../memory/project_team_industry_portability.md`
+- Atomic-cadence rule: `~/.claude/projects/<project>/memory/feedback_changelog_proactive.md`
+- Industry portability: `~/.claude/projects/<project>/memory/project_team_industry_portability.md`
 - Changelog scope split: `protocols/changelog-protocol.md`
 - Audit-entry routing: `protocols/autonomous-ops-permissions.md §6.1.1`
 - Org Designer cadence: `agents/org-designer.md` (Quarterly Review section)
