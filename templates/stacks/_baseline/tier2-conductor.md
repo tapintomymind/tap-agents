@@ -141,7 +141,7 @@ If the worker did not self-check (no `changed_files` in reportback), you run `gi
 
 ### Execution liveness vs drift detection (open gap)
 
-The constrained-mode heartbeat + kill mechanics above target **drift** (worker is making tool calls, but the wrong ones). They do NOT target **execution stalls** (worker has stopped making tool calls entirely — process hung, model looping internally). The 2026-05-15 db-admin-hung incident in `tapagents-football-gm` was an execution-stall, not drift. If you observe a worker producing no tool calls for >10 minutes with no heartbeat, escalate to user via reportback (`Type: tier2-worker-stalled`) — do NOT silently retry. This is a known gap; see `<TIER1>/protocols/dispatch-efficiency.md` section 7.5 for the deferred-investigation note.
+The constrained-mode heartbeat + kill mechanics above target **drift** (worker is making tool calls, but the wrong ones). They do NOT target **execution stalls** (worker has stopped making tool calls entirely — process hung, model looping internally). The 2026-05-15 db-admin-hung incident in `<project>` was an execution-stall, not drift. If you observe a worker producing no tool calls for >10 minutes with no heartbeat, escalate to user via reportback (`Type: tier2-worker-stalled`) — do NOT silently retry. This is a known gap; see `<TIER1>/protocols/dispatch-efficiency.md` section 7.5 for the deferred-investigation note.
 
 ## Authority
 

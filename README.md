@@ -173,7 +173,7 @@ Tagged releases (`v*.*.*`) trigger `.github/workflows/publish.yml`, which builds
 
 ## Status
 
-Active development. v0.8.x series. Used in production at [hq.tapintomymind.com](https://hq.tapintomymind.com) to ship internal projects. The agent-dashboard project (separate repo) is the first Tier 2 consumer — it scaffolds new TapAgents projects from this framework as a dependency.
+Active development. v0.8.x series. Used in production at [hq.tapintomymind.com](https://hq.tapintomymind.com) to ship internal projects. The <project> (separate repo) is the first Tier 2 consumer — it scaffolds new TapAgents projects from this framework as a dependency.
 
 ## License
 

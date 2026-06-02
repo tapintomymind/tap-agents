@@ -228,7 +228,7 @@ This self-check is what closes the loop: the contract is mechanically inspectabl
 
 The heartbeat + kill-switch mechanics in section 7.3 target **drift** (worker is making tool calls, but the wrong ones). They do NOT target **execution stalls** (worker has stopped making tool calls entirely — process is hung, model is looping internally, harness is waiting for input that never comes).
 
-The 2026-05-15 `db-admin` incident in `tapagents-football-gm` was an execution-stall, not a drift incident. The worker was not editing the wrong files; it was not editing at all. The constrained-mode contract as currently designed does not catch this class.
+The 2026-05-15 `db-admin` incident in `<project>` was an execution-stall, not a drift incident. The worker was not editing the wrong files; it was not editing at all. The constrained-mode contract as currently designed does not catch this class.
 
 **Liveness gap, deferred.** A heartbeat field like `last_tool_call_at` (worker timestamps each tool call; conductor or an external watchdog kills the run if the worker has produced no tool calls for N minutes) would catch execution stalls. This is not yet specified here because:
 

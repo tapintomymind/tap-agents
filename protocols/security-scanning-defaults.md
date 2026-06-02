@@ -117,7 +117,7 @@ When a finding fires:
 
 Each row below is a concrete tool choice for a given stack family. The PRINCIPLE columns (what each tool does) match §1 above. Tools change over time; the principle layer doesn't. Update this appendix as the agent company onboards new stacks or as the tooling landscape shifts.
 
-### A.1 Node.js / TypeScript (current tapagents-app reference, formerly agent-dashboard pre-2026-05-14 BL-059)
+### A.1 Node.js / TypeScript (current <project> reference, formerly <project-legacy>)
 
 | Layer | Tool | Wiring |
 |---|---|---|
@@ -127,7 +127,7 @@ Each row below is a concrete tool choice for a given stack family. The PRINCIPLE
 | License | **license-checker** or **FOSSA** | Pre-build script that fails on disallowed licenses |
 | DAST | **OWASP ZAP** (free) or **Burp Suite Professional** (paid) | Nightly scheduled GHA against staging URL |
 
-**Reference implementation:** [tapagents-app](tapagents-app) (2026-05-07 onwards) — the empirical case study for this row.
+**Reference implementation:** [<project>](<project>) (2026-05-07 onwards) — the empirical case study for this row.
 
 ### A.2 Python (Django, FastAPI, Flask)
 

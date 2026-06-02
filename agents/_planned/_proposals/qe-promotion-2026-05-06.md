@@ -73,7 +73,7 @@ Wholesale overwrite with the stub (as originally described in the task brief). R
 
 - **Source (stub):** `.claude/agents/_planned/quality-engineer.md`
 - **Target (active):** `.claude/agents/quality-engineer.md` — merge additive sections in, not overwrite
-- **Mirror to:** `agent-dashboard/scaffold-source/agents/quality-engineer.md` — same merged output, per scaffold pattern
+- **Mirror to:** `<project>/scaffold-source/agents/quality-engineer.md` — same merged output, per scaffold pattern
 - **Frontmatter changes:** none required; active frontmatter (`model: opus`, `trigger_conditions` block) is the correct production shape
 - **Disposition of `_planned/` version after promotion:** rename to `quality-engineer-superseded-2026-05-06.md` within `_planned/` — retain as historical reference (contains activation checklist and institutional rationale)
 
@@ -101,7 +101,7 @@ Wholesale overwrite with the stub (as originally described in the task brief). R
 ## Risks
 
 1. **Merge introduces inconsistency.** Selectively porting stub sections risks creating a franken-prompt where tone or cross-references don't align. Mitigation: do the merge in a single PR, run Critic over the merged file before committing.
-2. **Scaffold mirror diverges.** If `agent-dashboard/scaffold-source/agents/quality-engineer.md` is not updated in the same commit, future scaffold-based projects get the stale file. Mitigation: single atomic PR covers both.
+2. **Scaffold mirror diverges.** If `<project>/scaffold-source/agents/quality-engineer.md` is not updated in the same commit, future scaffold-based projects get the stale file. Mitigation: single atomic PR covers both.
 3. **`/quality` vs `/qe-smoke` naming.** Two invocation patterns exist across files. Users or agents may call the wrong one. Mitigation: standardize on `/quality` in this merge; add a deprecation note in the cross-references block for the stub's `/qe-smoke` alias.
 
 ---
@@ -110,7 +110,7 @@ Wholesale overwrite with the stub (as originally described in the task brief). R
 
 - [ ] User approves this proposal
 - [ ] Merge active + stub additive sections; rename stub to `quality-engineer-superseded-2026-05-06.md`
-- [ ] Mirror merged file to `agent-dashboard/scaffold-source/agents/quality-engineer.md` in same PR
+- [ ] Mirror merged file to `<project>/scaffold-source/agents/quality-engineer.md` in same PR
 - [ ] `CHANGELOG.md` (T1) — v0.5.0 entry: "QE prompt — merged institutional-memory sections from planned stub; agent is now the authoritative single file"
 - [ ] `memory/agent-changelog.md` — narrative entry (promotion trigger: v1.5 release gates require regression discipline)
 - [ ] First QE invocation as hard gate on v1.5 Phase 1 PR (smoke-report required before Phase 1 ships)

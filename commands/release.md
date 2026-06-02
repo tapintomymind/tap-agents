@@ -11,7 +11,7 @@ Cut a new framework release of `@tapintomymind/tap-agents` with strict SemVer di
 
 You're ready to publish a new version of the framework to:
 - The Claude Code plugin marketplace (consumed via `/plugin marketplace add tapintomymind/tap-agents`)
-- The npm registry (consumed by `agent-dashboard` and any future programmatic consumer)
+- The npm registry (consumed by `<project>` and any future programmatic consumer)
 
 Do NOT use this for project-scoped changes inside any project's local `.claude/`. This command operates only at the TapAgents framework root (the `.claude/` checkout that publishes `@tapintomymind/tap-agents`).
 
@@ -125,7 +125,7 @@ Format follows Common Changelog (see existing entries in `CHANGELOG.md`). Use:
 ```markdown
 ## [<new-version>] — <YYYY-MM-DD> — <One-line summary, severity-aware>
 
-<Paragraph context. What changed at the framework level. Who benefits. What downstream consumers need to know (especially: any breaking change implications for the agent-dashboard Vercel build or marketplace users).>
+<Paragraph context. What changed at the framework level. Who benefits. What downstream consumers need to know (especially: any breaking change implications for the <project> Vercel build or marketplace users).>
 
 ### Added
 - **`<path>`** — <what + why>

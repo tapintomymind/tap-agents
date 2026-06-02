@@ -59,7 +59,7 @@ For `result: unable_to_grade` cases, two additional fields are mandatory; `crite
 ```yaml
 result: unable_to_grade
 reason_class: infra  # one of: infra | tooling | precondition_absent | runtime_error
-reason_detail: Deployed URL https://tapagents-app.vercel.app returned 502 across 3 retry attempts at 22:14:32, 22:14:45, 22:15:02
+reason_detail: Deployed URL https://<project>.vercel.app returned 502 across 3 retry attempts at 22:14:32, 22:14:45, 22:15:02
 revision_attempts: 0
 max_revision_attempts: 2
 rubric_source: workspace/<slug>/prd.md§Acceptance
@@ -227,7 +227,7 @@ Projects that entered `handed-off` before this protocol lands have review files 
 3. **Before marker creation:** review files lacking the YAML envelope silent-fallback to prose-parse semantics. No CONTRACT-DRIFT warning.
 4. **After marker creation:** any review file in this workspace lacking the YAML fenced envelope block triggers a CONTRACT-DRIFT warning to EA per `agents/conductor.md §"Outcome-grading envelope handling"`.
 
-**Phase 1 status:** the marker mechanism is documented but not activated. Phase 1 lands the protocol + Critic codification + trio contract updates without enabling the iteration loop. Phase 2 dogfood activates the marker on the first tapagents-app (formerly agent-dashboard pre-2026-05-14 BL-059) `handed-off → shipped` cycle that uses the envelope contract end-to-end.
+**Phase 1 status:** the marker mechanism is documented but not activated. Phase 1 lands the protocol + Critic codification + trio contract updates without enabling the iteration loop. Phase 2 dogfood activates the marker on the first <project> `handed-off → shipped` cycle that uses the envelope contract end-to-end.
 
 **Conductor parsing rule.** When a review file has multiple yaml-fenced blocks (multi-pass file), Conductor parses the **LAST** ` ```yaml ... ``` ` block — last-pass-wins semantics. This works uniformly across append-only review files (Critic's `critic-notes.md`, UI/UX Reviewer's `design-review.md`) and overwriteable-but-multi-pass-within-cycle files (QE's `smoke-report.md`, Ops/Security's `security-audit.md`).
 

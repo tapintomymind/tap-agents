@@ -22,7 +22,7 @@ First of:
 - (c) Tier 2 reportback flags that downstream consumers (other developers, integrators, partners) need reference-grade docs to use the deployed surface
 - (d) Explicit user request
 
-agent-dashboard at activation time (2026-05-11) does NOT trigger this stub — it's a single-application surface, not a platform with a developer-facing API. If TapAgents itself eventually exposes a developer-facing SDK (it doesn't today), that would trigger.
+<project> at activation time (2026-05-11) does NOT trigger this stub — it's a single-application surface, not a platform with a developer-facing API. If TapAgents itself eventually exposes a developer-facing SDK (it doesn't today), that would trigger.
 
 ## Provisional Mandate
 

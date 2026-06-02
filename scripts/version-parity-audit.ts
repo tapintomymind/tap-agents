@@ -58,7 +58,7 @@
  *   # Override repo path:
  *   tsx scripts/version-parity-audit.ts --repo-path /path/to/tap-agents
  *
- *   # JSON output (for EA parsing, tapagents-app ingestion, etc.):
+ *   # JSON output (for EA parsing, <project> ingestion, etc.):
  *   tsx scripts/version-parity-audit.ts --json
  *
  * Style: mirrors `scripts/test-changelog-format.ts` (tsx + node:assert/strict;

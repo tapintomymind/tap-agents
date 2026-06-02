@@ -132,7 +132,7 @@ Most meaningful e2e tests require an authenticated session. Real GitHub OAuth in
 - Log a warning when bypass is active so the deployed-system audit detects accidental enablement.
 - Tests using bypass: scope the gate var via `.env.test` or per-test runner env-block. Never commit real-credentials test-identity values; default identity values stay test-only and reflect the project's auth model.
 
-> *Implementation pattern as deployed in the activating Tier 2 project:* `TEST_AUTH_BYPASS=1` plus `TEST_AUTH_USERNAME` (default `"tapintomymind"`) gating `getSession()` in `src/lib/auth/session.ts`; warning emitted via `console.warn('[TEST_AUTH_BYPASS] Returning dummy session — NEVER enable in production')`. Other projects may name the bypass variable to match their auth model and locate the bypass in the appropriate session-resolution module — the strategy contract is portable; the naming and module-path specifics are project-attributable.
+> *Implementation pattern as deployed in the activating Tier 2 project:* `TEST_AUTH_BYPASS=1` plus `TEST_AUTH_USERNAME` (default `"<operator>"`) gating `getSession()` in `src/lib/auth/session.ts`; warning emitted via `console.warn('[TEST_AUTH_BYPASS] Returning dummy session — NEVER enable in production')`. Other projects may name the bypass variable to match their auth model and locate the bypass in the appropriate session-resolution module — the strategy contract is portable; the naming and module-path specifics are project-attributable.
 
 QE owns the strategy; the project's auth implementer owns the implementation detail.
 

@@ -10,7 +10,7 @@ supersedes: gtm-strategist (renamed 2026-05-11; positioning + content-production
 
 ## Activation Trigger
 
-This agent activates when a shipped project has an identifiable buyer surface — paid tier, B2B angle, multi-user product, or explicit user request to coordinate a launch / campaign / outbound motion. agent-dashboard at activation time (2026-05-11) is a single-user dogfood surface; it doesn't trigger this stub yet.
+This agent activates when a shipped project has an identifiable buyer surface — paid tier, B2B angle, multi-user product, or explicit user request to coordinate a launch / campaign / outbound motion. <project> at activation time (2026-05-11) is a single-user dogfood surface; it doesn't trigger this stub yet.
 
 First of:
 - (a) First paid tier exists on any shipped project
@@ -67,7 +67,7 @@ Specifically:
 
 ## Why Not Built Yet
 
-- agent-dashboard at activation time (2026-05-11) is single-user dogfood — no buyer surface, no paid tier, no B2B angle
+- <project> at activation time (2026-05-11) is single-user dogfood — no buyer surface, no paid tier, no B2B angle
 - Building a generic launch strategist against no concrete buyer = ungrounded synthesis, produces templated/generic output not specific to user's situation
 - Premature build = a 2000-line prompt that has to generalize across pricing models, channel mixes, and segment patterns it has never seen
 - Better: PMM (active) handles content production today; when first buyer surface appears, this stub activates with concrete inputs to specialize against

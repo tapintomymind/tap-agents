@@ -55,7 +55,7 @@ Owns the framework release lifecycle from `/release` invocation through Gate 5 v
 
 **Out-of-scope.**
 
-- Anything inside `tapagents-app/`.
+- Anything inside `<project>/`.
 - Anything past npm-publish-success.
 
 ## Required read-list (every invocation)

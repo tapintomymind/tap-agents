@@ -1,12 +1,12 @@
 # Dependabot — npm + GitHub Actions update surveillance.
 #
-# Pattern follows agent-dashboard/.github/dependabot.yml (2026-05-07 model):
+# Pattern follows <project>/.github/dependabot.yml (2026-05-07 model):
 # enable Dependabot WITH ignore-major-versions seed BEFORE first run to avoid
 # the "13-PR flood + breaking change storm" that occurs on first activation
 # of unmanaged projects. Per the tap-agents framework operator's enable-with-
 # ignore pattern (memory note 2026-05-07).
 #
-# tap-agents has a much smaller dep surface than agent-dashboard — only three
+# tap-agents has a much smaller dep surface than <project> — only three
 # devDependencies: typescript, tsx, @types/node. None require migration rounds
 # in the near term, but locking major bumps on @types/node (lockstep with
 # Node runtime) and typescript (TS 6 has deprecated-API breakage) is prudent.

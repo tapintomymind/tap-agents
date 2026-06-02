@@ -32,7 +32,7 @@ It does NOT govern:
 - Memory file appends in `.claude/memory/` that don't change canonical contracts (lessons-learned, incidents, agent-changelog narratives)
 - Draft proposals before they're submitted for review
 
-**Templates surface clarification.** The framework-side `templates/stacks/_baseline/` is in scope. The tapagents-app scaffold-source mirror at `tapagents-app/scaffold-source/templates/` (path reflects post-2026-05-14 BL-059 cascade-rename; was `agent-dashboard/`) is NOT in scope of this protocol — it's a project-level mirror governed by its own propagation discipline. Framework changes propagate to scaffold-source as a follow-up sync step, not a parallel doctrinal write.
+**Templates surface clarification.** The framework-side `templates/stacks/_baseline/` is in scope. The <project> scaffold-source mirror at `<project>/scaffold-source/templates/` (path reflects post-2026-05-14 BL-059 cascade-rename; was `<project>/`) is NOT in scope of this protocol — it's a project-level mirror governed by its own propagation discipline. Framework changes propagate to scaffold-source as a follow-up sync step, not a parallel doctrinal write.
 
 ## §3 Rule 1 — No Tier 1 doctrinal change without review
 

@@ -525,7 +525,7 @@ Each entry: timestamp, type, original concern, user decision, user reasoning, ag
 
 ### Repo strategy
 - Repo = `App Development/.claude/` only (option A from design discussion)
-- Initial: `git init`, `gh repo create tapintomymind/claude-team --private --source=. --push`
+- Initial: `git init`, `gh repo create <org>/claude-team --private --source=. --push`
 - Public/private split via `.gitignore`
 - License: MIT default; revisit if commercial licensing path activates
 
@@ -653,7 +653,7 @@ project-repo/.claude/
 - Provenance required on every memory entry (audit trail for what's safe to share)
 - README written public-ready from day one
 - License: MIT default
-- Naming: repo `tapintomymind/claude-team` for now; consider brand-neutral name (`claude-org`, `agent-os`) before any public flip
+- Naming: repo `<org>/claude-team` for now; consider brand-neutral name (`claude-org`, `agent-os`) before any public flip
 - Multi-project / portfolio mindset is first-class (`workspace/_global/` is the HQ dashboard)
 
 ### Future-extensibility hooks (designed-toward, not built v1)
@@ -686,7 +686,7 @@ The HQ pattern itself is the IP. If team-as-product is pursued:
 
 The team is "working" when:
 
-1. **End-to-end seed-to-shipped works** for at least one real project (likely tapintomymind feature or new app idea)
+1. **End-to-end seed-to-shipped works** for at least one real project (likely <project> feature or new app idea)
 2. **All 5 hard checkpoints fire correctly** with proper Decision Packets
 3. **Consistency check catches at least one cross-artifact contradiction** during normal operation
 4. **At least one `WRONG_AGENT:` return is observed and handled cleanly** (proves the safety net works)
