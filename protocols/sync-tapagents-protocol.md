@@ -82,7 +82,7 @@ Either path lands the framework-sync commit(s) on `sync-tapagents` and ONLY on `
 - `git checkout main` → `git merge --no-ff sync-tapagents` → `git push origin main`.
 - The merge commit message follows the convention `sync: promote vX.Y.Z to main`.
 - The merge commit's diff against main's prior HEAD contains ONLY framework-sync content (per §3 signatures). No rider commits.
-- Vercel prod build fires from the main push and goes through standard prod checks.
+- Vercel prod build fires from the main push and goes through standard prod checks **UNLESS the promoted content is pure scaffold** (per the §3 fingerprint), **in which case §4.5 deploy neutrality SKIPS the build** — no prod deploy fires, and the skip IS the success signal (the merge commit's first-parent diff in non-scaffold paths is empty → `ignoreCommand` exit 0 → SKIP). A framework *dependency* bump (Sig A, `package.json`) is the one promotion that still builds here. So: do NOT wait for a prod build on a pure-scaffold promotion — there won't be one, by design.
 
 **Step 4 — Back-merge `main` to `dev` via no-ff merge.**
 - `git checkout dev` → `git merge --no-ff main` → `git push origin dev`.
@@ -90,16 +90,133 @@ Either path lands the framework-sync commit(s) on `sync-tapagents` and ONLY on `
 - This brings the framework adoption to `dev` so any future `dev → main` promotion of application work doesn't carry an out-of-date framework pin.
 - If dev had other commits since the last back-merge, this is also where they unify with the new framework adoption surface.
 
-**Step 5 — Confirm all three Vercel builds green.**
-- sync-tapagents preview (Step 2 — should already be green)
-- main prod (Step 3)
-- dev preview (Step 4)
+**Step 5 — Confirm the Vercel build state green-or-skipped.**
+- sync-tapagents preview (Step 2 — should already be green; this is the one build a pure-scaffold adoption DOES run, and a dependency bump verifies here)
+- main prod (Step 3) — **green OR skipped per §4.5**. For a pure-scaffold promotion this build is SKIPPED (deploy-neutral); treat the skip as the success signal, not a stuck build. Only a `package.json` dependency-bump promotion produces an actual main prod build to wait on.
+- dev preview (Step 4) — **green OR skipped per §4.5**. A pure-scaffold back-merge is SKIPPED here too — which is the entire point of §4.5 (it removes the QA-redeploy hazard of a `dev` back-merge redeploying in-flight unpromoted work).
 
-Only when all three are green is the adoption considered complete. State.json + reportback.md updates per Tier 2 ↔ Tier 1 reportback protocol are written by whichever agent owns the adoption.
+The adoption is complete when each of these three is **green or deploy-neutral-skipped** as appropriate. Do NOT block on a "main prod green" or "dev preview green" that will never appear for a pure-scaffold promotion — §4.5 intentionally suppresses those deploys; the skip is the expected, successful outcome. State.json + reportback.md updates per Tier 2 ↔ Tier 1 reportback protocol are written by whichever agent owns the adoption.
 
-## §5 The five enforcement layers
+## §4.5 Deploy neutrality (effective 2026-06-02)
 
-Discipline this strict needs mechanical backing. Five layers cover the surface; each catches what the prior misses.
+**Status:** Active 2026-06-02 — framework-sync commits are deploy-neutral on every consumer environment.
+**Authority:** User direction 2026-06-02 — *"framework syncs should be DEPLOY-NEUTRAL on every consumer environment, permanently."* Boundary explicitly confirmed: pure scaffold syncs skip deploys everywhere; a framework **dependency** bump still builds (on the isolated `sync-tapagents` preview only).
+**Trigger:** The `sync-tapagents → main` promotion (Step 3) and the `main → dev` back-merge (Step 4) each push a deploy branch, which fires a consumer Vercel build. On `main` (prod) that rebuild is merely wasteful — it redeploys byte-identical application output. On `dev`/QA it is **dangerous**: the back-merge push triggers a rebuild of the `dev` branch, and `dev` routinely carries ongoing, *unpromoted* application work. A sync-triggered `dev` rebuild can therefore redeploy in-flight work that was never approved for the QA environment. Deploy neutrality removes both the waste and the hazard.
+
+### §4.5.1 The principle
+
+**A framework-sync commit (per the §3 fingerprint) MUST NOT trigger a consumer application deploy.** The scaffold surface (`.claude/`, framework docs, scaffold metadata, bot manifest) is not application code; changing it cannot change what the deployed app does. So a commit that touches *only* that surface has no reason to rebuild or redeploy the app — on any branch, on any host.
+
+This is the deploy-time complement to the build-time discipline already in this protocol. §5 keeps framework-sync commits *isolated to the right branch*; §4.5 makes those commits *invisible to the deploy pipeline* once they land. The two together mean: a framework adoption is one auditable commit AND it never moves a live environment unless it actually changes the app (which only a dependency bump can).
+
+### §4.5.2 The host-agnostic contract: the §3 fingerprint is the skip key
+
+Deploy neutrality is keyed off the **same §3 framework-sync fingerprint** that the rest of this protocol uses — there is exactly one definition of "this is framework-scaffold content," and every layer (the PreToolUse gate, the CI guard, and now the deploy-skip) reads from it. Concretely, the scaffold paths are:
+
+- `.claude/` (the entire scaffolded Tier 2 directory)
+- `*.md` (framework + project docs — README, CHANGELOG, protocol prose)
+- `.scaffold-meta.json` (the bundled-framework-version declaration, where a consumer keeps it at repo root)
+- `.bot-manifest.json` (adoption bookkeeping written by `adopt-tap-agents.yml`)
+
+A commit whose diff is confined to those paths is deploy-neutral. A commit that touches anything *outside* them — application source, config, and crucially `package.json` — builds normally. This is host-agnostic: the contract is "did anything outside the scaffold paths change?", expressible on any deploy host that supports a content-based build-skip.
+
+**The dependency-bump boundary (load-bearing).** `package.json` is deliberately **NOT** in the skip set. A framework *dependency* bump (Signature A) changes `package.json`, so it still builds. That is intentional: a dependency change can alter runtime behavior and MUST be verified — but per §4 Step 2 it verifies on the isolated `sync-tapagents` **preview** build only, and is promoted to live environments through the §4 no-ff flow, never by a silent auto-redeploy of `main`/`dev`. Deploy neutrality skips the *scaffold-copy* rebuilds (Steps 3 and 4 when the promoted content is pure scaffold); it does not skip dependency verification.
+
+### §4.5.3 The canonical Vercel mechanism
+
+A committed `vercel.json` at the consumer project root, carrying an `ignoreCommand`:
+
+```jsonc
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- ':(exclude).claude' ':(exclude)hooks' ':(exclude)scaffold-source' ':(exclude)*.md' ':(exclude)*.scaffold-meta.json' ':(exclude).bot-manifest.json'"
+}
+```
+
+The exclude set is the **full §3 framework-sync fingerprint** minus the intentional `package.json` carve-out: `.claude/` (the scaffolded Tier 2 dir), `hooks/` (Sig C — top-level git-tracked hook payloads, which on the real consumer live OUTSIDE `.claude/`), `scaffold-source/` (Sig B — the scaffold regen tree, for consumers that track it rather than gitignoring it as a build artifact), `*.md` (framework + project docs), `*.scaffold-meta.json` (Sig B metadata — globbed so it matches the real nested `scaffold-source/.scaffold-meta.json`, not just a root copy), and `.bot-manifest.json` (Sig C adoption bookkeeping). Keeping the exclude set equal to the §3 fingerprint is the load-bearing invariant — if a §3 signature path is missing from the exclude set, that class of framework-sync commit wrongly BUILDS.
+
+Semantics: Vercel runs `ignoreCommand` per build. **Exit 0 → Vercel SKIPS the deploy; non-zero → Vercel BUILDS.** The diff asks "did anything outside the scaffold paths change between the previous commit and this one?" — if no (`--quiet` finds no diff → exit 0), skip; if yes (exit 1), build. It is **branch-agnostic**: the same file protects prod (`main`), QA (`dev`), and every preview uniformly, because it lives on the branch and runs on every deploy of that branch.
+
+Behavior verified in isolation under POSIX `sh` (Vercel's runner) and against real consumer adoption commits, including the hooks-bearing syncs `f1522ce` (`.bot-manifest.json` + two `hooks/*.py`) and `3abc70c` (six `hooks/*.py` + `package.json`):
+
+| Commit shape | `ignoreCommand` exit | Vercel action |
+|---|---|---|
+| Scaffold-only (`.claude/` + `*.md` + nested `scaffold-source/.scaffold-meta.json`) | `0` | **SKIP** (deploy-neutral) ✅ |
+| Hook-payload sync (`hooks/*.py` ± `.bot-manifest.json`, e.g. `f1522ce`) | `0` | **SKIP** (deploy-neutral) ✅ |
+| `scaffold-source/` regen (tracked, ± nested `.scaffold-meta.json`) | `0` | **SKIP** (deploy-neutral) ✅ |
+| Application source change (`src/…`, `drizzle/…`) | `1` | **BUILD** ✅ |
+| `package.json` dependency bump (e.g. the `3abc70c` `package.json` portion) | `1` | **BUILD** (dep verifies) ✅ |
+| `sync-tapagents → main` no-ff merge of pure scaffold | `0` (HEAD^ = first parent) | **SKIP** ✅ |
+| Initial commit (no `HEAD^`) | non-zero (`fatal: bad revision`) | **BUILD** (fail-safe) ✅ |
+
+The merge-commit row matters: Vercel deploys the *merge commit*, and `HEAD^` resolves to the merge's **first parent** (the prior tip of the deployed branch), so the first-parent diff of a pure-scaffold promotion is empty → skip. The initial-commit row is the designed fail-safe: when `HEAD^` does not exist the command errors non-zero, so Vercel **builds** rather than skips — the mechanism never *wrongly skips*; its only failure direction is a harmless extra build.
+
+**Shallow-clone note + the hardened form.** Vercel checks out a shallow clone (small depth; not contractually fixed and has changed historically), so `HEAD^` resolves for non-initial commits. The one degenerate case is depth = 1, where `HEAD^` is absent and the command fails non-zero → an unnecessary build (still fail-safe — it never wrongly redeploys). If a consumer ever observes scaffold-only commits over-building (a symptom of depth-1 checkouts), upgrade the `ignoreCommand` in place to the hardened form, which prefers Vercel's `VERCEL_GIT_PREVIOUS_SHA` (the last *successfully deployed* SHA, independent of clone depth) and falls back to `HEAD^`:
+
+```jsonc
+{
+  "ignoreCommand": "base=\"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\"; git cat-file -e \"$base^{commit}\" 2>/dev/null || exit 1; git diff --quiet \"$base\" HEAD -- ':(exclude).claude' ':(exclude)hooks' ':(exclude)scaffold-source' ':(exclude)*.md' ':(exclude)*.scaffold-meta.json' ':(exclude).bot-manifest.json'"
+}
+```
+
+The hardened form was exercised, in isolated POSIX-`sh` repros, to: SKIP on scaffold-only (both via the env var and via the `HEAD^` fallback), SKIP on hook-payload and tracked-`scaffold-source/` syncs, BUILD on app/`package.json` changes, and BUILD fail-safe when `VERCEL_GIT_PREVIOUS_SHA` is unset/empty/unreachable. It carries the SAME exclude set as the simple form (see the lockstep note below) — both forms exclude `.claude/`, `hooks/`, `scaffold-source/`, `*.md`, `*.scaffold-meta.json`, `.bot-manifest.json`. The simple form is the default scaffold because it is maximally readable and its only failure mode is a harmless over-build; the hardened form is the documented drop-in upgrade. Both never redeploy a live environment for a pure-scaffold sync, which is the whole point.
+
+> **Change all forms in lockstep (Critic N-3).** The exclude set is ONE set, expressed in five places: the simple `vercel.json` form (above), the hardened `vercel.json` form (here), the GitHub Actions `paths-ignore` and Netlify `[build] ignore` forms (§4.5.4), and the `vercel.deploy-neutral.json` copy-source. They MUST stay byte-identical in coverage. If you add or remove a §3 signature path, change all five together — a drift between them means one host or one form silently builds (or skips) a class the others don't.
+
+### §4.5.4 Host-agnostic equivalents
+
+The contract is the scaffold-path set; the mechanism is whatever the host provides. Keyed off the **same paths**:
+
+- **Vercel** — committed `vercel.json` `ignoreCommand` (above). The canonical scaffold-shipped form.
+- **GitHub Actions** (consumer building/deploying via a workflow) — `paths-ignore` on the deploy workflow's `push` trigger:
+  ```yaml
+  on:
+    push:
+      branches: [main, dev]
+      paths-ignore:
+        - '.claude/**'
+        - 'hooks/**'
+        - 'scaffold-source/**'
+        - '**/*.md'
+        - '**/*.scaffold-meta.json'
+        - '.bot-manifest.json'
+  ```
+  A push whose changes are entirely within these paths does not start the workflow → no deploy. (`paths-ignore` skips only when ALL changed files match; once `hooks/**` and `scaffold-source/**` are in the list, a hooks-only or scaffold-regen sync matches entirely and skips.)
+- **Netlify** — the `ignore` key in `netlify.toml` (mirrors Vercel's `ignoreCommand` verbatim — same `git diff` pathspec; exit 0 cancels the build):
+  ```toml
+  [build]
+    ignore = "git diff --quiet HEAD^ HEAD -- ':(exclude).claude' ':(exclude)hooks' ':(exclude)scaffold-source' ':(exclude)*.md' ':(exclude)*.scaffold-meta.json' ':(exclude).bot-manifest.json'"
+  ```
+
+All three express the identical predicate — "nothing outside the framework-scaffold paths changed → don't deploy" — so a consumer on any of these hosts inherits the same deploy-neutral guarantee.
+
+**These three exclude sets are the SAME set; change them together (Critic N-3).** The Vercel `git diff` pathspec, the GitHub Actions `paths-ignore` globs, and the Netlify `ignore` `git diff` pathspec all encode the identical §3 fingerprint. The only syntactic difference is form: Vercel/Netlify use git pathspec (`:(exclude)hooks`, `:(exclude)*.scaffold-meta.json`), GitHub Actions uses path globs (`hooks/**`, `**/*.scaffold-meta.json`). If a §3 signature path is added or removed, update all three (and both `vercel.json` forms in §4.5.3) in lockstep — a drift means one host builds a framework-sync class the others skip.
+
+### §4.5.5 Where the mechanism comes from (scaffold-shipped)
+
+Deploy neutrality is **scaffolded into every consumer**, not configured per project by hand. The mechanism ships from the framework's Tier 2 deployment template:
+
+- `templates/stacks/_baseline/vercel.deploy-neutral.json` — the canonical config, as a concrete copy-source (plain JSON, no comments — see N-2) so it cannot drift from this protocol.
+- `templates/stacks/_baseline/tier2-deployment.md` §"Deploy neutrality (framework-sync skip)" — instructs the deployment agent to install the `ignoreCommand` at scaffold time, **merging** into any pre-existing `vercel.json` (e.g., one that already carries `crons`) rather than overwriting it.
+- The handoff-protocol mechanical checklist gains a verification item so scaffolding confirms the config landed.
+
+Because it ships from the template, every NEW project scaffolded via TapAgents inherits deploy neutrality automatically.
+
+**Existing-consumer adoption is MERGE-not-overwrite — do NOT clobber a pre-existing `vercel.json`.** Add ONLY the `ignoreCommand` key to whatever `vercel.json` the consumer already has; never write a fresh file over an existing one. This matters concretely: the real dogfood consumer's `vercel.json` carries 4 `crons` (incl. retention sweeps) and no `ignoreCommand`. A naive single-line replacement or a template-overwrite would silently drop those 4 scheduled jobs. So while the *diff* is one added key, the *operation* is a structured merge, not a one-line file replacement — align to the tier2-deployment template's "merge, do NOT overwrite" instruction (it enumerates the keys at risk: `crons`, `functions`, `headers`, `rewrites`). Land the merged config on the branch(es) the host deploys: if the repo promotes `dev → main`, land on `dev` and let promotion carry it to `main`; if `main` deploys prod directly and needs immediate protection, promote per the repo's rules (tier2-deployment.md step 3 has the branch-landing nuance). New projects get this from the template; existing consumers adopt it the next time their deployment agent runs, or via this surgical merge-commit of the config.
+
+### §4.5.6 Relationship to the rest of this protocol
+
+| Concern | Owned by | Mechanism |
+|---|---|---|
+| Framework-sync content lands on the right branch | §5 (Layers A–E) | PreToolUse gate, CI guard, doctrine, memory |
+| Framework-sync content, once landed, doesn't move a live deploy | §4.5 | Scaffold-shipped `ignoreCommand` keyed off the §3 fingerprint |
+| Framework *dependency* bumps still get verified | §4 Step 2 + §4.5.2 | `package.json` excluded from the skip set → builds on `sync-tapagents` preview |
+
+§4.5 is effectively a sixth, **scaffold-shipped** enforcement layer (the deploy-time one), distinct from the five author-time/commit-time layers in §5 because it acts after the commit lands, at the host's deploy boundary, on every consumer environment uniformly. See §5.6.
+
+## §5 The enforcement layers
+
+Discipline this strict needs mechanical backing. Five author-time/commit-time layers cover the *branch-isolation* surface; each catches what the prior misses. A sixth, deploy-time layer (§5.6, specified in §4.5) covers the *deploy-neutrality* surface.
 
 ### §5.1 Layer A — Release/adoption scripts (operator-leveled)
 
@@ -152,6 +269,16 @@ Two `~/.claude/projects/<project>/memory/` entries:
 
 **Effect.** Future orchestrator sessions across all projects see the convention in MEMORY.md automatically. Auto-memory transports the rule across machine + session boundaries.
 
+### §5.6 Layer F — Deploy-neutrality skip (scaffold-shipped, deploy-time)
+
+The sixth layer is specified in full in §4.5 and differs in kind from Layers A–E: it is **scaffold-shipped** (it ships into every consumer project as a committed config file, not as an HQ-side gate) and it acts at **deploy time** (the host's build-skip boundary) rather than at author/commit time. Layers A–E keep framework-sync content on the right branch; Layer F makes that content deploy-neutral once it lands, on every consumer environment uniformly.
+
+- **Mechanism:** committed `vercel.json` `ignoreCommand` (canonical), or host-agnostic equivalent (`paths-ignore` / `netlify.toml ignore`), keyed off the §3 fingerprint (§4.5.2–§4.5.4).
+- **Where it ships from:** `templates/stacks/_baseline/vercel.deploy-neutral.json` + the deployment-agent template (§4.5.5).
+- **What it does NOT skip:** `package.json` dependency bumps (the §4.5.2 boundary) — those still build and verify on the `sync-tapagents` preview.
+
+**Effect.** A framework adoption that promotes pure scaffold content to `main`/`dev` does not rebuild or redeploy the live application. The QA-redeploy hazard (a `dev` back-merge redeploying unpromoted work) is structurally removed for every consumer, present and future, without any per-project Vercel-dashboard change — the guarantee is entirely in the committed config.
+
 ## §6 Exception clause
 
 A framework hotfix that genuinely needs to ship via `dev` (e.g., the framework version bump is part of a coordinated multi-file feature where the framework upgrade and the application code that consumes the new capability must land atomically) requires an explicit override:
@@ -195,6 +322,9 @@ The protocol is generic: it applies to any current or future Tier 2 project scaf
 | `dev-to-main-promotion.md` | The default consumer-side promotion flow. This protocol carves out framework adoptions from that flow. |
 | `framework-change-discipline.md` | What changes qualify as Tier 1 doctrinal. This protocol is itself a Tier 1 doctrinal addition. |
 | `destructive-data-ops.md` | The other chokepoint protocol — same pattern: dedicated path for a specific class of operation, refuse-by-default outside it. |
+| `handoff-protocol.md` | The scaffold-time mechanical-verification checklist gains a "deploy-neutral config present" item (§4.5.5) so every scaffolded Tier 2 ships the deploy-neutrality config. |
+| `templates/stacks/_baseline/tier2-deployment.md` | The scaffold-shipping source for §4.5 Layer F — installs the `ignoreCommand` (merging into any pre-existing `vercel.json`) at scaffold time. |
+| `templates/stacks/_baseline/vercel.deploy-neutral.json` | The canonical copy-source for the `ignoreCommand` config (§4.5.3) — concrete artifact so the mechanism cannot drift from this protocol's prose. |
 
 ## §10 HQ topology: filesystem-only (effective 2026-05-17)
 
