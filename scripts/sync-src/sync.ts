@@ -476,7 +476,7 @@ function genericizeChangelogBody(sourceBody: string, slugs: string[]): string {
 
   // Pass 2: user-specific auto-memory path collapse.
   // CHANGELOG narration sometimes cites Claude Code's per-project auto-memory
-  // path (e.g., `~/.claude/projects/-Users-tapandesai-.../memory/foo.md`) as a
+  // path (e.g., `~/.claude/projects/-Users-<user>-.../memory/foo.md`) as a
   // provenance pointer. The literal path is user-machine-specific. Collapse
   // it to the generic `~/.claude/projects/<project>/memory/` shape so the
   // public CHANGELOG keeps narrative continuity without leaking the encoded

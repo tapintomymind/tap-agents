@@ -8,6 +8,22 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 **Cross-session coordination:** see `protocols/session-coordination-protocol.md` (parallel-session consistency, codified 2026-05-06).
 
+## 2026-06-02 — Framework v0.29.0 — `tapagents login` CLI bin: one-time device-flow onboarding (M-D slice U2)
+
+The framework package grows its first command-line tool. Through v0.27.0 the package shipped only library content — agents, commands, protocols, templates, hooks, and a programmatic export — but never an executable. v0.29.0 adds the package's first `bin`: a `tapagents` CLI whose headline subcommand, `tapagents login`, is the one-time, `gh auth login`-style step that connects a machine to Tap Agents Live telemetry. It directly answers the standing operator requirement that clients should not have to run any command to keep syncing telemetry to the dashboard — after a single login there is no further command, no restart, ever.
+
+The mechanism is the OAuth 2.0 Device Authorization Grant (RFC 8628), the same shape `gh` and other CLIs use when the tool can't host a local redirect. `tapagents login` asks the server for a device code and a short human-readable code, prints "open this URL and enter this code," and then quietly polls until the person has signed in and approved in their browser. It honors the full device-flow vocabulary — keep waiting while approval is pending, back off when told to slow down, and stop cleanly with a clear message on denial, expiry, or an already-used code — plus a defensive client-side timeout so it never polls forever even if the server goes quiet. On approval the CLI writes the credential file that the already-live v0.27.0 read-path consumes on its very next flush, so telemetry begins mirroring with no export and no relaunch.
+
+The security-sensitive part is the credential write, and it is built to the frozen contract exactly: the config directory is created owner-only (0700), and the file is written through a same-directory temporary file that is owner-only (0600) from the moment it is created and then atomically renamed into place, so a reader can never observe a partial or world-readable credential. The file carries the token and ingest URL the telemetry hook reads, plus human-auditable provenance (the connected account, an issue timestamp, and a machine label) that the reader ignores. The round-trip was verified against the actual Python reader, not merely asserted: a file written by the CLI resolves to the exact same token and ingest URL the reader pulls.
+
+A few deliberate design calls. The bin points at a committed raw script with a Node shebang, mirroring how the Python hooks ship as raw runnable files, so it runs straight from the published tarball without depending on the generated `dist/` bundle (which the build wipes and regenerates each run). Token listing and revocation route the user to the dashboard rather than calling with the machine token, because issuance and revocation are deliberately browser-session-only — a leaked machine token must not be able to revoke its siblings. Local logout alone fully stops emission; server-side revocation is the rarer lost-machine case and opens the browser. Everything is Pool A: plain HTTPS to the dashboard via Node's standard library, no Anthropic SDK and no model call anywhere in the flow.
+
+Adding a first `bin` is a net-new export surface with nothing removed, so this is a framework MINOR per `versioning-protocol.md §3.2`. Coverage is 26 cases on Node's built-in test runner against a mock server implementing the contract — happy path, every pending/error/rate-limit branch, the timeout ceiling, the file perms and exact shape and round-trip keys, and the subcommand behaviors — with zero new dependencies and a fully deterministic fake clock. This release bundles the public-mirror privacy sweep alongside the CLI; the sweep is doc-hygiene only and carries no team-shape change, so it has no separate narrative entry here (see the v0.29.0 `CHANGELOG.md` entry for its technical detail).
+
+One operational nuance ships with this release. The CLI's companion endpoints — a separate app-side unit (a device-codes table, three endpoints, and a browser approve page) — are live on the dev environment and ops-security-approved, and the multi-tenant isolation gate that had to close before any client-facing exposure is now closed. Prod activation, however, is a separate operator endpoint-promotion that has not happened yet: until it does, `tapagents login` against the default (prod) host returns a clean error rather than calling a live endpoint. The CLI therefore ships dormant-but-graceful on prod, with explicit operator sign-off — a published tool whose login path lights up the moment the endpoints are promoted, with no further framework release required. The dev-side end-to-end round-trip was deliberately deferred to prod-validation at go-live (preview-environment protection blocked the dev CLI test), again an explicit operator call. Adoption flows through the dedicated `sync-tapagents` branch, not directly through dev.
+
+Cross-reference: `CHANGELOG.md` v0.29.0 entry; `workspace/_global/tapagents-login-device-auth-contract-2026-06-02.md` (the frozen wire contract this implements).
+
 ## 2026-05-29 — Framework v0.26.0 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
 
 The third M-D telemetry slice lands. Where v0.25.0 mirrored events the framework already produced, this slice captures something new: what a session actually produced. At session seal the team now emits a `session-work-output` / `summary` / `seal` event carrying the product files touched and the lines-of-code committed in that session — the data the dashboard's per-session view needs to show "files done / LOC done."
@@ -240,11 +256,11 @@ Four enforcement layers, each catching what earlier layers miss:
 
 **Backlog Curator full reconcile.** Daily sweep ran across all 34 items. One STATUS-DRIFT corrected: BL-032 flipped `open → done` (~3.5h drift after commit 9de4039 which shipped `scripts/check-finder-dupes.mjs` and explicitly stated "Closes BL-032 entirely"). Item counts recomputed: open=20→19, done=10→11. Two carry-over MIRROR-DRIFT findings surfaced (not auto-fixed per lane discipline): BL-034 JSON=open vs. MD=planned (producer session owns flip); BL-012/018/024 still absent from `memory/backlog.md` (OD Option A append authorized per 20260507T0810 proposal, not yet executed). TOP-OF-BACKLOG: BL-028 + BL-017 require user input; BL-030 can be routed to Architect without a user decision.
 
-**EA-style briefing delivered.** Full cross-project status briefed to user: 5 decisions queued, 34-item backlog summary with counts (P0=0 P1=15 P2=14 P3=5; open=19 in-progress=4 done=11), active sessions inventory, project health for claude-team-app (handed-off, Tier 2 in flight) and <project> (briefed, awaiting user approval).
+**EA-style briefing delivered.** Full cross-project status briefed to user: 5 decisions queued, 34-item backlog summary with counts (P0=0 P1=15 P2=14 P3=5; open=19 in-progress=4 done=11), active sessions inventory, project health for <project> (handed-off, Tier 2 in flight) and <project> (briefed, awaiting user approval).
 
 **<project> intake parked.** User elected to defer the <project> brief review ("we'll discuss later"). No state change; `<project>/state.json` remains `briefed` with `blocked_on: user approval of intake-brief.md`. Re-surfaces via normal staleness cadence on next daily sweep.
 
-**Portfolio.json drift noted (pre-existing, non-blocking).** `workspace/_global/portfolio.json` shows `claude-team-app` at phase `planned` (stale since 2026-05-05T07:30) while `state.json` is `handed-off` (entered 2026-05-05T13:50). Pre-existing carry-over; does not affect state-machine gating. OD owns a portfolio.json resync as part of next grooming pass.
+**Portfolio.json drift noted (pre-existing, non-blocking).** `workspace/_global/portfolio.json` shows `<project>` at phase `planned` (stale since 2026-05-05T07:30) while `state.json` is `handed-off` (entered 2026-05-05T13:50). Pre-existing carry-over; does not affect state-machine gating. OD owns a portfolio.json resync as part of next grooming pass.
 
 ## 2026-05-07 — Phase 1 dream-pass capability landing (BL-031)
 
@@ -769,13 +785,13 @@ Why these 7: balance of CEO-facing (Intake + EA) and backstage (Conductor + prod
 
 Why these 5 stubs: post-shipping roles (GTM, Growth, Feedback) and depth-on-demand specialists (Researchers). Intentionally NOT building until first project triggers their activation.
 
-Design spec: `docs/specs/2026-05-04-claude-team-design.md`
+Design spec: `docs/specs/2026-05-04-framework-design.md`
 
 ---
 
 ## 2026-05-05 — Activated Designer agent (from `_planned/`)
 
-**Trigger:** User explicitly approved at intake Round 3 (Q7=A) for the `claude-team-app` project. The project requires a robust design system as a v1 deliverable, not a v2 retrofit.
+**Trigger:** User explicitly approved at intake Round 3 (Q7=A) for the first Tier 2 `<project>`. The project requires a robust design system as a v1 deliverable, not a v2 retrofit.
 
 **What changed:**
 - `agents/_planned/designer.md` (stub) → `agents/designer.md` (full contract).
@@ -786,7 +802,7 @@ Design spec: `docs/specs/2026-05-04-claude-team-design.md`
 - New template: `templates/design-spec.md` (the design system + UX deliverable).
 
 **Why activated this early (vs waiting for friction across multiple projects):**
-- The team's first real project (claude-team-app, the companion app for `claude-team` itself) demands a coherent design system from v1, not a Tailwind-default afterthought.
+- The team's first real project (the companion app for the framework itself) demands a coherent design system from v1, not a Tailwind-default afterthought.
 - Activating early lets us validate the role under real workload immediately.
 
 **Will measure:**
@@ -819,7 +835,7 @@ Design spec: `docs/specs/2026-05-04-claude-team-design.md`
 
 ## 2026-05-05 — Production deployment + cross-tier bug observability shipped
 
-**Trigger:** First Tier 2 project (TapHQ / <project>) reached production-ready state. User completed Vercel Pro signup, Neon DB setup, GitHub App registration. Production URL went live: https://agents-dashboard-olive.vercel.app.
+**Trigger:** First Tier 2 project (TapHQ / <project>) reached production-ready state. User completed Vercel Pro signup, Neon DB setup, GitHub App registration. Production URL went live at the prod Vercel alias (`<prod-vercel-alias>`).
 
 **What changed:**
 1. **Production deployment infrastructure** — Vercel Pro project linked to `<org>/<project>`, env vars configured (10 vars including encrypted token key + GitHub App private key inline-PEM), GitHub App callback URLs registered for prod URL, `maxDuration=120` set on the create-project route to clear Vercel Pro's 60s default ceiling. Custom domain `hq.tapintomymind.com` queued (DNS + SSL pending).
@@ -925,7 +941,7 @@ At 5x team size or 10 shipped projects, QE fragments into Test Strategist (plans
 **What changed (Tier 2 / <project>):**
 1. **NEW:** `src/app/api/admin/test-error/route.ts` — observability ping endpoint. Admin-gated (404 not 403, same pattern as `/admin/bugs`). `?type=throw` triggers a thrown Error; `?type=500` returns a 5xx response. Both paths get captured by `withErrorCapture` → written to `bug_reports` table. Standard pattern — every observability stack has one (Sentry's "Send a test event," Datadog synthetic checks). Commit: `fe22b4c` on <project> main.
 2. **NEW:** `dev` branch on `<org>/<project>`. Workflow now: local development on `dev`, push to `dev` triggers Vercel preview deployment, `dev` → `main` merge triggers Vercel production deployment. Local → QA → Prod rhythm formalized.
-3. **`.env.local` updated** to point at the Neon DEV branch (`ep-broad-moon-apiaksv1`) instead of the original/PROD branch (`ep-aged-brook-apg2g57j`). Added `NEON_BRANCH=dev` env var per `protocols/autonomous-ops-permissions.md` per-branch logic. Vercel prod env still has the prod branch URL (gitignored from the repo).
+3. **`.env.local` updated** to point at the dev Neon branch (`<dev-neon-branch>`) instead of the original/prod branch (`<prod-neon-branch>`). Added `NEON_BRANCH=dev` env var per `protocols/autonomous-ops-permissions.md` per-branch logic. Vercel prod env still has the prod branch URL (gitignored from the repo).
 
 **What changed (Tier 1 / this framework):** nothing structural. The autonomous-ops-permissions doctrine codified earlier today already accommodates this workflow. The `dev = Tier B autonomous, main = Tier B autonomous with audit + extra escalation triggers` mapping in §3 of that protocol applies cleanly.
 
@@ -1025,7 +1041,7 @@ Single-session signal was sufficient — the user explicitly named the gap. The 
 
 ## 2026-05-06 — Ops audit: db:push applied to dev Neon (Tier B)
 
-**Action:** `npm run db:push` against `NEON_BRANCH=dev` (host `ep-broad-moon-apiaksv1-pooler.c-7.us-east-1.aws.neon.tech`).
+**Action:** `npm run db:push` against `NEON_BRANCH=dev` (the dev Neon branch `<dev-neon-branch>`).
 
 **Outcome:** Drizzle reported "No changes detected" — the dev branch was already in sync with the schema, indicating the parallel session had pushed `bug_reports` earlier in the day. Verified post-action via direct `@neondatabase/serverless` query:
 - Table `bug_reports` present
@@ -1050,7 +1066,7 @@ Single-session signal was sufficient — the user explicitly named the gap. The 
 
 **Authorization:** User Decision Packet response 2026-05-06: *"Sure do A. You handle running this and keep the dbs up to date as of now."* — explicitly approving the Tier C operation AND granting forward authority to apply pending migrations to both environments.
 
-**Outcome — and a meaningful discovery:** `drizzle-kit push` reported "No changes detected" against the prod env. Verification via direct query revealed why: **Vercel's prod `DATABASE_URL` resolves to the same Neon endpoint as dev's `.env.local` URL** (`ep-broad-moon-apiaksv1-pooler.c-7.us-east-1.aws.neon.tech`). The dashboard currently runs both Vercel environments against a single Neon branch.
+**Outcome — and a meaningful discovery:** `drizzle-kit push` reported "No changes detected" against the prod env. Verification via direct query revealed why: **Vercel's prod `DATABASE_URL` resolves to the same Neon endpoint as dev's `.env.local` URL** (the dev Neon branch `<dev-neon-branch>`). The dashboard currently runs both Vercel environments against a single Neon branch.
 
 This means the dev push earlier today (logged in the previous audit entry) effectively covered prod as well — the bug_reports table is live for both Vercel environments because there is only one DB. The 2 captured rows are visible to prod traffic.
 
@@ -1085,15 +1101,15 @@ This means the dev push earlier today (logged in the previous audit entry) effec
 
 4. **Rotated Vercel Preview scope DATABASE_URL** → `dev` branch URL. Required passing an empty-string git-branch arg (`vercel env add DATABASE_URL preview ""`) to bind to "all preview branches" rather than a specific git-branch — first attempt without that arg returned a JSON disambiguation hint and didn't complete.
 
-5. **Triggered production redeploy** — `vercel redeploy <latest-prod-deployment-url> --target=production`. Build completed in 47s; aliased to `agents-dashboard-olive.vercel.app`. New env vars now live on the deployed app.
+5. **Triggered production redeploy** — `vercel redeploy <latest-prod-deployment-url> --target=production`. Build completed in 47s; aliased to the production Vercel alias (`<prod-vercel-alias>`). New env vars now live on the deployed app.
 
 **Final topology (verified by direct neonctl queries):**
 
 | Environment | Neon branch | Host | Row counts at audit time |
 |---|---|---|---|
-| Vercel Production | `production` | `ep-aged-brook-apg2g57j-pooler...` | 1 bug_report, 1 user |
-| Vercel Preview | `dev` | `ep-broad-moon-apiaksv1-pooler...` | 2 bug_reports, 1 user |
-| `.env.local` | `local` | `ep-aged-wildflower-aprg1xfd-pooler...` | 1 bug_report, 1 user |
+| Vercel Production | `production` | `<prod-neon-branch>` | 1 bug_report, 1 user |
+| Vercel Preview | `dev` | `<dev-neon-branch>` | 2 bug_reports, 1 user |
+| `.env.local` | `local` | `<local-neon-branch>` | 1 bug_report, 1 user |
 
 The Tier B / Tier C distinction in `protocols/autonomous-ops-permissions.md` §3.1 is now operationally meaningful again — three real branches, three real environments, one-to-one mapping.
 
