@@ -10,7 +10,7 @@ For technical changes, see root `CHANGELOG.md`. For project-narrative changes, s
 
 ## 2026-05-29 — Framework v0.26.0 — Session work-output telemetry: product files + committed LOC at seal (M-D slice B)
 
-The third M-D telemetry slice lands, held/unpublished alongside v0.25.0. Where v0.25.0 mirrored events the framework already produced, this slice captures something new: what a session actually produced. At session seal the team now emits a `session-work-output` / `summary` / `seal` event carrying the product files touched and the lines-of-code committed in that session — the data the dashboard's per-session view needs to show "files done / LOC done."
+The third M-D telemetry slice lands. Where v0.25.0 mirrored events the framework already produced, this slice captures something new: what a session actually produced. At session seal the team now emits a `session-work-output` / `summary` / `seal` event carrying the product files touched and the lines-of-code committed in that session — the data the dashboard's per-session view needs to show "files done / LOC done."
 
 The single most important design call is that this is a separate telemetry stream, not a widening of the cross-cutting collision manifest. That manifest exists to stop concurrent sessions from colliding on shared framework files, and its deliberate blindness to product source code is what keeps it scannable. "What did this session produce" is a different question with a different reader — the dashboard user, not a sibling session — so it gets its own stream and the collision matcher is left untouched.
 
