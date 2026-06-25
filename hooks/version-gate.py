@@ -429,7 +429,11 @@ def _check_commit() -> None:
                 f"Either reclassify the bump or split the removal/rename into its own release."
             )
 
-    # Marketplace alignment — soft check; warns but does not block
+    # Marketplace alignment — HARD check; _block()s (exit 2) on any version drift
+    # between package.json and EITHER .claude-plugin manifest. (The comment here
+    # previously claimed "soft check; warns but does not block" — that was wrong:
+    # the code below has always called _block(). Corrected so a future maintainer
+    # cannot "restore" a soft-check and silently delete enforcement.)
     plugin_path = _project_dir() / ".claude-plugin" / "plugin.json"
     if plugin_path.exists():
         try:
@@ -441,6 +445,39 @@ def _check_commit() -> None:
                     f".claude-plugin/plugin.json is `{plugin_version}`. "
                     f"Per protocols/versioning-protocol.md §6, these must match in the same commit."
                 )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Marketplace alignment (marketplace.json) — HARD check, mirrors the
+    # plugin.json block above. marketplace.json carries the version NESTED at
+    # plugins[*].version (no top-level field), so it needs its own iteration.
+    # Every plugins[] entry whose name == 'tapagents' (or, defensively, every
+    # entry carrying a version) must match package.json#version. Drift _block()s.
+    # This closes the gap where sync treats the .claude-plugin/ manifests as
+    # target-orphans and never bumps marketplace.json — the operator now aligns
+    # it via scripts/bump-manifest-versions.ts and this gate enforces the result.
+    marketplace_path = _project_dir() / ".claude-plugin" / "marketplace.json"
+    if marketplace_path.exists():
+        try:
+            marketplace_data = json.loads(marketplace_path.read_text())
+            plugins = marketplace_data.get("plugins")
+            if isinstance(plugins, list):
+                for entry in plugins:
+                    if not isinstance(entry, dict):
+                        continue
+                    if entry.get("name") not in ("tapagents", None):
+                        # A differently-named plugin entry — not under this
+                        # framework's version contract; skip it.
+                        if entry.get("name") is not None:
+                            continue
+                    entry_version = entry.get("version")
+                    if entry_version and entry_version != new_version:
+                        _block(
+                            f"Marketplace version drift: package.json is `{new_version}` but "
+                            f".claude-plugin/marketplace.json plugin `{entry.get('name', '<unnamed>')}` "
+                            f"is `{entry_version}`. Per protocols/versioning-protocol.md §6, these must "
+                            f"match in the same commit. Run scripts/bump-manifest-versions.ts to align."
+                        )
         except (json.JSONDecodeError, OSError):
             pass
 

@@ -250,10 +250,29 @@ The two distribution channels MUST stay locked to the same version:
 
 - The `package.json` `"version"` field is canonical
 - `.claude-plugin/plugin.json` `"version"` field MUST match
-- `.claude-plugin/marketplace.json` plugin entries MUST match
-- Any version mismatch across these three is a hard CI failure
+- `.claude-plugin/marketplace.json` `plugins[*].version` (nested — there is no
+  top-level field) MUST match for every plugin entry under this framework's
+  contract
+- Any version mismatch across these three is a hard failure
 
-The `/release` command updates all three atomically. Gate 2's hook checks alignment before allowing the commit.
+**How alignment is produced and enforced.** The `/release` command aligns all
+three in one mechanical step: `scripts/bump-manifest-versions.ts` reads the
+canonical `package.json#version` and surgically rewrites both manifests' version
+fields (single-line diff per file, idempotent). It reads the LOCAL package.json
+(the release tree's own), never a source copy, so it cannot re-introduce a
+stale-source downgrade. This replaces the prior per-release hand-edit of both
+manifest version fields — error-prone because the manifests are not driven by the
+whole-tree sync (they are mirror-only files) and the marketplace.json version is
+nested rather than top-level.
+
+**Gate 2 hook coverage is all three files.** `hooks/version-gate.py`'s commit
+check hard-blocks (exit 2) on a `package.json`↔`.claude-plugin/plugin.json`
+version mismatch AND on a `package.json`↔`.claude-plugin/marketplace.json`
+`plugins[*].version` mismatch. Both checks run before the release commit is
+allowed; either drift stops the commit with an actionable message naming the
+bump script. (Earlier revisions of this section described the hook as covering
+all three while the hook in fact checked only `plugin.json`; the
+`marketplace.json` check has since been added so the prose and the code agree.)
 
 ## §7 Pre-1.0 vs post-1.0
 
