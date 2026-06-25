@@ -1,6 +1,6 @@
 {
   "name": "@tapintomymind/tap-agents",
-  "version": "0.31.0",
+  "version": "0.31.1",
   "description": "TapAgents — an opinionated AI product team for Claude Code. Curated agents, commands, protocols, and templates that scaffold a startup's worth of product roles (Strategist, Architect, Designer, Critic, Quality Engineer, Ops/Security) into any repo. Distributed via Claude Code marketplace and npm.",
   "type": "module",
   "main": "./dist/index.mjs",
