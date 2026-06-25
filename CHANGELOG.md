@@ -4,6 +4,23 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.35.1] — 2026-06-25 — Parity audit: annotate deliberately-held v0.25.0/0.26.0/0.27.0 as known orphans + track the audit script in the sync manifest
+
+**Patch release. Operator-side tooling (not in the npm tarball); no consumer-visible change.** Two operator-side reconciliations to the cross-channel parity audit and its sync wiring.
+
+The §4.6 cross-channel parity audit now annotates v0.25.0/v0.26.0/v0.27.0 as known orphans — deliberately held-from-npm releases (an operator distribution decision; their capability was carried forward into a later published version), NOT publish failures. The audit's remediation hint for a tag-and-release-present-but-npm-absent version now distinguishes a deliberate hold from a mid-flight publish failure, so the two are no longer conflated.
+
+Separately, the audit script itself is now tracked in the sync manifest so the published mirror copy stops drifting from the canonical source.
+
+**Net effect:** the daily audit reports PASS when only documented/accepted divergences remain, so a future RED signals a genuinely NEW divergence rather than re-flagging the accepted held versions every run. The subset-guard is intact — the detector still goes RED on any new presence-then-missing divergence.
+
+### Changed
+
+- **`scripts/version-parity-audit.ts`** — adds v0.25.0/v0.26.0/v0.27.0 to the known-orphans map (each `missing_from: ["npm"]`, deliberate-hold class) and to the top-of-file known-orphans narrative, and rewords the "tag + release present, npm absent" remediation hint to distinguish a deliberate operator hold (permanent absence by design; annotate, do not republish) from a mid-flight publish failure (a release incident). Operator-side audit tooling only — this script is not in `package.json#files`, so the published tarball is unchanged.
+- **`scripts/sync-src/manifest.json5`** — adds `scripts/version-parity-audit.ts` to `include[]`, alongside the other operator scripts (`telemetry-rollup.py`, `emit-metric.py`, `rollup-metrics.py`, `bump-manifest-versions.ts`). The audit script had drifted from the canonical source since it was committed directly to the mirror; it is now tracked by the sync so the mirror copy reconciles to canonical and stays current going forward. Operator-side tooling (not in the npm tarball); no consumer-visible change.
+
+**Billing: Pool A.** Tooling/documentation only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
 ## [0.35.0] — 2026-06-25 — Mechanical .claude-plugin version alignment + commit-time marketplace.json enforcement
 
 **Minor release. Additive — a new release-time script mechanically aligns the three version-bearing files, and the commit-time version-gate now enforces marketplace.json alignment; nothing removed or narrowed.** A new script aligns `package.json`, `.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` (`plugins[*].version`) in one mechanical, idempotent, single-line-diff-per-file step, replacing the prior per-release manual hand-edit of both `.claude-plugin/` manifests. In the same change, the commit-time version-gate now hard-blocks on `marketplace.json` version drift (previously only `plugin.json` drift was enforced), closing the gap the versioning protocol §6 already described as covered.

@@ -47,6 +47,7 @@
     "scripts/telemetry-rollup.py",
     "scripts/emit-metric.py",
     "scripts/rollup-metrics.py",
+    "scripts/version-parity-audit.ts",
     // Release-time manifest version aligner + its test. These are top-level
     // scripts (not under build-src/ or sync-src/), so they need explicit include
     // entries to ship to the mirror — `/release` runs the aligner with

@@ -35,6 +35,11 @@
  *              migration; OIDC fix shipped in v0.9.0). Documented in v0.18.0
  *              proposal Cost/risk section as one of the 5 incident classes.
  *
+ *   - v0.25.0, v0.26.0, v0.27.0 — local + remote tag + GH Release present, npm
+ *              absent. Deliberately held from npm (operator distribution
+ *              decision, NOT a publish failure); capability carried forward into
+ *              the published v0.30.0. Permanent absence by design.
+ *
  *   - v0.13.0, v0.13.1 — never created. Numbering gap, not a divergence. These
  *              versions don't appear in ANY channel; the audit ignores absent-
  *              from-all-channels versions entirely (only flags presence-then-
@@ -125,6 +130,59 @@ const KNOWN_ORPHANS: Record<
     missing_from: ["npm", "releases"],
     reason:
       "Tag on local + remote; publish.yml ran but failed at npm publish step (pre-Trusted-Publishing-OIDC migration). OIDC fix shipped in v0.9.0. Documented in v0.18.0 Gate 5 proposal Cost/risk section as one of the 5 incident classes.",
+  },
+  "0.25.0": {
+    // Deliberately HELD from npm — an operator distribution decision, NOT a
+    // mid-flight publish failure. The M-D telemetry-track slice (cloud-mirror:
+    // phase-transitions S1 + session lifecycle A). Per the v0.25.0 CHANGELOG
+    // entry: "this version was unpublished when slice A landed." The tag WAS
+    // created + pushed to origin and a GitHub Release WAS created (verified:
+    // present in [local, remote, releases, main-ancestry]; absent only from
+    // npm), so the CHANGELOG's "no tag/push" framing describes intent, not the
+    // realized channel state — the true and only gap is npm. The capability is
+    // carried forward into the next PUBLISHED version v0.30.0 (verified:
+    // hooks/stop-phase-transition.py + the session-tracking cloud-mirror
+    // emit_event_http() calls are present in the v0.30.0 tree, which IS on
+    // npm), so the npm-absence is functionally non-impactful — every consumer
+    // installing v0.30.0+ receives this slice's work. Permanent absence by
+    // design (npm immutability: republishing would publish-date-AFTER v0.30.0+
+    // and add confusion, same posture as v0.15.0).
+    missing_from: ["npm"],
+    reason:
+      "Deliberately held from npm (operator distribution decision, NOT a mid-flight publish failure). M-D telemetry-track cloud-mirror slice. Tag pushed + GitHub Release created; only npm-publish was withheld. Content carried forward into the published v0.30.0 (which IS on npm), so the npm-absence is functionally non-impactful. Permanent absence by design per v0.25.0 CHANGELOG (\"this version was unpublished when slice A landed\") + npm immutability.",
+  },
+  "0.26.0": {
+    // Deliberately HELD from npm — operator distribution decision, NOT a
+    // publish failure. M-D telemetry-track slice B (session work-output:
+    // product files + committed LOC at seal). Per the v0.26.0 CHANGELOG entry:
+    // "held/unpublished alongside v0.25.0." Same realized channel state as
+    // v0.25.0 — tag pushed + GitHub Release created (verified: present in
+    // [local, remote, releases, main-ancestry]; absent only from npm). The
+    // capability is carried forward into the published v0.30.0 (verified:
+    // _emit_work_output() + loc_landed_on_main_since() are present in the
+    // v0.30.0 tree on npm), so the npm-absence is functionally non-impactful.
+    // Permanent absence by design (npm immutability; same posture as v0.15.0).
+    missing_from: ["npm"],
+    reason:
+      "Deliberately held from npm (operator distribution decision, NOT a mid-flight publish failure), alongside v0.25.0. M-D telemetry-track session work-output slice. Tag pushed + GitHub Release created; only npm-publish was withheld. Content carried forward into the published v0.30.0 (which IS on npm), so the npm-absence is functionally non-impactful. Permanent absence by design per v0.26.0 CHANGELOG (\"held/unpublished alongside v0.25.0\") + npm immutability.",
+  },
+  "0.27.0": {
+    // Deliberately HELD from npm — operator distribution decision, NOT a
+    // publish failure. M-D telemetry-track Slice A0 (credential-file read in
+    // _telemetry.py for frictionless onboarding). Per the v0.27.0 CHANGELOG
+    // entry: "Held/unpublished ... operator distribution decision, same posture
+    // as the held v0.25.0 + v0.26.0." NOTE: that entry's parenthetical "no
+    // tag/push/npm-publish" describes intent at authoring time, but the tag WAS
+    // subsequently created + pushed and a GitHub Release WAS created (verified:
+    // present in [local, remote, releases, main-ancestry]; absent only from
+    // npm) — the realized and only gap is npm. The capability is carried
+    // forward into the published v0.30.0 (verified: _resolve_credentials() is
+    // present in the v0.30.0 _telemetry.py tree on npm), so the npm-absence is
+    // functionally non-impactful. Permanent absence by design (npm immutability;
+    // same posture as v0.15.0).
+    missing_from: ["npm"],
+    reason:
+      "Deliberately held from npm (operator distribution decision, NOT a mid-flight publish failure), same posture as v0.25.0 + v0.26.0. M-D telemetry-track onboarding-enablement slice (credential-file read). Tag pushed + GitHub Release created; only npm-publish was withheld. Content carried forward into the published v0.30.0 (which IS on npm), so the npm-absence is functionally non-impactful. Permanent absence by design per v0.27.0 CHANGELOG (\"Held/unpublished ... operator distribution decision\") + npm immutability.",
   },
   // pre-trunk-discipline-era releases (v0.8.x through v0.23.0) may have
   // historically been tagged off non-main branches and never back-merged.
@@ -703,7 +761,7 @@ function remediationHint(div: Divergence): string {
     return `Tag exists locally but not on origin (the v0.15.0 class). Remediate: git push origin v${div.version}`;
   }
   if (m.has("npm") && p.has("remote") && p.has("releases")) {
-    return `Tag on origin + GH Release present but missing from npm. publish.yml ran but npm publish failed mid-flight. Release-incident; remediation requires republish under a new version per immutability rules.`;
+    return `Tag on origin + GH Release present but missing from npm. This is EITHER (a) a mid-flight publish failure (publish.yml ran but npm publish errored) OR (b) a DELIBERATE hold — an operator distribution decision to tag + release without publishing to npm. CHECK the version's CHANGELOG entry before treating as an incident: a held version states "held/unpublished" / "operator distribution decision" and its capability is carried forward into a later published version (npm-absence is then permanent-by-design — add a KNOWN_ORPHANS entry with missing_from: ["npm"], do NOT republish). A genuine mid-flight failure is a release-incident; remediate by cutting the next version with the content per npm immutability rules (do NOT republish the same version).`;
   }
   if (m.has("releases") && p.has("npm")) {
     return `Version on npm but no GitHub Release. softprops/action-gh-release@v2 errored in publish.yml. Remediate: awk CHANGELOG entry → gh release create v${div.version} --notes-file <entry>.`;
