@@ -47,6 +47,12 @@
     "scripts/telemetry-rollup.py",
     "scripts/emit-metric.py",
     "scripts/rollup-metrics.py",
+    // Release-time manifest version aligner + its test. These are top-level
+    // scripts (not under build-src/ or sync-src/), so they need explicit include
+    // entries to ship to the mirror — `/release` runs the aligner with
+    // cwd=tap-agents/, so the script MUST exist in the mirror tree.
+    "scripts/bump-manifest-versions.ts",
+    "scripts/bump-manifest-versions.test.ts",
     "workspace/.gitkeep",
     "workspace/_examples/**/*",
     "workspace/_global/.gitkeep",

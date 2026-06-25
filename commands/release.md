@@ -218,6 +218,8 @@ git checkout -b "${RELEASE_BRANCH}" origin/main
 
 Two patterns for staging the source bundle, depending on where the source already lives:
 
+> **Bootstrap note (v0.35.0 — the release that first introduces `scripts/bump-manifest-versions.ts`).** The manifest aligner script invoked in the release-artifacts block below (the `npx tsx scripts/bump-manifest-versions.ts` step) is itself source that ships via sync; it does NOT exist on `tap-agents origin/main` until a release commit carries it there. For the bootstrap release the script is a chicken-and-egg case — the same release whose Step-6 block assumes it is present is the one that first lands it. So you MUST stage the script (and its test) into the release tree via Pattern A or B below BEFORE running that block, e.g. `git checkout <HQ-or-feature> -- scripts/bump-manifest-versions.ts scripts/bump-manifest-versions.test.ts && git add scripts/bump-manifest-versions.ts scripts/bump-manifest-versions.test.ts`. Once it is on `origin/main` (this bootstrap release), every subsequent `/release` inherits it via the branch base (Pattern A) and no special handling is needed. The `[ -f scripts/bump-manifest-versions.ts ]` guard immediately before the `npx tsx` invocation fails loud if you forget.
+
 - **Pattern A — Source already merged to main.** If the source changes are already on `origin/main` (e.g., the feature work was merged to main in a prior step), then `release/${NEW_VERSION}` already has them via the branch base — no cherry-pick needed. Just write the release artifacts (next block).
 
 - **Pattern B — Source on a feature branch.** If the source changes live on a feature branch (`feat/<slice>`), cherry-pick the relevant commit(s) onto the release branch BEFORE writing the release artifacts. Example for a single-commit slice:
@@ -239,11 +241,52 @@ Two patterns for staging the source bundle, depending on where the source alread
 # Apply the release artifacts (version bumps + CHANGELOG + agent-changelog narrative).
 # At this point the source bundle (if any) is already staged from Pattern A or B above.
 
-# Update package.json version (manually or via npm version)
-# Update .claude-plugin/plugin.json version (must match package.json)
-# Update .claude-plugin/marketplace.json plugin entry version (must match)
+# Update package.json version (via `npm version --no-git-tag-version ${NEW_VERSION}`
+#   or an equivalent edit — this is the canonical version per §6).
 # Prepend CHANGELOG.md with the new entry
 # Prepend memory/agent-changelog.md with the narrative entry
+
+# Align the two .claude-plugin/ manifests to package.json#version in ONE step.
+# This replaces the old hand-edit of both manifest version fields (the footgun:
+# sync treats .claude-plugin/{plugin,marketplace}.json as target-orphans and
+# never bumps them, and marketplace.json's version is NESTED at plugins[*].version
+# so it was the easiest to forget). The script reads ./package.json#version (the
+# LOCAL/target tree — the never-downgrade authority; see sync.ts:821-835) and
+# surgically rewrites plugin.json#version + marketplace.json plugins[*].version
+# for name === 'tapagents', single-line diff per file, idempotent.
+#
+# HARD ORDERING INVARIANT — run this script:
+#   AFTER  the package.json version bump step (`npm version`/edit above) — it reads
+#          that version.
+#   AFTER  the Pattern-B `git checkout HEAD -- ... .claude-plugin/*` HEAD-restore
+#          step, which would otherwise CLOBBER this script's manifest writes.
+#   BEFORE the `git add` of the release files below — the version-gate reads the
+#          WORKING-TREE disk, so alignment holds only if the script's writes are
+#          the LAST mutation to those files before staging + commit.
+# The script runs in the release tree (cwd=tap-agents/ at release time).
+#
+# BOOTSTRAP PRECONDITION — the script must EXIST in the release tree before this
+# line runs. The release branch is cut from `tap-agents origin/main` (the
+# `git checkout -b "${RELEASE_BRANCH}" origin/main` step at the top of Step 6),
+# and `scripts/bump-manifest-versions.ts` ships to the mirror via
+# sync (manifest.json5 include[]) — it is NOT created by the /release flow. For
+# every release AFTER the bootstrap one, the script is already on origin/main
+# (it landed in a prior release commit) so the branch base inherits it. For the
+# BOOTSTRAP release (v0.35.0 — the first to carry this script), origin/main does
+# NOT yet have it; the script must be part of the staged source bundle (see
+# "Staging the source bundle" above) BEFORE this line. Two ways to satisfy it:
+#   - Pattern A: a prior `sync.ts --apply` already landed the script on
+#     origin/main, so the branch base inherits it (then every later /release does
+#     too — the steady state). OR
+#   - Pattern B: stage it from the source tree onto this release branch, e.g.
+#     `git checkout <HQ-or-feature> -- scripts/bump-manifest-versions.ts \
+#        scripts/bump-manifest-versions.test.ts` then `git add` them, so it is
+#     present in the release tree (and ships in this same release commit).
+# The guard below fails LOUD (rather than letting `npx tsx` emit a confusing
+# module-not-found) when the script is absent — at which point stage it (A/B)
+# and re-run this step.
+[ -f scripts/bump-manifest-versions.ts ] || { echo "FAIL: bump script absent from release tree — stage it (Pattern A/B) before this step" >&2; exit 1; }
+npx tsx scripts/bump-manifest-versions.ts   # cwd must be the tap-agents/ release tree
 
 git add package.json CHANGELOG.md memory/agent-changelog.md \
         .claude-plugin/plugin.json .claude-plugin/marketplace.json

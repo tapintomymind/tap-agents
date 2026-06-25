@@ -4,6 +4,24 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.35.0] — 2026-06-25 — Mechanical .claude-plugin version alignment + commit-time marketplace.json enforcement
+
+**Minor release. Additive — a new release-time script mechanically aligns the three version-bearing files, and the commit-time version-gate now enforces marketplace.json alignment; nothing removed or narrowed.** A new script aligns `package.json`, `.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` (`plugins[*].version`) in one mechanical, idempotent, single-line-diff-per-file step, replacing the prior per-release manual hand-edit of both `.claude-plugin/` manifests. In the same change, the commit-time version-gate now hard-blocks on `marketplace.json` version drift (previously only `plugin.json` drift was enforced), closing the gap the versioning protocol §6 already described as covered.
+
+**No runtime-consumer contract change.** This is release-pipeline / operator tooling. No agent, command, protocol, template, hook trigger, authority, or output contract was removed or narrowed. Adopters at v0.34.0 are unchanged.
+
+### Added
+- **`scripts/bump-manifest-versions.ts`** — reads the local `package.json#version` as the version authority and surgically rewrites `.claude-plugin/plugin.json#version` plus `.claude-plugin/marketplace.json` `plugins[*].version` (for the `tapagents` entry) to match. Idempotent, single-line diff per file, preserves indentation / key order / trailing newline; fails loudly on a missing or malformed manifest. Replaces the per-release manual manifest hand-edit.
+- **`scripts/bump-manifest-versions.test.ts`** — covers alignment from the local version authority, idempotent no-op re-run, the assert-at-least-one-plugin-entry guard, name/source/description immutability, single-line-diff preservation, and loud failure on a missing manifest.
+
+### Changed
+- **`hooks/version-gate.py`** — the commit check now also hard-blocks (exit 2) on `package.json` ↔ `.claude-plugin/marketplace.json` `plugins[*].version` drift, mirroring the existing `plugin.json` check (previously `marketplace.json` was unenforced). A misleading comment that described the marketplace check as a non-blocking warning was corrected to match the always-blocking behavior.
+- **`commands/release.md`** — the release flow's manifest-alignment step now invokes `scripts/bump-manifest-versions.ts` instead of a manual hand-edit of both `.claude-plugin/` manifests, with a documented hard ordering invariant (run after the `package.json` bump and any HEAD-restore, before staging).
+- **`protocols/versioning-protocol.md`** — §6 prose corrected to describe the now-real three-file commit-gate coverage (`package.json` + `plugin.json` + `marketplace.json`), matching the hook.
+- **`scripts/sync-src/manifest.json5`** — `include[]` entries added so the new script and its test ship to the published mirror.
+
+**Billing: Pool A.** Tooling / enforcement / documentation only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
 ## [0.34.0] — 2026-06-25 — db-admin dual-copy resolution: main-repo `.claude/` is canonical for apply records
 
 **Minor release. Additive — the db-admin agent's commit-after-apply gate gains a dual-copy resolution rule; nothing removed or narrowed.** Extends the database-administrator agent's commit-completion contract for applies whose register and audit records exist in more than one checkout of the same project — the common case being an apply performed inside an isolated git worktree alongside the main repository checkout. The rule fixes a record-keeping hazard where a worktree's abbreviated mirror of the register / audit log could be committed as if it were the authoritative record, leaving the canonical project copy un-updated.
