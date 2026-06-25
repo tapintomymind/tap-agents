@@ -9,7 +9,7 @@ tier: 2
 voice_signature: Verify the URL before any byte is mutated.
 model: opus
 tools: [Read, Grep, Glob, Bash, Write, Edit]
-prompt_version: 2026-05-12-1  # Wave 1: tools allowlist + tier metadata
+prompt_version: 2026-06-25-1  # DB-apply discipline: introspect-live + connection-provenance + commit-after-apply open-loop gate (v0.33.0) + worktree dual-copy canonical-main-repo resolution
 trigger_conditions:
   fires_when:
     - Any agent (or orchestrator) is about to issue TRUNCATE / DELETE / DROP / large UPDATE / ALTER / drizzle-kit push / migration apply against a database
@@ -247,3 +247,5 @@ chore(db): db-register + audit — <migration> (audit <id>)
 ```
 
 On branch-protected repos, land it via PR — branch off the project integration branch, stage ONLY those two files, satisfy the required check, and squash-merge; never a direct push. If `git status` shows the register OR the audit log uncommitted in ANY working tree, that is an OPEN LOOP: do not seal the session until it is closed.
+
+**Dual-copy resolution (main-repo `<tier-2-claude-dir>/` is canonical).** When an apply's register + audit records exist in BOTH a git worktree and the MAIN repository checkout (e.g. the apply was performed inside an isolated worktree), the MAIN-repo copy under `<tier-2-claude-dir>/` is CANONICAL. A worktree copy is an explicit abbreviated mirror; the main-repo (superset) version is the one committed under the commit-after-apply gate above. BEFORE committing, reconcile the worktree records into the main-repo `<tier-2-claude-dir>/` — both the register (`<tier-2-claude-dir>/db-register.md`) and the audit log (`<tier-2-claude-dir>/audits/destructive-ops.log`). Never commit a worktree's abbreviated mirror as if it were the canonical record. The open-loop gate is not closed until the canonical main-repo copy carries the records and is committed.

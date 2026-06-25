@@ -4,6 +4,26 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.34.0] — 2026-06-25 — db-admin dual-copy resolution: main-repo `.claude/` is canonical for apply records
+
+**Minor release. Additive — the db-admin agent's commit-after-apply gate gains a dual-copy resolution rule; nothing removed or narrowed.** Extends the database-administrator agent's commit-completion contract for applies whose register and audit records exist in more than one checkout of the same project — the common case being an apply performed inside an isolated git worktree alongside the main repository checkout. The rule fixes a record-keeping hazard where a worktree's abbreviated mirror of the register / audit log could be committed as if it were the authoritative record, leaving the canonical project copy un-updated.
+
+**The resolution rule.** When an apply's register and audit-log records exist in BOTH a git worktree and the main repository checkout, the main-repo copy under the project's `.claude/` directory is canonical — a worktree copy is treated as an explicit abbreviated mirror of the superset main-repo version. Before the commit-after-apply gate closes, the worktree records are reconciled into the canonical main-repo copy (both the project register and the destructive-ops audit log), and the open-loop gate is not considered closed until that canonical main-repo copy carries the records and is committed. A worktree's abbreviated mirror is never committed in place of the canonical record.
+
+The agent's `prompt_version` is bumped to reflect the full DB-apply discipline (the prior release's introspect-live + connection-provenance + commit-after-apply doctrines, plus this dual-copy resolution addition).
+
+**Downstream impact: none (additive).** The rule fires only when an apply produced records in two checkouts of the same project; no existing `fires_when` trigger, authority, or output contract was removed or narrowed. Additive — no existing `fires_when`, authority, or output contract removed; adopters at v0.33.0 continue unchanged.
+
+**Billing: Pool A.** Prompt/documentation content only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Changed
+
+- **`agents/db-admin.md`** — adds a "Dual-copy resolution" rule to the sealing condition's commit-after-apply gate: when an apply's register + audit records exist in both a git worktree and the main repository checkout, the main-repo copy under the project's `.claude/` directory is canonical (a worktree copy is an explicit abbreviated mirror), worktree records are reconciled into the main-repo copy before committing, and the open-loop gate is not closed until the canonical main-repo copy is committed. Bumps `prompt_version` to capture the full DB-apply discipline (introspect-live + connection-provenance + commit-after-apply open-loop gate, plus this dual-copy resolution). Purely additive; existing apply, refusal, and sealing behavior is otherwise unchanged.
+
+### Provenance
+
+- Authored 2026-06-25. Codifies a record-keeping hazard for applies performed across two checkouts of a project (e.g. inside an isolated git worktree) into the db-admin agent's commit-completion contract, building on the prior release's commit-after-apply open-loop gate.
+
 ## [0.33.0] — 2026-06-25 — db-admin DB-apply discipline: commit-after-apply, live introspection, connection provenance
 
 **Minor release. Additive — the db-admin agent gains additional apply-time verification plus a commit-completion gate; nothing removed or narrowed.** Hardens the database-administrator agent's completion and verification contract for any migration / DDL / register-affecting apply. The release weaves three standing doctrines into the agent and adds one refusal case plus two anti-patterns. The doctrines close a recurring failure class where an apply is reported done while its provenance is unverified or its record-keeping is left uncommitted.
