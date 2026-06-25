@@ -4,6 +4,28 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.33.0] — 2026-06-25 — db-admin DB-apply discipline: commit-after-apply, live introspection, connection provenance
+
+**Minor release. Additive — the db-admin agent gains additional apply-time verification plus a commit-completion gate; nothing removed or narrowed.** Hardens the database-administrator agent's completion and verification contract for any migration / DDL / register-affecting apply. The release weaves three standing doctrines into the agent and adds one refusal case plus two anti-patterns. The doctrines close a recurring failure class where an apply is reported done while its provenance is unverified or its record-keeping is left uncommitted.
+
+**The three doctrines.**
+
+- **Commit-after-apply (open-loop gate).** An apply is not complete until its register and audit-log entries are committed. After any apply, the agent commits the project register plus the audit log in a dedicated `chore(db): db-register + audit — <migration> (audit <id>)` commit (on branch-protected repos, via a PR that stages only those two files and squash-merges — never a direct push). A register or audit log left uncommitted in any working tree is an open loop, and the session must not seal until it is closed.
+- **Introspect live; never trust the register row or migration ledger alone.** Applied-state is determined from live database introspection (e.g. `information_schema`, catalog views, and the live signature objects a migration creates — tables / columns / constraints / indexes), not from the register row or the migration journal, both of which drift when migrations land out-of-band.
+- **Connection provenance.** The apply connection is resolved only from the register-blessed connection variable for the target branch. Before any write, the agent host-guards (live connection host must equal the registered host) and sentinel-verifies branch identity. An apply is never routed through an ambient or shell-inherited connection variable of unknown provenance, which may point anywhere, including production.
+
+**Downstream impact: none (additive).** The new checks fire only at apply time and a refusal case is added; no existing `fires_when` trigger, authority, or output contract was removed or narrowed. Adopters at v0.32.0 continue to function unchanged.
+
+**Billing: Pool A.** Prompt/documentation content only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Changed
+
+- **`agents/db-admin.md`** — adds a "DB-apply discipline — introspect, provenance-guard, commit" section codifying live-introspection and connection-provenance (host-guard + sentinel-verify branch identity) for every apply, and adds a "commit-after-apply (open-loop gate)" rule to the sealing contract requiring the register + audit log to be committed in a dedicated commit (PR-landed on branch-protected repos) before the session may seal. Adds the refusal case `destructive-via-unverified-connection` (apply routed through an ambient/unverified connection variable, or live host ≠ registered host) and two anti-patterns ("the journal row says it's applied" and "the connection variable is already set, just use it"). Purely additive; existing destructive-op workflow, refusal cases, and sealing behavior are otherwise unchanged.
+
+### Provenance
+
+- Authored 2026-06-25. Codifies a recurring apply-time failure class — unverified connection provenance and uncommitted register/audit record-keeping — into the db-admin agent's verification and completion contract.
+
 ## [0.32.0] — 2026-06-25 — Reader-inventory discipline: caller-enumeration for data-shape changes
 
 **Minor release. Additive — one new protocol plus additive review/scope discipline in two agents; nothing removed or narrowed.** Adds a standing rule for changes that alter the SHAPE of persisted data (stripping, renaming, retyping, or dropping a persisted field; changing a write-time projection; changing what a stored aggregate contains). The discipline fixes a recurring failure class: when a data-shape change is being scoped, the readers that must be re-validated are not just the leaf reader functions — they are the **call sites of every shared helper those leaf readers sit behind**. A leaf reader that is safe through one caller can be a hazard through another caller that feeds it reloaded/persisted data, so a reader hunt that stops at leaf functions can wave through a green-test regression. This release codifies the caller-enumeration method, wires it into the scoping and review passes, and makes the constrained-mode allowlist derive from the resulting reader inventory rather than from leaf functions alone.
