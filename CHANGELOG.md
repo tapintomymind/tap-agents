@@ -4,6 +4,27 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.32.0] — 2026-06-25 — Reader-inventory discipline: caller-enumeration for data-shape changes
+
+**Minor release. Additive — one new protocol plus additive review/scope discipline in two agents; nothing removed or narrowed.** Adds a standing rule for changes that alter the SHAPE of persisted data (stripping, renaming, retyping, or dropping a persisted field; changing a write-time projection; changing what a stored aggregate contains). The discipline fixes a recurring failure class: when a data-shape change is being scoped, the readers that must be re-validated are not just the leaf reader functions — they are the **call sites of every shared helper those leaf readers sit behind**. A leaf reader that is safe through one caller can be a hazard through another caller that feeds it reloaded/persisted data, so a reader hunt that stops at leaf functions can wave through a green-test regression. This release codifies the caller-enumeration method, wires it into the scoping and review passes, and makes the constrained-mode allowlist derive from the resulting reader inventory rather than from leaf functions alone.
+
+**Downstream impact: none (additive).** A new protocol file is added; the two modified agents gain additional checks that fire only on data-shape changes and otherwise leave existing behavior unchanged. No `fires_when` trigger, authority, or output contract was removed or narrowed. Adopters at v0.31.1 continue to function unchanged.
+
+**Billing: Pool A.** Documentation/prompt content only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Added
+
+- **`protocols/reader-inventory-discipline.md`** — codifies the caller-enumeration rule for data-shape changes. Defines the trigger scope (true persisted-shape changes only — not read-path refactors, UI-only changes, or new additive nullable columns with no readers), the per-call-site classification (data-source: in-memory-fresh vs persisted-reload; downstream-liveness: live vs dead), the reader-inventory table shape that the constrained-mode allowlist must be drawn from, and the two-round re-review requirement (round 1 re-runs the hunt from scratch under an explicit "assume another reader is missed" charge). Includes the two governing invariants: per-caller classification is mandatory (per-leaf is insufficient), and a "dead" reader is a fact to prove per-caller, never an assumption — a dead-by-luck reader is a latent trap to record and bind future consumers against.
+
+### Changed
+
+- **`agents/architect.md`** — adds scope-phase step 4a: when a scope changes a persisted data shape, produce the caller-classified reader inventory (per `protocols/reader-inventory-discipline.md`) BEFORE drawing any constrained-mode allowlist. Adds the constrained-mode requirement that a data-shape-change `Allowed paths:` list MUST derive from that inventory — a persisted-reload + live reader absent from the allowlist is a blocking scope gap because the implementer cannot reach the fix. `prompt_version` bumped to `2026-06-11-1`. Purely additive; existing scoping behavior for non-data-shape changes is unchanged.
+- **`agents/critic.md`** — adds review step 5a: on an artifact that scopes a persisted-data-shape change, independently re-run the caller-enumeration hunt rather than trusting the producer's "reader set is complete" claim — a missed persisted-reload + live reader is `blocking`; a persisted-reload + dead reader is `warning` (latent trap). On the second review round, run under the explicit "assume there is another reader the revision still misses" charge (author/judge separation). Adds three corresponding cross-cutting Pattern-Library entries. `prompt_version` bumped to `2026-06-11-1`. Purely additive; existing review behavior is unchanged.
+
+### Provenance
+
+- Authored 2026-06-25. Codifies a recurring data-shape-change reader-enumeration failure class into a standing protocol plus the matching producer (Architect scope-phase) and reviewer (Critic review-step) discipline, with the constrained-mode allowlist now derived from a backing reader inventory.
+
 ## [0.31.1] — 2026-06-02 — CHANGELOG-prose consistency: v0.31.0 narrative now matches the shipped 6-path `ignoreCommand`
 
 **Patch release. Documentation-consistency fix — no config change, no behavior change.** The v0.31.0 release shipped the corrected **6-path** `ignoreCommand` in `templates/stacks/_baseline/vercel.deploy-neutral.json` and `protocols/sync-tapagents-protocol.md` §4.5.3 (the full §3 framework-sync fingerprint: `.claude`, top-level `hooks/`, `scaffold-source/`, `*.md`, the globbed `*.scaffold-meta.json`, and `.bot-manifest.json`), but its `CHANGELOG.md` `[0.31.0]` narrative paragraph still described the earlier **4-path** form (`.claude`, `*.md`, `.scaffold-meta.json`, `.bot-manifest.json`). The functional artifact shipped was always the 6-path config; only the prose lagged — a casualty of a concurrent spec refinement that updated the config + protocol + CHANGELOG prose at HQ after the v0.31.0 release commit had already captured the older prose. Because npm tarballs are immutable, the v0.31.0 published `CHANGELOG.md` cannot be edited in place; this PATCH reconciles the narrative going forward so the latest published `CHANGELOG.md` documents the config it actually ships.

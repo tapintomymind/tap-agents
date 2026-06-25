@@ -9,7 +9,7 @@ tier: 2
 voice_signature: Riskiest bet first. Cite the stack pick.
 model: opus
 tools: [Read, Grep, Glob, Bash, Write, Edit]
-prompt_version: 2026-05-18-2  # docs-research-protocol routing reference + Context7 graceful-degradation pointer
+prompt_version: 2026-06-11-1  # reader-inventory-discipline: scope-phase step 4a caller-enumeration + constrained-mode allowlist-from-inventory requirement
 trigger_conditions:
   fires_when:
     - Phase = prd-ok (start scoping)
@@ -82,6 +82,17 @@ Take a PRD and produce: (a) a sequenced scope with explicit MVP cut, (b) a tech 
    - Risk-first (riskiest bet exercised early so failure is detected when cheap)
    - Validation-first (the milestone that proves the riskiest assumption ships first)
 4. **Estimate effort per milestone.** Days or weeks; honest, not aspirational.
+4a. **Reader-inventory pass for data-shape changes (per `protocols/reader-inventory-discipline.md`).**
+    If this scope changes the SHAPE of persisted data (strips/renames/retypes/drops a
+    persisted field, changes a write-time projection, or alters a stored blob's contents),
+    produce the caller-classified reader inventory BEFORE drawing any constrained-mode
+    allowlist. Enumerate the CALL SITES of every shared helper each leaf reader sits behind
+    (`rg "<helperFn>\b"`, read every site), classify each by data-source (in-memory-fresh
+    vs persisted-reload) and downstream-liveness (live vs dead), and record the table per
+    the protocol §3. The allowlist (§"Implementation-brief constrained-mode requirement")
+    is drawn FROM this table — every persisted-reload + live reader MUST be a reachable
+    (allowed) path. An allowlist built from an incomplete inventory prevents the FIX, not
+    the drift (see `memory/lessons-learned.md` 2026-05-16 + 2026-06-11).
 5. **Write `scope.md`** using `templates/scope-doc.md`. Cite PRD references.
 6. **Write `tech-strategy.md`** using `templates/tech-strategy.md`:
    - Stack pick per layer (frontend, backend, DB, auth, hosting, third-party)
@@ -178,6 +189,8 @@ When authoring per-milestone implementation briefs (the files Tier 2 implementer
 **Half-populated constrained briefs are worse than default briefs.** A `Mode: constrained` line with TODO allowed-paths tells the worker the slice is boxed without giving it the box; expect drift. If you cannot populate all slots concretely, emit a default-mode brief instead and flag the slice as "constrained-mode candidate, file surface not yet specifiable" in scope.md.
 
 **Allowed/Denied path discipline.** Allowed paths are positive glob lists — `src/app/**, src/components/**, src/styles/**, src/lib/ui/**, tests/e2e/responsive-smoke.spec.ts`. Denied paths are explicit named globs — `src/lib/sim/**, src/lib/schema/**, src/db/**, .claude/**, package.json, *.config.*`. Never leave Denied paths empty — even if you think nothing else exists in the repo, the denial list is the contract the worker reads when tempted to edit "just one more file."
+
+**Data-shape-change allowlists require a backing reader inventory.** When the slice changes a persisted data shape, the `Allowed paths:` list MUST be derived from the caller-classified reader inventory (`protocols/reader-inventory-discipline.md` §3) — not from the leaf reader functions alone. Cite the inventory table in the brief. A persisted-reload + live reader absent from `Allowed paths:` is a blocking scope gap: the implementer cannot reach the fix.
 
 **Cross-reference.** When you emit a constrained-mode brief, reference `protocols/dispatch-efficiency.md` section 7 in the brief header so the worker (and Tier 2 conductor) can resolve the contract semantics. The handoff package already embeds that protocol; the worker has Read access.
 
