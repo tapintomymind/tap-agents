@@ -4,6 +4,24 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.36.0] — 2026-07-01 — Deliberate-hold posture: hold-time KNOWN_ORPHANS annotation + carry-forward integrity guard
+
+**Minor release. Additive — the release flow codifies a deliberately-held version as a first-class terminal state with a paired annotation requirement; nothing removed, renamed, or narrowed.** A release the operator deliberately withholds from npm — tag pushed, GitHub Release created, `npm publish` declined as a distribution decision — is now a codified second terminal state of the release flow, not an ad-hoc outcome reconciled at a later audit. Completing a hold REQUIRES the paired `KNOWN_ORPHANS` annotation at hold-time: `missing_from: ["npm"]`, a hold-rationale `reason` naming the later published version that carries the held capability forward, and a code comment citing the CHANGELOG provenance. The annotation is gated by a carry-forward integrity check — the held capability must be confirmed carried forward into a later PUBLISHED version; a hold that would drop capability must NOT be annotated and instead surfaces as a real distribution gap requiring an explicit decision.
+
+Publish **failures** are unchanged and now explicitly distinguished from holds: a mid-flight `npm publish` error remains a release incident with forward-version remediation, and its absence from npm must never be annotated-away. The parity audit's fail-on-new subset-guard is also unchanged — a held version annotated `missing_from: ["npm"]` that later loses any channel beyond npm still surfaces as an unknown divergence.
+
+The motivating instances are v0.25.0/v0.26.0/v0.27.0 — deliberately held from npm and annotated retroactively in v0.35.1. This release makes the annotation a hold-time completion step so a future hold never leaves the audit red during an annotation gap.
+
+**Additive — adopters at v0.35.1 continue unchanged.**
+
+### Changed
+
+- **`commands/release.md`** — new "Hold path — operator declines `npm publish`" section: the deliberate hold is a codified second terminal state (tag pushed + GitHub Release created + npm withheld), release-complete only once the paired `KNOWN_ORPHANS` annotation lands at hold-time, gated by the carry-forward integrity check (held capability confirmed carried forward into a later published version; otherwise do not annotate — surface the gap for an explicit decision). A new Failure-modes bullet distinguishes publish failures (incident path; forward-version remediation; never annotate-silenced) from deliberate holds (annotation path).
+- **`protocols/versioning-protocol.md`** — §4.6 gains a "Deliberate-hold posture" paragraph: a held version is annotated at hold-time (not retroactively at next-audit-time), with a three-part acceptance criterion — (1) npm is the only missing channel, (2) the `reason` names the later PUBLISHED carry-forward version, (3) a code comment cites the CHANGELOG provenance. The audit's fail-on-new subset-guard is unchanged.
+- **`agents/_planned/release-coordinator.md`** — the planned stub's mandate is extended with annotate-at-hold-time: `fires_when` gains the deliberate-decline trigger (tag pushed + GitHub Release created, publish declined as a distribution decision), and the `KNOWN_ORPHANS` ownership now includes preparing the paired `missing_from: ["npm"]` entry atomically with the hold as a release-completion step, gated on the carry-forward integrity check. Mandate text only; the stub remains planned (not dispatchable).
+
+**Billing: Pool A.** Documentation/doctrine only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
 ## [0.35.1] — 2026-06-25 — Parity audit: annotate deliberately-held v0.25.0/0.26.0/0.27.0 as known orphans + track the audit script in the sync manifest
 
 **Patch release. Operator-side tooling (not in the npm tarball); no consumer-visible change.** Two operator-side reconciliations to the cross-channel parity audit and its sync wiring.

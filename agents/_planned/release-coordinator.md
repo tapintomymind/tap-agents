@@ -32,6 +32,7 @@ Owns the framework release lifecycle from `/release` invocation through Gate 5 v
 - A second active framework session has uncommitted version-bump intent (detected via `workspace/_global/active-sessions.md` cross-check).
 - `verify-publish.yml` opens a `gate-5-failure` issue on `tap-agents`.
 - Trunk-drift detected at audit (`main` HEAD behind any published tag — the recurring incident class; surfaced by `scripts/version-parity-audit.ts` fifth channel as of v0.24.0).
+- Operator **deliberately declines `npm publish`** for a version whose tag is pushed and whose GitHub Release is created (a distribution decision, NOT a publish failure). Owns producing the paired `KNOWN_ORPHANS` annotation at hold-time as a release-completion step (see the "Hold path" in `commands/release.md`).
 - Operator invokes `/grow-team` requesting release-state review.
 
 ## Authority + boundaries
@@ -41,7 +42,7 @@ Owns the framework release lifecycle from `/release` invocation through Gate 5 v
 - `/release` execution arc (Steps 1–9f under the new Layer B flow).
 - Cross-session coordination at the release boundary (parallel-session detection, version-order resolution, publish-order locking).
 - Trunk-state attestation post-publish (verify `main` is at the published tag SHA; complements the fifth-channel parity audit).
-- The `KNOWN_ORPHANS` map in `scripts/version-parity-audit.ts` (future appends; each user-approved per Open Question 1 in the org-designer proposal).
+- The `KNOWN_ORPHANS` map in `scripts/version-parity-audit.ts` (future appends; each user-approved per Open Question 1 in the org-designer proposal). Includes **annotate-at-hold-time**: when the operator deliberately holds a version from npm (tag pushed + GitHub Release created, publish declined as a distribution decision), release-coordinator prepares the paired `missing_from: ["npm"]` entry atomically with the hold as a release-completion step — gated on the carry-forward integrity check (the held slice must be carried forward into a later published version; if not, surface the distribution gap for a user decision rather than annotating). Publish **failures** stay incidents and are never annotated-away.
 - Gate 5 failure response. When `verify-publish.yml` files a `gate-5-failure` issue, release-coordinator is the dispatch target — diagnoses tag-not-pushed vs tarball-incomplete vs Release-missing per the §4.5 remediation table.
 - Override-token-justification authority. When the operator requests `[trunk-discipline-override: <reason>]` use, release-coordinator surfaces the request to the user with the audit-trail implications and routes the user's decision; the mechanical layer enforces the regex shape; release-coordinator owns the judgment of whether the hotfix scenario warrants the audit-trail cost.
 
