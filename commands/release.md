@@ -533,6 +533,29 @@ echo "============================================"
 
 Only after this banner prints is the release considered complete per `protocols/versioning-protocol.md §4.5`.
 
+## Hold path — operator declines `npm publish` (deliberate distribution decision)
+
+Steps 9a-9f are the **published-and-verified** terminal state. There is a second legitimate terminal state: the operator **deliberately holds** a version from npm — the tag is pushed and the GitHub Release is created (Steps 8 + 9e done), but `npm publish` is declined as a *distribution decision, not a publish failure*. That version is present in `[local, remote, releases, main-ancestry]` and absent only from `[npm]`. Without an annotation, the §4.6 daily parity audit sees the npm-only gap as an **unknown divergence** and goes red for a non-reason until someone hand-writes the annotation later.
+
+A deliberately-held release is **not "complete" as a bare tag + Release.** It requires the paired `KNOWN_ORPHANS` annotation as a release-completion step — symmetric to how a published release is not complete until Gate 5 is green (Step 9f). Do this at hold-time, in the same flow, before the next daily audit runs:
+
+**Integrity guard — confirm carry-forward BEFORE annotating.** Verify the held version's capability is carried forward into a later **published** version (one that IS on npm). This is the exact check applied to the existing held entries (`scripts/version-parity-audit.ts` — each was verified present in the published tree before annotation, citing the specific carried-forward symbols). Carry-forward is what makes npm-absence functionally non-impactful: every consumer installing the later published version receives the held slice's work.
+
+- **If carry-forward is confirmed** → annotate (below).
+- **If the held slice is NOT carried forward into any published version** → do **NOT** annotate. That is a genuine gap in the published distribution, and a `KNOWN_ORPHANS` entry would silence a real divergence. Surface the gap to the user as a real decision: publish the held version, OR forward-port the capability into the next published version, OR accept-and-document the gap explicitly. The annotation path is available **only** when carry-forward holds — it asserts a verifiable fact, not a wish.
+
+**Annotation (once carry-forward is confirmed).** Add a `KNOWN_ORPHANS["<version>"]` entry in `scripts/version-parity-audit.ts` with:
+
+- `missing_from: ["npm"]` — npm is the only absent channel.
+- `reason`: the accurate hold rationale (operator distribution decision; NOT a publish failure), naming the later published version that carries the capability forward.
+- A preceding code comment citing the CHANGELOG provenance for the hold (mirrors the existing held-entry comment shape in `version-parity-audit.ts`).
+
+This adds a **data entry** to the map; it does not touch the audit's logic — the `is_known_orphan` subset-guard (a later loss of any channel BEYOND npm still surfaces as unknown → red) is unchanged. The mutation is user-approved per entry and stays Org-Designer-routed (per `agents/executive-assistant.md` — EA must NOT mutate `KNOWN_ORPHANS` unilaterally), transferring to the release-coordinator if/when that stub is activated.
+
+The held release is complete only when the annotation is in place. This closes the window in which a hold sits unannotated and trips the next audit.
+
+**Not this path:** a mid-flight `npm publish` **error** is NOT a hold — it is a release-incident (the v0.8.3 class). It stays on the incident path with forward-version remediation (see "Failure modes" below); do NOT annotate a publish failure into `KNOWN_ORPHANS` to silence it.
+
 ## After landing
 
 State to the user, in this order:
@@ -553,6 +576,7 @@ State to the user, in this order:
 - **Tag push silently fails (the v0.15.0 class)** — Step 9a polls `git ls-remote --tags origin` precisely to catch this. The local `git push origin v<new>` may exit 0 while origin never receives the tag (network blip, auth glitch, ref-update rejection). Step 9a fails loudly with the remediation command. Do NOT continue to Step 9b/9c without a confirmed tag-on-origin — the workflow won't have fired.
 - **Layer A ancestry check fails (the v0.23.0 trunk-drift class)** — should not occur under the Layer B flow; the tag is applied on main by construction. If it does fire, either (a) the override token was incorrectly used, (b) main was force-pushed between Step 8 and publish.yml execution (extremely rare; doctrine-violation), or (c) Layer A has a bug. Investigate; do NOT re-tag. The Layer A error message includes both linear-merge and duplicate-fork remediation paths.
 - **Tarball-incomplete after publish (the v0.11.0 files-array class)** — `npm publish` succeeds but `package.json#files` dropped directories so the tarball is missing content. Step 9c confirms version-presence; Step 9d's tarball probe (cold-pull via `npm view ... dist.tarball` + curl + `tar -tzf`) catches the v0.11.0 class at release time. If Step 9d fails, the remediation is to cut the next version with a corrected `package.json#files` — do NOT republish the broken version (npm immutability). Defense-in-depth via an independent `verify-publish.yml` CI workflow shipped in v0.19.0; operator-side Step 9d remains the primary release-time catch.
+- **Publish failures are NOT deliberate holds** — a mid-flight `npm publish` error (the v0.8.3 class) is a release-incident, not a hold. It stays on the incident path: forward-version remediation (cut the next version with the content; do NOT republish the same version per npm immutability). The "Hold path" section above fires **only** when the operator *deliberately declines* publish for a version that is otherwise release-complete — never on an error, and its `KNOWN_ORPHANS` annotation must NEVER be used to silence a failed publish.
 
 ## See also
 
