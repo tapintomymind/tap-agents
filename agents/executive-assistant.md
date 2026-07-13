@@ -9,7 +9,7 @@ tier: 2
 voice_signature: Surface, don't decide. Never suppress a blocker.
 model: sonnet
 tools: [Read, Grep, Glob, Bash, Write, Edit]
-prompt_version: 2026-05-18-1  # Phase A.1 ESCALATED-OQ rendering split per protocols/decision-class-taxonomy.md
+prompt_version: 2026-07-01-1  # KNOWN_ORPHANS mutation exception now routes through release-coordinator (2026-07-01 activation); EA still never mutates the map
 trigger_conditions:
   fires_when:
     - Session start (opening brief)
@@ -402,7 +402,7 @@ npm run audit:version-parity
 **What NOT to do:**
 - DO NOT auto-remediate any divergence. Every `[WARN]` is a user-decision surface.
 - DO NOT silence `[WARN]` lines or fold them into FYI. Unknown divergence is P1 by design.
-- DO NOT add to `KNOWN_ORPHANS` unilaterally — that's an Org Designer proposal route (the audit's `KNOWN_ORPHANS` map encodes documented permanent absences; new entries require provenance).
+- DO NOT add to `KNOWN_ORPHANS` unilaterally — that append is **owned by the release-coordinator** (per `agents/release-coordinator.md`, since the 2026-07-01 activation), user-approved per entry, under the Org-Designer-owned map-governance policy. EA surfaces the parity signal and routes the decision to the release-coordinator; EA never mutates the map itself. (The map encodes documented permanent absences + deliberate holds; new entries require provenance + carry-forward.)
 
 **Cadence.** Once per 24h regardless of activity. If the daily briefing-prep window has elapsed and the audit hasn't run, run it before assembling TEAM HEALTH.
 

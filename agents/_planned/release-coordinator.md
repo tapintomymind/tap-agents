@@ -1,7 +1,10 @@
 ---
 name: release-coordinator
-description: Owns the framework release lifecycle from /release invocation through Gate 5 verification. Coordinates release-order across parallel framework sessions; stops at successful npm publish + GitHub Release green.
-status: planned
+description: PROMOTED 2026-07-01 — stub retained in place as historical record (Shape A′). Live contract at `agents/release-coordinator.md`.
+status: promoted
+promoted_on: 2026-07-01
+promoted_to: agents/release-coordinator.md
+promotion_proposal: memory/agent-changelog.md
 prompt_version: 2026-05-19-1
 activation_triggers: v0.25.0+
 department: framework
@@ -11,9 +14,17 @@ tier: 1
 voice_signature: terse-mechanical
 ---
 
-# Release Coordinator — planned stub
+# Release Coordinator — PROMOTED 2026-07-01
 
-**Status:** Planned. NOT YET DISPATCHABLE. This file lives in `agents/_planned/` and will be moved to `agents/` after the conditions in **Activation criteria** below are met.
+**PROMOTED 2026-07-01 — live contract at `agents/release-coordinator.md`; stub retained in place per the activation decision (Shape A′).**
+
+**This stub is retained as a historical record only. The live operating contract lives at `agents/release-coordinator.md`.** Per Shape A′ the stub is NOT moved to `_archive/` — keeping it at its `_planned/` path with this PROMOTED marker + the `promoted_to` frontmatter pointer preserves the archive doctrine's goal (a reader sees immediately this is an artifact and can find the live file) while keeping the activation release additive in `agents/` (MINOR-clean — no `D`/`R` under a versioned dir). The activation narrative + decision trail is in `memory/agent-changelog.md`.
+
+**Status:** PROMOTED. Not dispatchable as a stub; the live contract at `agents/release-coordinator.md` is the dispatchable role. The original planned-stub content is preserved below for the activation-decision audit trail.
+
+---
+
+## Original planned-stub content (preserved below — refer to the live contract for operating doctrine)
 
 **Provenance:** Org Designer proposal `workspace/_global/release-coordinator-proposal-2026-05-19.md` (Option Y split — release-coordinator immediate, adoption-coordinator post-v0.24.0). Architect tech-strategy `workspace/_global/trunk-discipline-tech-strategy-2026-05-19.md` §4 (mechanical-vs-judgment boundary). Critic CLEAR-WITH-REVISIONS 2026-05-19 — W5 surfaced architect-vs-org-designer split on timing; user approved STUB-IN-V0.24.0 path.
 

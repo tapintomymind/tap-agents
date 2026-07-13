@@ -550,7 +550,7 @@ A deliberately-held release is **not "complete" as a bare tag + Release.** It re
 - `reason`: the accurate hold rationale (operator distribution decision; NOT a publish failure), naming the later published version that carries the capability forward.
 - A preceding code comment citing the CHANGELOG provenance for the hold (mirrors the existing held-entry comment shape in `version-parity-audit.ts`).
 
-This adds a **data entry** to the map; it does not touch the audit's logic — the `is_known_orphan` subset-guard (a later loss of any channel BEYOND npm still surfaces as unknown → red) is unchanged. The mutation is user-approved per entry and stays Org-Designer-routed (per `agents/executive-assistant.md` — EA must NOT mutate `KNOWN_ORPHANS` unilaterally), transferring to the release-coordinator if/when that stub is activated.
+This adds a **data entry** to the map; it does not touch the audit's logic — the `is_known_orphan` subset-guard (a later loss of any channel BEYOND npm still surfaces as unknown → red) is unchanged. The mutation is user-approved per entry and is **owned by the release-coordinator** (per `agents/release-coordinator.md` — the `KNOWN_ORPHANS` append authority transferred to release-coordinator on the 2026-07-01 activation). EA must NOT mutate `KNOWN_ORPHANS` unilaterally; Org Designer retains the **map-governance policy** (the rule that each append requires provenance + carry-forward + per-entry user approval), which release-coordinator executes but does not amend.
 
 The held release is complete only when the annotation is in place. This closes the window in which a hold sits unannotated and trips the next audit.
 
