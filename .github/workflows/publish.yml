@@ -33,17 +33,22 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org/"
           cache: "npm"
 
       - name: Upgrade npm for Trusted Publishing
-        # Node 20.x ships with npm 10.x. Trusted Publishing (OIDC auth) requires
-        # npm 11.5.1 or later — without this upgrade, the npm CLI can't mint
-        # the OIDC token and the publish step silently falls back to "no auth",
-        # which the registry rejects with a confusing 404. Surfaced during the
-        # v0.8.3 publish attempt 2026-05-12; v0.9.0 is the first OIDC publish.
-        run: npm install -g npm@latest
+        # Node LTS runners ship with npm 10.x. Trusted Publishing (OIDC auth)
+        # requires npm 11.5.1 or later — without this upgrade, the npm CLI can't
+        # mint the OIDC token and the publish step silently falls back to "no
+        # auth", which the registry rejects with a confusing 404. Surfaced during
+        # the v0.8.3 publish attempt 2026-05-12; v0.9.0 is the first OIDC publish.
+        # PINNED to the npm@11 major (NOT @latest): npm@12 raised its engines
+        # floor past the runner's Node and broke the v0.37.0 publish with
+        # EBADENGINE — an unpinned @latest re-exposes the workflow to every
+        # future engines-floor bump. npm@11 satisfies the >=11.5.1 OIDC
+        # requirement and tracks 11.x patches only.
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci || npm install

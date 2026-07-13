@@ -40,6 +40,19 @@
  *              decision, NOT a publish failure); capability carried forward into
  *              the published v0.30.0. Permanent absence by design.
  *
+ *   - v0.37.0 — local + remote tag present + on main-ancestry; npm + GH Release
+ *              absent. publish.yml ran but failed PRE-publish at the "Upgrade
+ *              npm for Trusted Publishing" step: the unpinned `npm install -g
+ *              npm@latest` resolved to npm@12, whose engines floor
+ *              (Node >=22.22.2) exceeds the workflow's Node-20 runner —
+ *              EBADENGINE, exit 1 (npm@latest engine drift, a publish-
+ *              infrastructure failure; the release content itself was never
+ *              reached). The v0.8.3 incident class, forward-remediated per the
+ *              publish-failure doctrine (NOT a deliberate hold): content
+ *              carried forward into the published v0.37.1, whose workflow fix
+ *              pins Node 22 + npm@11. Documented in the v0.37.1 CHANGELOG
+ *              entry.
+ *
  *   - v0.13.0, v0.13.1 — never created. Numbering gap, not a divergence. These
  *              versions don't appear in ANY channel; the audit ignores absent-
  *              from-all-channels versions entirely (only flags presence-then-
@@ -183,6 +196,25 @@ const KNOWN_ORPHANS: Record<
     missing_from: ["npm"],
     reason:
       "Deliberately held from npm (operator distribution decision, NOT a mid-flight publish failure), same posture as v0.25.0 + v0.26.0. M-D telemetry-track onboarding-enablement slice (credential-file read). Tag pushed + GitHub Release created; only npm-publish was withheld. Content carried forward into the published v0.30.0 (which IS on npm), so the npm-absence is functionally non-impactful. Permanent absence by design per v0.27.0 CHANGELOG (\"Held/unpublished ... operator distribution decision\") + npm immutability.",
+  },
+  "0.37.0": {
+    // Publish FAILURE — the v0.8.3 incident class, NOT a deliberate hold. Tag
+    // on local + remote + main-ancestry (release-coordinator activation, squash-
+    // merged to main); publish.yml fired on the tag push but failed PRE-publish
+    // at the "Upgrade npm for Trusted Publishing" step: the unpinned
+    // `npm install -g npm@latest` resolved to npm@12, whose engines floor
+    // (Node >=22.22.2) exceeds the workflow's then-pinned Node-20 runner —
+    // EBADENGINE, exit 1. npm publish never ran and the GitHub Release step was
+    // never reached (verified: present in [local, remote, main-ancestry];
+    // absent from [npm, releases]). Forward-remediated per the publish-failure
+    // doctrine (`commands/release.md` Failure modes; npm immutability — never
+    // republish the same version): the full v0.37.0 content ships in the
+    // published v0.37.1, which also carries the workflow fix (Node 22 +
+    // npm@11 pinned major). Annotation user-approved per entry, 2026-07-13.
+    // Provenance: v0.37.1 CHANGELOG entry.
+    missing_from: ["npm", "releases"],
+    reason:
+      "Publish FAILURE (the v0.8.3 incident class, NOT a deliberate hold). Tag on local + remote + main-ancestry; publish.yml ran but failed pre-publish with EBADENGINE — the unpinned npm@latest upgrade resolved to npm@12, incompatible with the workflow's Node-20 runner. npm publish + GitHub Release were never reached. Forward-remediated: content carried forward into the published v0.37.1 (which also pins the workflow to Node 22 + npm@11). Documented in the v0.37.1 CHANGELOG entry.",
   },
   // pre-trunk-discipline-era releases (v0.8.x through v0.23.0) may have
   // historically been tagged off non-main branches and never back-merged.

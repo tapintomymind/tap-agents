@@ -4,6 +4,24 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.37.1] — 2026-07-13 — Publish-infrastructure fix: pin the publish workflow to Node 22 + npm@11 (carries the v0.37.0 content to npm)
+
+**Patch release. Publish-infrastructure fix; no consumer contract change beyond finally delivering the v0.37.0 content.** The v0.37.0 tag never reached npm or GitHub Releases: `publish.yml` fired on the tag push but failed pre-publish at its "Upgrade npm for Trusted Publishing" step — the unpinned `npm install -g npm@latest` resolved to npm@12, whose engines floor (Node >=22.22.2) exceeds the workflow's then-pinned Node-20 runner, producing an `EBADENGINE` error before the build, publish, or Release steps were reached. This is CI environment drift (npm's `@latest` moved past the runner's Node), not a defect in the v0.37.0 content, which is carried forward in full: **this version is the first to deliver the release-coordinator activation to npm.**
+
+This is a publish **failure** on the incident path (the same class as the historical v0.8.3 failure), remediated forward per the publish-failure doctrine — never republish the same version; cut the next version with the content. It is NOT a deliberate hold. Per the doctrine, v0.37.0 is annotated as a known orphan in the parity audit (`missing_from: ["npm", "releases"]`, incident class, carry-forward into this version) — the annotation is user-approved per entry, per the release-coordinator contract that ships in the v0.37.0 content.
+
+**Additive/patch — adopters at v0.36.0 receive the v0.37.0 content (the release-coordinator agent) plus this fix; nothing removed, renamed, or narrowed.**
+
+### Fixed
+
+- **`.github/workflows/publish.yml`** — `node-version: "20"` → `"22"`, and the Trusted-Publishing npm upgrade is pinned to the major (`npm install -g npm@11`) instead of `npm@latest`. npm@11 satisfies the >=11.5.1 OIDC requirement while staying immune to future `@latest` engines-floor bumps (npm@12 requires Node >=22.22.2, which broke the v0.37.0 publish on the Node-20 runner). The other workflows were audited for the same pattern: none runs the `npm@latest` upgrade, so none is exposed to this drift class.
+
+### Changed
+
+- **`scripts/version-parity-audit.ts`** — adds v0.37.0 to the `KNOWN_ORPHANS` map (`missing_from: ["npm", "releases"]`, publish-failure incident class, forward-remediated into this version) and to the top-of-file known-orphans narrative. Operator-side audit tooling; the annotation records a documented incident, not a hold.
+
+**Billing: Pool A.** CI configuration + audit tooling + documentation only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
 ## [0.37.0] — 2026-07-13 — release-coordinator activated: framework release lifecycle gains its owning agent
 
 **Minor release. Additive — a new agent file joins `agents/`; nothing removed, renamed, or narrowed.** The `release-coordinator` agent — planned since v0.24.0 as the judgment layer that operates atop the mechanical release floor — is activated as a live contract at `agents/release-coordinator.md`. The role owns the framework release lifecycle from `/release` invocation through Gate 5 verification: the `/release` execution arc (Steps 1–9f, including the scripted `.claude-plugin` manifest alignment), Gate-5 failure routing (diagnosis + incident write-up when post-publish verification fails), trunk-state attestation post-publish, release-order coordination across parallel framework sessions, override-justification routing for the trunk-discipline override token (honor-but-surface; the mechanical layer still enforces the token shape), and hold-time `KNOWN_ORPHANS` annotation per the v0.36.0 deliberate-hold posture — the annotation is prepared atomically with a deliberate hold, gated on the carry-forward integrity check; each append remains user-approved per entry; Org Designer retains the map-governance policy; EA surfaces the parity signal but never mutates the map.
