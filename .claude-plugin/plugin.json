@@ -1,6 +1,6 @@
 {
   "name": "tapagents",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "description": "TapAgents — an opinionated AI product team for Claude Code. 18 curated agents (Strategist, Architect, Designer, Marketing Designer, Product Marketing Manager, Critic, Quality Engineer, Ops/Security, Biz/Finance, Biz/Legal, GTM Launch Strategist, plus operations roles), 20 slash commands, 32 protocols, 16 instrumented enforcement + telemetry hooks, and stack-aware templates that scaffold a startup's worth of product roles into any repo.",
   "author": {
     "name": "Tap Desai",

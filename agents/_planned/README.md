@@ -17,7 +17,7 @@ Real friction beats imagined need. Building 12 agents on day one means:
 
 Better: ship 7 sharp agents, watch where the seams show, build specialists when evidence demands it.
 
-## Current Stubs (11)
+## Current Stubs (10)
 
 ### Post-shipping roles
 | Stub | Activation trigger |
@@ -25,11 +25,6 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 | `gtm-launch-strategist.md` | Project reaches `shipped` AND has identifiable buyer surface — paid tier exists, OR B2B angle is concrete, OR multi-user surface ships, OR user explicitly requests launch coordination. Renamed + narrowed from prior `gtm-strategist.md` on 2026-05-11 (positioning + content production moved to active `product-marketing-manager`; pricing, channels, campaign coordination, conversational/outbound assets, demo scripts stay here). |
 | `growth-analyst.md` | First project has measurable users (shipped → measured) |
 | `feedback-synthesizer.md` | First project receives user feedback (reviews, support tickets, usage signals) |
-
-### Framework operations
-| Stub | Activation trigger |
-|---|---|
-| `release-coordinator.md` | Activates v0.25.0+ per `workspace/_global/release-coordinator-proposal-2026-05-19.md` (Option Y staged, post-v0.24.0). Owns `/release` execution arc, parallel-session coordination at the release boundary, trunk-state attestation post-publish, KNOWN_ORPHANS map appends, and Gate 5 failure response. Operates within the mechanical floor that v0.24.0 codified (Layer A in `publish.yml`, Layer B in `commands/release.md`, invariant 4 in `hooks/version-gate.py`, fifth channel in `version-parity-audit.ts`). Activates when v0.24.0 has shipped clean AND at least one post-v0.24.0 release has happened under the new Layer B flow without operator-side ambiguity AND Critic clears the stub's full contract AND user approves. Per Critic W5 (2026-05-19), user re-validation gates the timing. |
 
 ### Depth-on-demand specialists
 | Stub | Activation trigger |
@@ -46,12 +41,15 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 
 These roles were activated and moved to the live roster. The original stub files are preserved under `_archive/` with the `<role>-promoted-YYYY-MM-DD.md` naming convention; see `agents/_archive/README.md`. Activation narrative is in `memory/agent-changelog.md`.
 
-| Activated agent | Activated on | Archived stub |
+**Exception (Shape A′):** a stub promoted via the additive Shape A′ path is retained IN PLACE at its `_planned/` path with a PROMOTED marker + `promoted_to` frontmatter pointer (NOT moved to `_archive/`), so the activation release stays MINOR-clean in `agents/` (no `D`/`R` under a versioned dir). `release-coordinator` (2026-07-01) is the first such promotion — find its retained stub at `_planned/release-coordinator.md`, not under `_archive/`.
+
+| Activated agent | Activated on | Archived / retained stub |
 |---|---|---|
 | `designer` | 2026-05-?? | (live `agents/designer.md`; original stub absorbed pre-archive convention) |
 | `ops-security` | 2026-05-06 | `_archive/ops-security-promoted-2026-05-06.md` |
 | `quality-engineer` | 2026-05-06 | `_archive/quality-engineer-superseded-2026-05-06.md` (the pre-activation stub was reshaped via merge, not a clean promotion — see `memory/agent-changelog.md`) |
 | `product-marketing-manager` | 2026-05-11 | (activated as a new role rather than a stub promotion; partial supersession of prior `gtm-strategist.md`, renamed to `gtm-launch-strategist.md` on the same date) |
+| `release-coordinator` | 2026-07-01 | retained IN PLACE at `_planned/release-coordinator.md` (PROMOTED marker; Shape A′ — additive `agents/` diff, not moved to `_archive/`) |
 
 ## Activation Process
 
@@ -70,7 +68,7 @@ These roles were activated and moved to the live roster. The original stub files
 
 When Org Designer identifies *another* future need (beyond these 5), it writes a new stub here following the same format. Stubs themselves don't require user approval — only activations do.
 
-## Why These 11 Specifically
+## Why These 10 Specifically
 
 **Post-shipping (3):** GTM Launch Strategist, Growth, Feedback — can't usefully exist before something ships. `gtm-launch-strategist` renamed and narrowed from prior `gtm-strategist` on 2026-05-11: positioning + content production (release notes, feature briefs, user-facing docs) moved to active `product-marketing-manager`; pricing, channel mix, campaign timing, conversational/outbound assets, demo scripts stay in this stub.
 
@@ -84,9 +82,7 @@ When Org Designer identifies *another* future need (beyond these 5), it writes a
 
 **Knowledge Curator (1):** Sibling-to-Backlog-Curator (curator-lite). Owns user-narrative-grade project context — the file the cold-resume reader (or product UI surface) reads when answering *"why does this project exist and what's been decided that can't be re-litigated?"* The split is two-axis: Backlog Curator owns mechanical work-item state; Knowledge Curator owns narrative-grade synthesis. Activate when the first project hits the phase-transition + Decision-Packet inflection (imminent for <project> OR user invokes `/knowledge-curate` OR a second Tier 2 project lands. See `knowledge-curator.md` for full charter, triggers, sink schema, and read/write boundaries.
 
-**Release Coordinator (1):** Framework operations role. Owns the `/release` execution arc and the judgment-layer decisions that surround the v0.24.0 mechanical floor (Layer A in `publish.yml`, Layer B in `commands/release.md`, invariant 4 in `hooks/version-gate.py`, fifth channel in `version-parity-audit.ts`). Lives at the seam where parallel framework sessions, override-token justification, Gate 5 failure-mode routing, and KNOWN_ORPHANS map governance need single-owner adjudication. Stubbed-not-active in v0.24.0 per architect sequencing rationale — the mechanical floor doesn't need the agent; the agent does need the floor. Activation in v0.25.0+ pending user re-validation per Critic W5 (2026-05-19).
-
-**Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` — see "Activated agents" table above and `_archive/`.
+**Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` (see `_archive/`), and `release-coordinator` (2026-07-01 — framework-operations role owning the `/release` execution arc + the judgment-layer decisions around the mechanical floor: parallel-session adjudication, override-token justification, Gate 5 failure routing, and `KNOWN_ORPHANS` map governance; promoted via Shape A′ and retained in place at `_planned/release-coordinator.md`, live at `agents/release-coordinator.md`) — see "Activated agents" table above.
 
 **Not in stubs (intentionally):**
 - DevOps, deployment, per-project unit-test authoring — belong to Tier 2 (per-project), not HQ
