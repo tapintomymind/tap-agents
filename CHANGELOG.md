@@ -4,6 +4,22 @@ All notable structural changes to the Claude Team are recorded here. Project-spe
 
 Format: see [Common Changelog](https://common-changelog.org/).
 
+## [0.38.1] — 2026-07-14 — CHANGELOG-prose consistency: [0.38.0] regression-test distribution scope corrected
+
+**Patch release. Documentation-consistency fix — no config change, no behavior change.** The v0.38.0 `[0.38.0]` `### Added` block for the `scripts/test-version-floor.py` regression matrix described its distribution scope inaccurately: it claimed the test was "Included in the published tarball via `scripts/sync-src/manifest.json5`". That conflated two distinct distribution mechanisms. The **sync manifest** (`scripts/sync-src/manifest.json5`) governs HQ→mirror propagation — it correctly ships the test to the framework GitHub repository, where it runs in CI (8/8 green). The **npm tarball**, by contrast, is governed by `package.json#files`, which deliberately EXCLUDES `scripts/` (operator-side tooling, per the v0.35.0 `bump-manifest-versions.ts` precedent). So the regression test is NOT in the published npm tarball, and the adopter-facing carve-out artifact remains `hooks/version-gate.py`. The functional artifact scope shipped in v0.38.0 was always correct; only the prose overstated the test's npm-tarball presence. Because npm tarballs are immutable, the v0.38.0 published `CHANGELOG.md` cannot be edited in place; this PATCH reconciles the narrative going forward so the latest published `CHANGELOG.md` documents the distribution scope it actually has.
+
+**Downstream impact: none.** The only change is `CHANGELOG.md` (the `[0.38.0]` `### Added` prose corrected + this `[0.38.1]` entry added). No agent, command, protocol, template, hook, or config behavior changes. Adopters at v0.38.0 already have the same functional artifacts; this release changes nothing they execute.
+
+**Billing: Pool A.** Documentation only; no `claude` invocation, no Anthropic SDK, no `api.anthropic.com`.
+
+### Fixed
+
+- **`CHANGELOG.md` — `[0.38.0]` `### Added` `scripts/test-version-floor.py` bullet** — the closing clause claimed the test was "Included in the published tarball via `scripts/sync-src/manifest.json5`". Corrected: the sync manifest governs HQ→mirror propagation (the test ships to the framework repository and runs in CI, 8/8 green), while the npm tarball is governed by `package.json#files`, which deliberately excludes `scripts/` (operator-side tooling); the adopter-facing carve-out artifact remains `hooks/version-gate.py`. The regression test and its CI coverage are unchanged — only the narrative is corrected.
+
+### Provenance
+
+- Fix authored 2026-07-14 after post-publish review of the `[0.38.0]` entry surfaced that its `### Added` block conflated the sync manifest (HQ→mirror propagation) with `package.json#files` (npm-tarball membership). The functional artifact scope was always correct — the test ships to the framework repository and runs in CI; only the prose overstated its npm-tarball presence. Per `protocols/versioning-protocol.md` Gate-5 / npm-immutability doctrine, the correction ships as the next version rather than a re-publish of v0.38.0. Same class as the v0.31.1 precedent.
+
 ## [0.38.0] — 2026-07-14 — SemVer active-agent-surface carve-out + release-coordinator stub archive-move (retires the Shape A′ deviation)
 
 **Minor release — a versioning-contract change: the SemVer severity floor is re-keyed to the consumer-visible active-agent surface, and the `release-coordinator` stub is retro-moved from `_planned/` to `_archive/` under the standard rename-on-move doctrine. No live agent removed, renamed, or narrowed; adopters at v0.37.1 receive a strictly more permissive floor.** This is a deliberate minor over the mechanical patch-floor (every change here is a modification to active-surface files plus a sub-namespace move that the new carve-out exempts, so the computed floor is patch), taken because it changes how future releases are CLASSIFIED — a consumer-relevant contract change, not a pure documentation edit. The underlying work landed 2026-07-01; this entry closes the CHANGELOG gap.
@@ -23,7 +39,7 @@ Format: see [Common Changelog](https://common-changelog.org/).
 
 ### Added
 
-- **`scripts/test-version-floor.py`** + the **`test:version-floor`** `package.json` script — a committed 8-case regression matrix that pins the re-keyed floor semantics against the REAL `_staged_diff_files` / `_classify_severity_floor` from `hooks/version-gate.py`. Each case builds an isolated temp git repo, stages exactly one change-shape, and asserts the computed floor: retiring/demoting a **live** top-level agent stays MAJOR (OLD-path keying), a move confined to the `_planned`/`_archive` sub-namespaces is additive-class (does not floor at MAJOR), and active-surface edits floor per the existing rules. Stdlib-only (`unittest` + `tempfile` + real `git init`), zero new devDeps; the previously smoke-only carve-out now carries committed coverage. Included in the published tarball via `scripts/sync-src/manifest.json5` and green (8/8) against the shipped copy.
+- **`scripts/test-version-floor.py`** + the **`test:version-floor`** `package.json` script — a committed 8-case regression matrix that pins the re-keyed floor semantics against the REAL `_staged_diff_files` / `_classify_severity_floor` from `hooks/version-gate.py`. Each case builds an isolated temp git repo, stages exactly one change-shape, and asserts the computed floor: retiring/demoting a **live** top-level agent stays MAJOR (OLD-path keying), a move confined to the `_planned`/`_archive` sub-namespaces is additive-class (does not floor at MAJOR), and active-surface edits floor per the existing rules. Stdlib-only (`unittest` + `tempfile` + real `git init`), zero new devDeps; the previously smoke-only carve-out now carries committed coverage. Ships to the framework repository and runs in CI via the sync manifest (`scripts/sync-src/manifest.json5`, 8/8 green); the npm tarball deliberately excludes `scripts/` (operator-side tooling, per the v0.35.0 `bump-manifest-versions.ts` precedent), and the adopter-facing carve-out artifact remains `hooks/version-gate.py`.
 
 **Supersedes the v0.37.0 Shape A′ posture** (see the forward-pointers added to the [0.37.0] entry below): the retain-in-place PROMOTED-marker described there was the one-time deviation this release unwinds.
 
