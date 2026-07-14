@@ -1,6 +1,6 @@
 {
   "name": "@tapintomymind/tap-agents",
-  "version": "0.37.1",
+  "version": "0.38.0",
   "description": "TapAgents — an opinionated AI product team for Claude Code. Curated agents, commands, protocols, and templates that scaffold a startup's worth of product roles (Strategist, Architect, Designer, Critic, Quality Engineer, Ops/Security) into any repo. Distributed via Claude Code marketplace and npm.",
   "type": "module",
   "main": "./dist/index.mjs",
@@ -51,6 +51,7 @@
     "verify-sync": "tsx scripts/sync-src/verify-sync.ts",
     "verify-genericize": "tsx scripts/sync-src/verify-genericize.ts",
     "test:changelog-format": "tsx scripts/test-changelog-format.ts",
+    "test:version-floor": "python3 scripts/test-version-floor.py",
     "test:cli": "node --test scripts/test-tapagents-cli.mjs",
     "audit:version-parity": "tsx scripts/version-parity-audit.ts",
     "prepublishOnly": "npm run build && npm run verify"

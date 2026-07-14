@@ -8,11 +8,22 @@ Gate 2 of the five-gate enforcement chain. Four invariants:
                    entry whose heading matches the new version, in the same staged diff.
   2. Sequence    — the new version must be a legal SemVer successor to the last tag.
                    No skipping (0.7 -> 0.9), no going backwards (0.8 -> 0.7).
-  3. Severity floor — if the staged diff removes/renames any file in agents/, commands/,
-                      protocols/, or templates/, the bump must be MAJOR.
-                      If it only adds files in those directories (no removals/renames),
-                      MINOR is the floor.
+  3. Severity floor — computed over the CONSUMER-VISIBLE ACTIVE SURFACE of the
+                      versioned dirs. If the staged diff removes/renames a file on
+                      that surface (top-level agents/*.md, or any file under commands/,
+                      protocols/, templates/, hooks/, scripts/), the bump must be MAJOR.
+                      Removals/renames CONFINED to the non-active agent sub-namespaces
+                      agents/_planned/** and agents/_archive/** (not-yet-dispatchable
+                      stubs + HQ-internal archive; not registry-loaded and not part of
+                      the consumer-visible active-agent contract surface — with
+                      _archive/** additionally excluded from the published tarball)
+                      do NOT floor MAJOR. A rename is keyed on the OLD
+                      path, so retiring a live agent (agents/x.md -> agents/_archive/...)
+                      stays MAJOR while promoting a stub (agents/_planned/x.md ->
+                      agents/_archive/...) is exempt. If the diff only adds active-surface
+                      files (no active-surface removals/renames), MINOR is the floor.
                       The hook enforces the floor only; over-classification is always allowed.
+                      See protocols/versioning-protocol.md §4.2 invariant 3.
   4. Branch-discipline (tag-time) — fires inside _check_tag(). When the operator runs
                       `git tag v<X>.<Y>.<Z>`, the current branch MUST be `main` (the trunk
                       that publish.yml's Layer A ancestry check pulls from), OR the HEAD
@@ -250,14 +261,22 @@ def _is_legal_successor(prev: str, new: str) -> tuple[bool, str]:
     )
 
 
-def _staged_diff_files() -> list[tuple[str, str]]:
-    """Return list of (status, path) for staged files. Status is one of A/M/D/R<num>/C<num>/T."""
+def _staged_diff_files() -> list[tuple[str, str, str]]:
+    """Return list of (status, old_path, new_path) for staged files.
+
+    Status is one of A/M/D/R<num>/C<num>/T. For non-renames old_path == new_path.
+    For a rename/copy old_path is the pre-change path and new_path is the
+    post-change path — BOTH are retained because the severity floor keys
+    removals on the OLD path and additions on the NEW path (a rename OFF the
+    active surface must stay MAJOR; a rename WITHIN the non-active sub-namespaces
+    must not floor). See _classify_severity_floor.
+    """
     raw = _run_git("diff", "--cached", "--name-status", "-z")
     if not raw:
         return []
     # -z output is NUL-separated. Renames produce: R100\0old\0new\0. Others: A\0path\0.
     parts = raw.split("\x00")
-    files: list[tuple[str, str]] = []
+    files: list[tuple[str, str, str]] = []
     i = 0
     while i < len(parts):
         entry = parts[i].strip()
@@ -266,19 +285,20 @@ def _staged_diff_files() -> list[tuple[str, str]]:
             continue
         status = entry.split("\t")[0] if "\t" in entry else entry
         if status.startswith(("R", "C")):
-            # Rename/copy: next two parts are old, new
+            # Rename/copy: next two parts are old, new — retain both.
             if i + 2 < len(parts):
-                files.append((status, parts[i + 2]))
+                files.append((status, parts[i + 1], parts[i + 2]))
                 i += 3
                 continue
-        # Plain status: status\tpath OR status on its own line then path on next
+        # Plain status: status\tpath OR status on its own line then path on next.
+        # Non-renames have a single path; old_path == new_path.
         if "\t" in entry:
             st, path = entry.split("\t", 1)
-            files.append((st, path))
+            files.append((st, path, path))
             i += 1
         else:
             if i + 1 < len(parts):
-                files.append((status, parts[i + 1]))
+                files.append((status, parts[i + 1], parts[i + 1]))
                 i += 2
             else:
                 i += 1
@@ -287,17 +307,54 @@ def _staged_diff_files() -> list[tuple[str, str]]:
 
 VERSIONED_DIRS = ("agents/", "commands/", "protocols/", "templates/", "hooks/", "scripts/")
 
+# Non-active agent sub-namespaces. Changes confined to these do NOT floor the
+# release. `agents/_planned/**` holds not-yet-dispatchable stubs (the Claude Code
+# registry loads only the top-level `agents/*.md` glob); `agents/_archive/**` is
+# HQ-internal history excluded from the published tarball per
+# `scripts/sync-src/manifest.json5`. Neither is part of the consumer-visible
+# active-agent surface the severity floor exists to protect. See
+# protocols/versioning-protocol.md §4.2 invariant 3 + the 2026-07-01
+# _planned->_archive stub-promotion carve-out.
+_AGENT_SUBNAMESPACE_PREFIXES = ("agents/_planned/", "agents/_archive/")
 
-def _classify_severity_floor(files: list[tuple[str, str]]) -> str:
-    """Return the severity floor based on staged diff: 'patch' | 'minor' | 'major'."""
+
+def _is_active_surface(path: str) -> bool:
+    """True iff `path` is on the consumer-visible active surface of the versioned
+    directories — the surface the MAJOR severity floor protects.
+
+    For `agents/`, the active surface is the top-level dispatchable contracts
+    (`agents/*.md`); the `_planned/` and `_archive/` sub-namespaces are NOT active.
+    Every other versioned dir (`commands/`, `protocols/`, `templates/`, `hooks/`,
+    `scripts/`) is active-surface in full.
+    """
+    if path.startswith("agents/"):
+        return not path.startswith(_AGENT_SUBNAMESPACE_PREFIXES)
+    return any(path.startswith(d) for d in VERSIONED_DIRS)
+
+
+def _classify_severity_floor(files: list[tuple[str, str, str]]) -> str:
+    """Return the severity floor based on staged diff: 'patch' | 'minor' | 'major'.
+
+    Computed over the CONSUMER-VISIBLE ACTIVE SURFACE (see _is_active_surface).
+    Removals/renames are keyed on the OLD path: a rename OFF the active surface
+    (e.g. agents/x.md -> agents/_archive/x-retired.md, or a live-agent demotion
+    agents/x.md -> agents/_planned/x.md) stays MAJOR because the OLD path was live;
+    a rename confined to the non-active sub-namespaces
+    (agents/_planned/x.md -> agents/_archive/x-promoted.md) does not floor.
+    Additions are keyed on the NEW path: a new top-level agent, or the additive
+    side of a rename/copy landing on the active surface, sets the MINOR floor.
+    """
     has_removal_or_rename = False
     has_addition = False
-    for status, path in files:
-        if not any(path.startswith(d) for d in VERSIONED_DIRS):
-            continue
-        if status.startswith(("D", "R")):
+    for status, old_path, new_path in files:
+        # Removal/rename counts only when the OLD (pre-change) path was on the
+        # active surface. A rename whose old path is under _planned/_archive is
+        # not a consumer-visible removal.
+        if status.startswith(("D", "R")) and _is_active_surface(old_path):
             has_removal_or_rename = True
-        elif status.startswith("A"):
+        # Addition: a newly-appearing active-surface file (plain add, or the
+        # additive side of a rename/copy landing on the active surface).
+        if status.startswith(("A", "R", "C")) and _is_active_surface(new_path):
             has_addition = True
     if has_removal_or_rename:
         return "major"
@@ -378,13 +435,13 @@ def _block(message: str) -> None:
 def _check_commit() -> None:
     """The full-discipline check that fires on `git commit`."""
     files = _staged_diff_files()
-    pkg_changed = any(path == "package.json" for _, path in files)
+    pkg_changed = any(new_path == "package.json" for _, _old_path, new_path in files)
     if not pkg_changed:
         # Not a release commit. Hook is silent.
         sys.exit(0)
 
     # Invariant 1: atomicity — CHANGELOG must also be in the staged diff
-    cl_changed = any(path == "CHANGELOG.md" for _, path in files)
+    cl_changed = any(new_path == "CHANGELOG.md" for _, _old_path, new_path in files)
     if not cl_changed:
         _block(
             "package.json changed but CHANGELOG.md is not staged. "

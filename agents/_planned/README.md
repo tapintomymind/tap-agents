@@ -17,7 +17,7 @@ Real friction beats imagined need. Building 12 agents on day one means:
 
 Better: ship 7 sharp agents, watch where the seams show, build specialists when evidence demands it.
 
-## Current Stubs (10)
+## Current Stubs (9)
 
 ### Post-shipping roles
 | Stub | Activation trigger |
@@ -30,7 +30,6 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 | Stub | Activation trigger |
 |---|---|
 | `customer-researcher.md` | Strategist's research consistently flagged as too shallow OR ICP definition repeatedly contested across projects |
-| `industry-researcher.md` | Strategist's competitive scans consistently flagged as too shallow OR competitive context becomes load-bearing |
 | `biz-finance.md` | First non-trivial pricing model OR unit economics becomes load-bearing |
 | `biz-legal.md` | First regulated-domain project, content licensing, or multi-jurisdiction deployment |
 | `technical-writer.md` | First of — (a) PMM's documentation output flagged by Critic as too marketing-voiced for technical readers in 2+ projects; (b) project exposes public API, SDK, or developer-facing integration surface; (c) Tier 2 reportback flags downstream consumers (developers, integrators, partners) need reference-grade docs; (d) explicit user request. Sibling to active `product-marketing-manager` — PMM owns marketing-voiced user-facing content; TW owns reference-voiced developer content. |
@@ -41,7 +40,7 @@ Better: ship 7 sharp agents, watch where the seams show, build specialists when 
 
 These roles were activated and moved to the live roster. The original stub files are preserved under `_archive/` with the `<role>-promoted-YYYY-MM-DD.md` naming convention; see `agents/_archive/README.md`. Activation narrative is in `memory/agent-changelog.md`.
 
-**Exception (Shape A′):** a stub promoted via the additive Shape A′ path is retained IN PLACE at its `_planned/` path with a PROMOTED marker + `promoted_to` frontmatter pointer (NOT moved to `_archive/`), so the activation release stays MINOR-clean in `agents/` (no `D`/`R` under a versioned dir). `release-coordinator` (2026-07-01) is the first such promotion — find its retained stub at `_planned/release-coordinator.md`, not under `_archive/`.
+**Exception (Shape A′) — resolved 2026-07-01.** `release-coordinator` (activated 2026-07-01) was the first and only stub promoted via the additive **Shape A′** path: the stub was initially retained IN PLACE at its `_planned/` path with a PROMOTED marker + `promoted_to` pointer (NOT moved to `_archive/`), because the pre-carve-out severity floor treated any `D`/`R` under `agents/` — including a `_planned → _archive` move — as MAJOR and would have forced a spurious `0.x → 1.0.0` bump. The `_planned → _archive` SemVer carve-out (`protocols/versioning-protocol.md §4.2` invariant 3) re-keyed the floor to the consumer-visible active-agent surface so a sub-namespace move on its own is non-breaking (PATCH-floored) rather than MAJOR — letting the promotion release settle cleanly at MINOR. The retro-move then landed: the release-coordinator stub is now archived at `_archive/release-coordinator-promoted-2026-07-01.md` per the standard `rename-on-move` doctrine, retiring the Shape A′ deviation. Future promotions use `rename-on-move` directly — no in-place-marker exception needed.
 
 | Activated agent | Activated on | Archived / retained stub |
 |---|---|---|
@@ -49,7 +48,7 @@ These roles were activated and moved to the live roster. The original stub files
 | `ops-security` | 2026-05-06 | `_archive/ops-security-promoted-2026-05-06.md` |
 | `quality-engineer` | 2026-05-06 | `_archive/quality-engineer-superseded-2026-05-06.md` (the pre-activation stub was reshaped via merge, not a clean promotion — see `memory/agent-changelog.md`) |
 | `product-marketing-manager` | 2026-05-11 | (activated as a new role rather than a stub promotion; partial supersession of prior `gtm-strategist.md`, renamed to `gtm-launch-strategist.md` on the same date) |
-| `release-coordinator` | 2026-07-01 | retained IN PLACE at `_planned/release-coordinator.md` (PROMOTED marker; Shape A′ — additive `agents/` diff, not moved to `_archive/`) |
+| `release-coordinator` | 2026-07-01 | `_archive/release-coordinator-promoted-2026-07-01.md` (initially Shape A′ retain-in-place; retro-moved to `_archive/` on 2026-07-01 once the SemVer carve-out made the move MINOR-clean) |
 
 ## Activation Process
 
@@ -68,11 +67,11 @@ These roles were activated and moved to the live roster. The original stub files
 
 When Org Designer identifies *another* future need (beyond these 5), it writes a new stub here following the same format. Stubs themselves don't require user approval — only activations do.
 
-## Why These 10 Specifically
+## Why These 9 Specifically
 
 **Post-shipping (3):** GTM Launch Strategist, Growth, Feedback — can't usefully exist before something ships. `gtm-launch-strategist` renamed and narrowed from prior `gtm-strategist` on 2026-05-11: positioning + content production (release notes, feature briefs, user-facing docs) moved to active `product-marketing-manager`; pricing, channel mix, campaign timing, conversational/outbound assets, demo scripts stay in this stub.
 
-**Research depth (2):** Customer / Industry Researchers — Strategist handles first-line; split off when depth is needed.
+**Research depth (1):** Customer Researcher — Strategist handles first-line; split off when depth is needed.
 
 **Business/Finance + Legal (2):** Strategist handles light versions; activate when monetization or compliance gets complex.
 
@@ -82,7 +81,7 @@ When Org Designer identifies *another* future need (beyond these 5), it writes a
 
 **Knowledge Curator (1):** Sibling-to-Backlog-Curator (curator-lite). Owns user-narrative-grade project context — the file the cold-resume reader (or product UI surface) reads when answering *"why does this project exist and what's been decided that can't be re-litigated?"* The split is two-axis: Backlog Curator owns mechanical work-item state; Knowledge Curator owns narrative-grade synthesis. Activate when the first project hits the phase-transition + Decision-Packet inflection (imminent for <project> OR user invokes `/knowledge-curate` OR a second Tier 2 project lands. See `knowledge-curator.md` for full charter, triggers, sink schema, and read/write boundaries.
 
-**Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` (see `_archive/`), and `release-coordinator` (2026-07-01 — framework-operations role owning the `/release` execution arc + the judgment-layer decisions around the mechanical floor: parallel-session adjudication, override-token justification, Gate 5 failure routing, and `KNOWN_ORPHANS` map governance; promoted via Shape A′ and retained in place at `_planned/release-coordinator.md`, live at `agents/release-coordinator.md`) — see "Activated agents" table above.
+**Previously listed, now activated:** `designer`, `ops-security`, `quality-engineer` (see `_archive/`), and `release-coordinator` (2026-07-01 — framework-operations role owning the `/release` execution arc + the judgment-layer decisions around the mechanical floor: parallel-session adjudication, override-token justification, Gate 5 failure routing, and `KNOWN_ORPHANS` map governance; promoted 2026-07-01, initially via Shape A′ then retro-archived to `_archive/release-coordinator-promoted-2026-07-01.md` once the SemVer carve-out made the move MINOR-clean, live at `agents/release-coordinator.md`) — see "Activated agents" table above.
 
 **Not in stubs (intentionally):**
 - DevOps, deployment, per-project unit-test authoring — belong to Tier 2 (per-project), not HQ
