@@ -54,6 +54,11 @@
     // cwd=tap-agents/, so the script MUST exist in the mirror tree.
     "scripts/bump-manifest-versions.ts",
     "scripts/bump-manifest-versions.test.ts",
+    // Version-floor regression test (the SemVer active-agent-surface carve-out).
+    // Top-level `scripts/*.py` — same precedent as the bump-script pair above:
+    // not under build-src/ or sync-src/, so it needs an explicit include entry
+    // to ship to the public mirror where CI runs the test gate.
+    "scripts/test-version-floor.py",
     "workspace/.gitkeep",
     "workspace/_examples/**/*",
     "workspace/_global/.gitkeep",

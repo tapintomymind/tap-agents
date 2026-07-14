@@ -47,7 +47,7 @@ Execute the `/release` arc (Steps 1–9f under the Layer B flow) with strict Sem
 
 ## Activation Context
 
-**Activated:** 2026-07-01 (LIVE contract, promoted from the `_planned/` stub via the Shape A′ promotion — the live contract is created here while the stub is retained in place as a clearly-marked historical record; no `_archive/` move, so the promotion is additive in `agents/` and the release stays MINOR).
+**Activated:** 2026-07-01 (LIVE contract, promoted from the `_planned/` stub. Initially via the **Shape A′** retain-in-place path — the live contract was created here while the stub stayed at `_planned/` with a PROMOTED marker — because the pre-carve-out severity floor would have forced a spurious `0.x → 1.0.0` MAJOR on the archive-move. Once the `_planned → _archive` SemVer carve-out (`protocols/versioning-protocol.md §4.2` invariant 3) re-keyed the floor to the consumer-visible active-agent surface and made a sub-namespace move MINOR-clean, the stub was retro-archived to `_archive/release-coordinator-promoted-2026-07-01.md` per the standard `rename-on-move` doctrine; the promotion stays additive in `agents/` and the release MINOR).
 
 **Provenance:** the full activation narrative + decision trail (the four-criteria scorecard, the five open-question resolutions, and the Shape A′ promotion rationale) lives in `memory/agent-changelog.md` (the activation-release entry). This contract does not embed the dated proposal / tech-strategy filenames — they are one-off identifiers outside the sync genericizer's known set, and this file ships in the npm tarball, so it is authored clean.
 

@@ -11,9 +11,19 @@
  *   3. CHANGELOG.md has a heading matching the new version
  *   4. .claude-plugin/plugin.json version matches package.json version
  *   5. .claude-plugin/marketplace.json plugin versions match package.json version
- *   6. Severity floor: removals/renames in agents|commands|protocols|templates → MAJOR
- *      Additions only in those dirs → MINOR floor
- *      No additions and no removals → PATCH allowed
+ *   6. Severity floor: computed over the CONSUMER-VISIBLE ACTIVE SURFACE of the
+ *      versioned dirs. Removals/renames on that surface (top-level agents/*.md, or
+ *      any file under commands|protocols|templates|hooks|scripts) → MAJOR.
+ *      Removals/renames CONFINED to the non-active agent sub-namespaces
+ *      agents/_planned/** and agents/_archive/** (stubs + HQ-internal archive; not
+ *      registry-loaded and not part of the consumer-visible active-agent contract
+ *      surface — with _archive/** additionally excluded from the published tarball)
+ *      do NOT floor MAJOR. A rename is
+ *      keyed on the OLD path, so retiring a live agent stays MAJOR while promoting a
+ *      stub (agents/_planned/x.md → agents/_archive/...) is exempt.
+ *      Additions of active-surface files → MINOR floor.
+ *      No active-surface additions and no active-surface removals → PATCH allowed.
+ *      See protocols/versioning-protocol.md §4.2 invariant 3.
  *
  * Run via:
  *   tsx scripts/build-src/version-check.ts --base origin/main
@@ -90,9 +100,35 @@ function classifySuccessor(prev: SemverParsed, next: SemverParsed): "patch" | "m
 
 const VERSIONED_DIRS = ["agents/", "commands/", "protocols/", "templates/", "hooks/", "scripts/"];
 
+// Non-active agent sub-namespaces. Changes confined to these do NOT floor the
+// release. `agents/_planned/**` holds not-yet-dispatchable stubs (the Claude Code
+// registry loads only the top-level `agents/*.md` glob); `agents/_archive/**` is
+// HQ-internal history excluded from the published tarball per
+// `scripts/sync-src/manifest.json5`. Neither is part of the consumer-visible
+// active-agent surface the severity floor exists to protect. See
+// protocols/versioning-protocol.md §4.2 invariant 3 + the 2026-07-01
+// _planned→_archive stub-promotion carve-out.
+const AGENT_SUBNAMESPACE_PREFIXES = ["agents/_planned/", "agents/_archive/"];
+
+/**
+ * True iff `path` is on the consumer-visible active surface of the versioned
+ * directories — the surface the MAJOR severity floor protects. For `agents/`,
+ * the active surface is the top-level dispatchable contracts (`agents/*.md`);
+ * the `_planned/` and `_archive/` sub-namespaces are NOT active. Every other
+ * versioned dir (`commands/`, `protocols/`, `templates/`, `hooks/`, `scripts/`)
+ * is active-surface in full.
+ */
+function isActiveSurface(path: string): boolean {
+  if (path.startsWith("agents/")) {
+    return !AGENT_SUBNAMESPACE_PREFIXES.some((p) => path.startsWith(p));
+  }
+  return VERSIONED_DIRS.some((d) => path.startsWith(d));
+}
+
 interface DiffEntry {
   status: string; // A|M|D|R<num>|C<num>|T
-  path: string;
+  oldPath: string; // pre-change path (== newPath for non-renames)
+  newPath: string; // post-change path
 }
 
 function getDiffEntries(base: string): DiffEntry[] {
@@ -104,12 +140,15 @@ function getDiffEntries(base: string): DiffEntry[] {
     const parts = line.split("\t");
     const status = parts[0] ?? "";
     if (status.startsWith("R") || status.startsWith("C")) {
-      // R100\told\tnew — the "new" path is what matters for our floor calc
+      // R100\told\tnew — retain BOTH paths: the floor keys removals on the OLD
+      // path and additions on the NEW path (a rename OFF the active surface must
+      // stay MAJOR; a rename WITHIN the non-active sub-namespaces must not floor).
+      const oldPath = parts[1] ?? "";
       const newPath = parts[2] ?? "";
-      entries.push({ status, path: newPath });
+      entries.push({ status, oldPath, newPath });
     } else {
       const path = parts[1] ?? "";
-      entries.push({ status, path });
+      entries.push({ status, oldPath: path, newPath: path });
     }
   }
   return entries;
@@ -118,11 +157,19 @@ function getDiffEntries(base: string): DiffEntry[] {
 function classifySeverityFloor(entries: DiffEntry[]): "patch" | "minor" | "major" {
   let hasRemovalOrRename = false;
   let hasAddition = false;
-  for (const { status, path } of entries) {
-    if (!VERSIONED_DIRS.some((d) => path.startsWith(d))) continue;
-    if (status.startsWith("D") || status.startsWith("R")) {
+  for (const { status, oldPath, newPath } of entries) {
+    // Removal/rename counts only when the OLD (pre-change) path was on the
+    // active surface. A rename whose old path is under _planned/_archive is
+    // not a consumer-visible removal.
+    if ((status.startsWith("D") || status.startsWith("R")) && isActiveSurface(oldPath)) {
       hasRemovalOrRename = true;
-    } else if (status.startsWith("A")) {
+    }
+    // Addition: a newly-appearing active-surface file (plain add, or the
+    // additive side of a rename/copy landing on the active surface).
+    if (
+      (status.startsWith("A") || status.startsWith("R") || status.startsWith("C")) &&
+      isActiveSurface(newPath)
+    ) {
       hasAddition = true;
     }
   }

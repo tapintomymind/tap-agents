@@ -30,6 +30,8 @@ Examples:
 
 **Why rename-on-move, not in-place tombstone:** the source-of-truth filename should reflect the file's current status. A reader who finds `_planned/ops-security.md` and reads "PROMOTED 2026-05-06" header has to do extra work to find the live file; a reader who finds `_archive/ops-security-promoted-2026-05-06.md` knows immediately that this is an artifact, that promotion happened on that date, and that the live file is at the conventional `agents/<role>.md` path.
 
+**The rename-on-move doctrine is now mechanically supported.** The SemVer severity floor (`protocols/versioning-protocol.md §4.2` invariant 3) is keyed on the **consumer-visible active-agent surface** — top-level `agents/*.md` — not the raw `agents/**` file tree. A move confined to the non-active sub-namespaces (`_planned/ → _archive/` promotion or supersession) therefore does not floor the release at MAJOR — on its own such a move carries a **PATCH** floor (it is non-breaking; the floor is a *floor*, so the author may still classify higher), so a stub can be archive-moved on its promotion release without burning a spurious major bump. Removing or **renaming a live top-level agent** (including demoting one into `_planned/`/`_archive/`) still crosses off the active surface and remains MAJOR-floored. This removes the earlier friction that forced the one-time "retain-in-place PROMOTED marker" deviation; promotions can now use the true `rename-on-move` to `_archive/`.
+
 ## What does NOT land here
 
 - Proposals (live, landed, or rejected) — those live under `_planned/_proposals/` and `_planned/_proposals/_landed/` for stub-related proposals, or `workspace/_global/org-designer-proposals/` for cross-cutting proposals.
